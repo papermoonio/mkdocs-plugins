@@ -1,0 +1,11 @@
+-r requirements.txt
+
+# Linting and formatting tools for development
+black==25.1.0 # Formats code consistently
+flake8==7.3.0 # Checks code style and common errors
+isort==6.0.1 # Sorts imports
+
+# Testing dependencies
+pytest>=7.1.3
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
