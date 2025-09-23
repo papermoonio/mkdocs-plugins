@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "papermoon-mkdocs-plugins"
+version = "0.1.0a1"
+description = "A collection of mkdocs plugins"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name="Papermoon" },
+]
+license = "BSD-2-Clause"
+dependencies = [
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.0",
+  "pymdown-extensions>=10.0",
+  "htmlmin>=0.1.12",
+  "jsmin>=3.0.1",
+  "csscompressor>=0.9.5",
+]
+
+[project.entry-points."mkdocs.plugins"]
+minify = "plugins.minify.plugin:MinifyPlugin"
+
+# Configuration for development tools
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"
+line_length = 88
