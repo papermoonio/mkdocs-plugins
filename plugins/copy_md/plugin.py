@@ -21,14 +21,16 @@ class CopyMDPlugin(BasePlugin):
         try:
             # Resolve the target path relative to site_dir
             target = os.path.join(site_dir, target_rel)
-            target_resolved = os.path.realpath(target)
-            site_dir_resolved = os.path.realpath(site_dir)
+            target_path = Path(target).resolve()
+            site_dir_path = Path(site_dir).resolve()
             
-            # Ensure the target is within the site directory bounds
-            if not target_resolved.startswith(site_dir_resolved + os.sep) and target_resolved != site_dir_resolved:
+            # Ensure the target is within the site directory bounds using pathlib
+            try:
+                target_path.relative_to(site_dir_path)
+            except ValueError:
                 log.error(f"Security violation: target_dir '{target_rel}' resolves to path outside site directory")
-                log.error(f"Resolved target: {target_resolved}")
-                log.error(f"Site directory: {site_dir_resolved}")
+                log.error(f"Resolved target: {target_path}")
+                log.error(f"Site directory: {site_dir_path}")
                 return
                 
         except (OSError, ValueError) as e:
