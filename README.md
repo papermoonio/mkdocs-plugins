@@ -4,6 +4,7 @@ A collection of custom [MkDocs](https://www.mkdocs.org/) plugins designed to ext
 
 Currently included:
 
+- **[Copy Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/copy-md.md)**: Serve raw Markdown files by copying them directly to your site's build folder.
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 
 ## Installation
@@ -20,6 +21,9 @@ Enable one or more plugins in your `mkdocs.yml`:
 
 ```yaml
 plugins:
+  - copy_md:
+      source_dir: docs/.example
+      target_dir: example
   - minify:
       minify_html: true
       minify_css: true
