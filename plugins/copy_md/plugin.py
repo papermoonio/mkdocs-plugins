@@ -17,6 +17,19 @@ class CopyMDPlugin(BasePlugin):
         target_rel = self.config["target_dir"]
         site_dir = config["site_dir"]
         
+        # Validate and resolve the source path
+        try:
+            source_path = Path(source).resolve()
+            if not source_path.exists():
+                log.warning(f"Source directory '{source}' not found; skipping copy-md operation.")
+                return
+            if not source_path.is_dir():
+                log.error(f"Source path '{source}' is not a directory; skipping copy-md operation.")
+                return
+        except (OSError, ValueError) as e:
+            log.error(f"Invalid source_dir '{source}': {e}")
+            return
+        
         # Validate and resolve the target path to prevent path traversal attacks
         try:
             # Resolve the target path relative to site_dir
@@ -37,17 +50,13 @@ class CopyMDPlugin(BasePlugin):
             log.error(f"Invalid target_dir '{target_rel}': {e}")
             return
 
-        if not os.path.exists(source):
-            log.warning(f"Source directory '{source}' not found; skipping copy-md operation.")
-            return
-
         # Remove existing target if present to avoid stale files
         if os.path.exists(target):
             shutil.rmtree(target)
             log.debug(f"Removed existing target directory: {target}")
 
         try:
-            shutil.copytree(source, target)
-            log.info(f"Successfully copied raw Markdown from '{source}' to '{target}'")
+            shutil.copytree(source_path, target)
+            log.info(f"Successfully copied raw Markdown from '{source_path}' to '{target}'")
         except Exception as e:
-            log.error(f"Failed to copy Markdown files from '{source}' to '{target}': {e}")
+            log.error(f"Failed to copy Markdown files from '{source_path}' to '{target}': {e}")
