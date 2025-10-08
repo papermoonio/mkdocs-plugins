@@ -51,12 +51,12 @@ class CopyMDPlugin(BasePlugin):
             return
 
         # Remove existing target if present to avoid stale files
-        if os.path.exists(target):
-            shutil.rmtree(target)
-            log.debug(f"Removed existing target directory: {target}")
+        if target_path.exists():
+            shutil.rmtree(target_path)
+            log.debug(f"Removed existing target directory: {target_path}")
 
         try:
-            shutil.copytree(source_path, target)
-            log.info(f"Successfully copied raw Markdown from '{source_path}' to '{target}'")
+            shutil.copytree(source_path, target_path)
+            log.info(f"Successfully copied raw Markdown from '{source_path}' to '{target_path}'")
         except Exception as e:
-            log.error(f"Failed to copy Markdown files from '{source_path}' to '{target}': {e}")
+            log.error(f"Failed to copy Markdown files from '{source_path}' to '{target_path}': {e}")
