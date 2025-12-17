@@ -20,7 +20,7 @@ PLACEHOLDER_PATTERN = re.compile(r"{{\s*([A-Za-z0-9_.-]+)\s*}}")
 
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
-    # Define value for `llms_config` project's mkdocs.yml file
+    # Define value for `llms_config` in the project mkdocs.yml file
     config_scheme = (("llms_config", Type(str, required=True)),)
 
     # Process will start after site build is complete
@@ -29,20 +29,54 @@ class ResolveMDPlugin(BasePlugin):
         config_file_path = Path(config["config_file_path"]).resolve()
         project_root = config_file_path.parent
         self.llms_config = self.load_llms_config(project_root)
+
         log.info(f"[resolve_md] loaded llms_config from {project_root}")
+
         # Resolve docs_dir to normalized path
         docs_dir = self.load_mkdocs_docs_dir(project_root)
         if docs_dir is None:
             docs_dir = Path(config["docs_dir"]).resolve()
+
         log.info(f"[resolve_md] resolved docs_dir to {docs_dir}")
-        # Loop through docs_dir MD files, filter per skips as defined in llms_config.json
+
+        # Load shared variables (variables.yml sits inside docs_dir)
+        variables_path = docs_dir / "variables.yml"
+        variables = self.load_yaml(str(variables_path))
+        if not variables:
+            log.warning(f"[resolve_md] no variables loaded from {variables_path}")
+        else:
+            log.info(
+                f"[resolve_md] loaded {len(variables)} top-level variables from {variables_path}"
+            )
+
+        # Loop through docs_dir MD files, filter for exclusions defined in llms_config.json
         content_cfg = self.llms_config.get("content", {})
         exclusions = content_cfg.get("exclusions", {})
         skip_basenames = exclusions.get("skip_basenames", [])
         skip_paths = exclusions.get("skip_paths", [])
-        markdown_files = self.get_all_markdown_files(docs_dir, skip_basenames, skip_paths)
+        markdown_files = self.get_all_markdown_files(
+            docs_dir, skip_basenames, skip_paths
+        )
+
         log.info(f"[resolve_md] found {len(markdown_files)} markdown files")
-        log.info(f"[resolve_md] skip_basenames: {skip_basenames}, skip_paths: {skip_paths}")
+
+        # For each file in markdown_files
+        for md_path in markdown_files:
+            text = Path(md_path).read_text(encoding="utf-8")
+            # Separate, filter, map, and return desired front matter
+            front_matter, body = self.split_front_matter(text)
+            reduced_fm = self.map_front_matter(front_matter)
+            # Resolve variable placeholders against variables.yml definitions
+            resolved_body = self.resolve_markdown_placeholders(body, variables)
+            if resolved_body != body:
+                log.debug(f"[resolve_md] resolved placeholders in {md_path}")
+            # Remove HTML comments after substitutions
+            cleaned_body = self.remove_html_comments(resolved_body)
+            if cleaned_body != resolved_body:
+                log.debug(f"[resolve_md] stripped HTML comments in {md_path}")
+
+            log.debug(f"[resolve_md] {md_path} FM keys: {list(front_matter.keys())}")
+            log.debug(f"[resolve_md] {md_path} mapped FM: {reduced_fm}")
 
 
     # ----- Helper functions -------
@@ -168,3 +202,5 @@ class ResolveMDPlugin(BasePlugin):
     def remove_html_comments(content: str) -> str:
         """Remove <!-- ... --> comments (multiline)."""
         return re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+    
+    
