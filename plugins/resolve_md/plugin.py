@@ -17,28 +17,52 @@ from pathlib import Path
 FM_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([A-Za-z0-9_.-]+)\s*}}")
 
+
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
     # Define value for `llms_config` project's mkdocs.yml file
-    config_scheme = (
-        ("llms_config", Type(str, required=True)),
-    )
+    config_scheme = (("llms_config", Type(str, required=True)),)
+
     # Process will start after site build is complete
     def on_post_build(self, config):
-        """Find path to mkdocs.yml, locate project root, call `load_config()`"""
+        # Locate and load config
         config_file_path = Path(config["config_file_path"]).resolve()
         project_root = config_file_path.parent
-
-        self.llms_config = self.load_config(project_root)
+        self.llms_config = self.load_llms_config(project_root)
+        log.info(f"[resolve_md] loaded llms_config from {project_root}")
+        # Resolve docs_dir to normalized path
         docs_dir = self.load_mkdocs_docs_dir(project_root)
         if docs_dir is None:
             docs_dir = Path(config["docs_dir"]).resolve()
+        log.info(f"[resolve_md] resolved docs_dir to {docs_dir}")
+        # Loop through docs_dir MD files, filter per skips as defined in llms_config.json
+        content_cfg = self.llms_config.get("content", {})
+        exclusions = content_cfg.get("exclusions", {})
+        skip_basenames = exclusions.get("skip_basenames", [])
+        skip_paths = exclusions.get("skip_paths", [])
+        markdown_files = self.get_all_markdown_files(docs_dir, skip_basenames, skip_paths)
+        log.info(f"[resolve_md] found {len(markdown_files)} markdown files")
+        log.info(f"[resolve_md] skip_basenames: {skip_basenames}, skip_paths: {skip_paths}")
+
 
     # ----- Helper functions -------
 
+    # File discovery and filtering per skip names/paths in llms_config.json
+    @staticmethod
+    def get_all_markdown_files(docs_dir, skip_basenames, skip_paths):
+        """Collect *.md|*.mdx, skipping basenames and paths that contain any skip_paths substring."""
+        results = []
+        for root, _, files in os.walk(docs_dir):
+            if any(x in root for x in skip_paths):
+                continue
+            for file in files:
+                if file.endswith((".md", ".mdx")) and file not in skip_basenames:
+                    results.append(os.path.join(root, file))
+        return sorted(results)
+
     # Loaders for: llms_config.json, yaml files, and Mkdocs docs_dir
 
-    def load_config(self, project_root: Path) -> dict:
+    def load_llms_config(self, project_root: Path) -> dict:
         """Load llms_config.json from the repo root."""
         config_json = self.config["llms_config"]
         llms_config_path = (project_root / config_json).resolve()
@@ -47,15 +71,21 @@ class ResolveMDPlugin(BasePlugin):
             raise FileNotFoundError(f"llms_config not found at {llms_config_path}")
 
         with llms_config_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        log.debug(f"[resolve_md] llms_config keys: {list(data.keys())}")
+        return data
 
     @staticmethod
     def load_yaml(yaml_file: str):
         """Load a YAML file; return {} if missing/empty."""
         if not os.path.exists(yaml_file):
             return {}
-        with open(yaml_file, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            log.warning(f"[resolve_md] unable to parse YAML file {yaml_file}: {exc}")
+            return {}
         return data or {}
 
     def load_mkdocs_docs_dir(self, repo_root: Path) -> Path | None:
@@ -67,7 +97,7 @@ class ResolveMDPlugin(BasePlugin):
             if docs_dir:
                 return (repo_root / docs_dir).resolve()
         return None
-    
+
     # Front-matter helpers
 
     @staticmethod
@@ -83,7 +113,7 @@ class ResolveMDPlugin(BasePlugin):
             fm = yaml.safe_load(fm_text) or {}
         except Exception:
             fm = {}
-        body = source_text[m.end():]
+        body = source_text[m.end() :]
         return fm, body
 
     @staticmethod
@@ -105,7 +135,7 @@ class ResolveMDPlugin(BasePlugin):
         if "categories" in fm:
             out["categories"] = fm["categories"]
         return out
-    
+
     # Resolve variable and placeholders
 
     @staticmethod
@@ -124,16 +154,17 @@ class ResolveMDPlugin(BasePlugin):
     @staticmethod
     def resolve_markdown_placeholders(content: str, variables: dict) -> str:
         """Replace {{ dotted.keys }} using variables dict; leave unknowns intact."""
+
         def replacer(match):
             key_path = match.group(1)
             value = ResolveMDPlugin.get_value_from_path(variables, key_path)
             return str(value) if value is not None else match.group(0)
+
         return PLACEHOLDER_PATTERN.sub(replacer, content)
-    
+
     # Remove HTML comments from Markdown
-    
+
     @staticmethod
     def remove_html_comments(content: str) -> str:
         """Remove <!-- ... --> comments (multiline)."""
         return re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
-
