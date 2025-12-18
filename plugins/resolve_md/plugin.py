@@ -14,6 +14,7 @@ These resolved Markdown files are output to an AI artifact directory where they 
 """
 
 # imports
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,11 @@ PLACEHOLDER_PATTERN = re.compile(r"{{\s*([A-Za-z0-9_.-]+)\s*}}")
 SNIPPET_TOKEN_REGEX = re.compile(r"-{1,}8<-{2,}\s*['\"]([^'\"]+)['\"]")
 SNIPPET_LINE_REGEX = re.compile(
     r"(?m)^(?P<indent>[ \t]*)-{1,}8<-{2,}\s*['\"](?P<ref>[^'\"]+)['\"]\s*$"
+)
+HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*#*\s*$")
+SNIPPET_SECTION_REGEX = re.compile(
+    r"""^\s*(?:#|//|;|<!--)\s*--8<--\s*\[(?:start|end):[^\]]+\]\s*(?:-->)*\s*$""",
+    re.IGNORECASE,
 )
 
 # Define plugin class
@@ -176,6 +182,10 @@ class ResolveMDPlugin(BasePlugin):
 
         # Build category bundles based on current AI pages
         self.build_category_bundles(ai_pages, ai_root)
+        # Build site index + llms JSONL artifacts
+        self.build_site_index(ai_pages, ai_root)
+        # Build llms.txt for downstream LLM usage
+        self.build_llms_txt(ai_pages, project_root)
 
         # Mirror resolved pages into site/ so the UI widgets can fetch them.
         site_dir = Path(config["site_dir"]).resolve()
@@ -354,7 +364,7 @@ class ResolveMDPlugin(BasePlugin):
             start_idx = max(line_start - 1, 0) if line_start is not None else 0
             end_idx = line_end if line_end is not None else len(lines)
             snippet_content = "\n".join(lines[start_idx:end_idx])
-        return snippet_content
+        return self.strip_snippet_section_markers(snippet_content)
 
     def fetch_remote_snippet(self, snippet_ref: str) -> str:
         """Retrieve remote snippet via HTTP unless remote fetching is disabled."""
@@ -381,7 +391,8 @@ class ResolveMDPlugin(BasePlugin):
             start_idx = max(line_start - 1, 0) if line_start is not None else 0
             end_idx = line_end if line_end is not None else len(lines)
             snippet_content = "\n".join(lines[start_idx:end_idx])
-        return snippet_content.strip()
+        snippet_content = snippet_content.strip()
+        return self.strip_snippet_section_markers(snippet_content)
 
     def replace_snippet_placeholders(
         self, markdown: str, snippet_directory: Path, variables: dict
@@ -426,6 +437,17 @@ class ResolveMDPlugin(BasePlugin):
         """Remove <!-- ... --> comments (multiline)."""
         return re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
 
+    @staticmethod
+    def strip_snippet_section_markers(content: str) -> str:
+        """Remove snippet section markers (# --8<-- [start:end]) from snippet content."""
+        lines = content.splitlines()
+        cleaned = [
+            ln
+            for ln in lines
+            if not SNIPPET_SECTION_REGEX.match(ln.strip())
+        ]
+        return "\n".join(cleaned)
+
     # Word count & token estimation
 
     @staticmethod
@@ -435,6 +457,108 @@ class ResolveMDPlugin(BasePlugin):
     @staticmethod
     def estimate_tokens(content: str) -> int:
         return len(re.findall(r"\w+|[^\s\w]", content, flags=re.UNICODE))
+
+    @staticmethod
+    def sha256_text(content: str) -> str:
+        return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def extract_outline_and_sections(
+        self, body: str, max_depth: int = 3
+    ) -> tuple[list[dict], list[dict]]:
+        lines = body.splitlines(keepends=True)
+        in_code = False
+        fence = None
+
+        starts = [0]
+        for ln in lines[:-1]:
+            starts.append(starts[-1] + len(ln))
+
+        outline: list[dict] = []
+        sections_meta: list[tuple[int, int, str, str]] = []
+        anchors_seen: dict[str, int] = {}
+
+        for idx, line in enumerate(lines):
+            m_fence = re.match(r"^(\s*)(`{3,}|~{3,})", line)
+            if m_fence:
+                token = m_fence.group(2)
+                if not in_code:
+                    in_code, fence = True, token
+                elif token == fence:
+                    in_code, fence = False, None
+                continue
+
+            if in_code:
+                continue
+
+            m = HEADING_RE.match(line)
+            if not m:
+                continue
+            hashes, text = m.group(1), m.group(2).strip()
+            depth = len(hashes)
+            if depth < 2 or depth > max_depth:
+                continue
+            anchor = self.slugify_anchor(text, anchors_seen)
+            outline.append({"depth": depth, "title": text, "anchor": anchor})
+            sections_meta.append((depth, idx, text, anchor))
+
+        sections: list[dict] = []
+        for idx, (depth, line_idx, title, anchor) in enumerate(sections_meta):
+            start_char = starts[line_idx]
+            next_start = len(body)
+            if idx + 1 < len(sections_meta):
+                next_start = starts[sections_meta[idx + 1][1]]
+            section_text = body[start_char:next_start].strip()
+            sections.append(
+                {
+                    "index": idx,
+                    "depth": depth,
+                    "title": title,
+                    "anchor": anchor,
+                    "start_char": start_char,
+                    "end_char": next_start,
+                    "text": section_text,
+                }
+            )
+
+        return outline, sections
+
+    def extract_preview(self, body: str, max_chars: int = 500) -> str:
+        lines = body.splitlines()
+        in_code = False
+        para: list[str] = []
+
+        def bad_start(s: str) -> bool:
+            s = s.lstrip()
+            return (
+                not s
+                or s.startswith("#")
+                or s.startswith(">")
+                or s.startswith("- ")
+                or s.startswith("* ")
+                or re.match(r"^\d+\.\s", s) is not None
+            )
+
+        def finish(buf: list[str]) -> str:
+            text = " ".join(" ".join(buf).split())
+            return text[:max_chars].rstrip()
+
+        for line in lines:
+            if re.match(r"^(\s*)(`{3,}|~{3,})", line):
+                in_code = not in_code
+                if para:
+                    break
+                continue
+            if in_code:
+                continue
+            if line.strip() == "":
+                if para:
+                    break
+                continue
+            if not para and bad_start(line):
+                continue
+            para.append(line)
+
+        return finish(para) if para else ""
 
     # Convert file path to slug, create markdown file URL
 
@@ -466,7 +590,7 @@ class ResolveMDPlugin(BasePlugin):
         public_root = config.get("outputs", {}).get("public_root", "/.ai/").strip("/")
         pages_dirname = config.get("outputs", {}).get("files", {}).get("pages_dir", "pages")
         return f"https://raw.githubusercontent.com/{org}/{repo}/{branch}/{public_root}/{pages_dirname}/{slug}"
-
+    
     def get_ai_output_dir(self, project_root: Path) -> Path:
         """Resolve target directory for resolved markdown files."""
         repo_cfg = self.llms_config.get("repository", {})
@@ -481,7 +605,7 @@ class ResolveMDPlugin(BasePlugin):
             pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
             ai_path = (project_root / public_root / pages_dir).resolve()
         return Path(ai_path)
-
+    
     def reset_directory(self, output_dir: Path) -> None:
         """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -490,7 +614,7 @@ class ResolveMDPlugin(BasePlugin):
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
-
+   
     def write_ai_page(self, ai_pages_dir: Path, slug: str, header: dict, body: str):
         """Write resolved markdown with YAML front matter."""
         ai_pages_dir.mkdir(parents=True, exist_ok=True)
@@ -508,7 +632,7 @@ class ResolveMDPlugin(BasePlugin):
         with out_path.open("w", encoding="utf-8") as fh:
             fh.write(content)
         log.debug(f"[resolve_md] wrote {out_path}")
-
+    # Replaces copy_md plugin actions
     def copy_ai_artifacts_to_site(self, source_dir: Path, site_dir: Path) -> None:
         """Copy resolved AI artifacts (pages + bundles) into the built site directory."""
         outputs_cfg = self.llms_config.get("outputs", {})
@@ -534,6 +658,22 @@ class ResolveMDPlugin(BasePlugin):
         s = re.sub(r"\s+", "-", s)
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
+
+    @staticmethod
+    def slugify_anchor(text: str, seen: dict[str, int]) -> str:
+        value = text.strip().lower()
+        value = re.sub(r"`+", "", value)
+        value = re.sub(r"[^\w\s\-]", "", value, flags=re.UNICODE)
+        value = re.sub(r"\s+", "-", value)
+        value = re.sub(r"-{2,}", "-", value).strip("-")
+        if not value:
+            value = "section"
+        if value in seen:
+            seen[value] += 1
+            value = f"{value}-{seen[value]}"
+        else:
+            seen[value] = 1
+        return value
 
     @staticmethod
     def select_pages_for_category(category: str, pages: list[dict]) -> list[dict]:
@@ -666,6 +806,192 @@ class ResolveMDPlugin(BasePlugin):
                 )
 
         log.info(f"[resolve_md] category bundles written to {categories_dir}")
+
+    def build_site_index(self, pages: list[dict], ai_root: Path) -> None:
+        """Generate site-index.json and llms_full.jsonl from AI pages."""
+        if not pages:
+            return
+        outputs = self.llms_config.get("outputs", {})
+        files_cfg = outputs.get("files", {})
+        site_index_name = files_cfg.get("site_index", "site-index.json")
+        llms_full_name = files_cfg.get("llms_full", "llms-full.jsonl")
+        preview_chars = outputs.get("preview_chars", 500)
+        max_depth = outputs.get("outline_max_depth", 3)
+        token_estimator = "heuristic-v1"
+
+        index_path = ai_root / site_index_name
+        llms_path = ai_root / llms_full_name
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        llms_path.parent.mkdir(parents=True, exist_ok=True)
+
+        raw_base = self.build_raw_base()
+        site_index: list[dict] = []
+        jsonl_lines: list[str] = []
+
+        for page in pages:
+            body = page.get("body", "")
+            outline, sections = self.extract_outline_and_sections(
+                body, max_depth=max_depth
+            )
+            preview = self.extract_preview(body, max_chars=preview_chars) or page.get(
+                "description", ""
+            )
+            total_section_tokens = 0
+            for sec in sections:
+                sec_tokens = self.estimate_tokens(sec["text"])
+                total_section_tokens += sec_tokens
+                jsonl_lines.append(
+                    json.dumps(
+                        {
+                            "page_id": page["slug"],
+                            "page_title": page.get("title"),
+                            "index": sec["index"],
+                            "depth": sec["depth"],
+                            "title": sec["title"],
+                            "anchor": sec["anchor"],
+                            "start_char": sec["start_char"],
+                            "end_char": sec["end_char"],
+                            "estimated_token_count": sec_tokens,
+                            "token_estimator": token_estimator,
+                            "text": sec["text"],
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+
+            stats = {
+                "word_count": page.get("word_count", 0),
+                "token_estimate": page.get("token_estimate", total_section_tokens),
+                "headings": len(outline),
+                "sections_indexed": len(sections),
+            }
+
+            site_index.append(
+                {
+                    "id": page["slug"],
+                    "title": page.get("title"),
+                    "slug": page["slug"],
+                    "categories": page.get("categories", []),
+                    "raw_md_url": f"{raw_base}/{page['slug']}.md",
+                    "html_url": page.get("url"),
+                    "preview": preview,
+                    "outline": outline,
+                    "stats": stats,
+                    "hash": self.sha256_text(body),
+                    "token_estimator": token_estimator,
+                }
+            )
+
+        index_path.write_text(
+            json.dumps(site_index, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        with llms_path.open("w", encoding="utf-8") as fh:
+            for line in jsonl_lines:
+                fh.write(line + "\n")
+
+        log.info(
+            f"[resolve_md] site index written to {index_path} (pages={len(site_index)})"
+        )
+        log.info(
+            f"[resolve_md] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
+        )
+
+    def build_llms_txt(self, pages: list[dict], project_root: Path) -> None:
+        """Generate llms.txt listing raw markdown links grouped by category."""
+        if not pages:
+            return
+        repo_cfg = self.llms_config.get("repository", {})
+        ai_path = repo_cfg.get("ai_artifacts_path", "ai/pages").lstrip("/")
+        raw_base = self.build_raw_base()
+
+        project_cfg = self.llms_config.get("project", {})
+        project_name = project_cfg.get("name", "Documentation")
+        summary_line = project_cfg.get("project_url") or project_cfg.get(
+            "docs_base_url", ""
+        )
+
+        content_cfg = self.llms_config.get("content", {})
+        category_order = content_cfg.get("categories_order", []) or []
+
+        output_rel = self.llms_config.get("llms_txt_output_path", "llms.txt")
+        out_path = Path(output_rel)
+        if not out_path.is_absolute():
+            out_path = (project_root / out_path).resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        metadata_section = self.format_llms_metadata_section(pages)
+        docs_section = self.format_llms_docs_section(
+            pages, raw_base, category_order
+        )
+        summary_line = summary_line.strip()
+
+        content_lines = [
+            f"# {project_name}",
+            f"\n> {summary_line}\n" if summary_line else "",
+            "## How to Use This File",
+            (
+                "This directory lists URLs for raw Markdown pages that complement the rendered pages on the documentation site. "
+                "Use these Markdown files when prompting models to retain semantic context without HTML noise."
+            ),
+            "",
+            metadata_section,
+            docs_section,
+        ]
+
+        out_path.write_text(
+            "\n".join(line for line in content_lines if line is not None),
+            encoding="utf-8",
+        )
+        log.info(f"[resolve_md] llms.txt written to {out_path}")
+
+    @staticmethod
+    def format_llms_metadata_section(pages: list[dict]) -> str:
+        distinct_categories = {
+            cat for page in pages for cat in (page.get("categories") or [])
+        }
+        return "\n".join(
+            [
+                "## Metadata",
+                f"- Documentation pages: {len(pages)}",
+                f"- Categories: {len(distinct_categories)}",
+                "",
+            ]
+        )
+
+    @staticmethod
+    def format_llms_docs_section(
+        pages: list[dict], raw_base: str, category_order: list[str]
+    ) -> str:
+        grouped: dict[str, list[str]] = {}
+        for page in pages:
+            raw_url = f"{raw_base}/{page['slug']}.md"
+            title = page.get("title") or page["slug"]
+            description = page.get("description") or ""
+            cats = page.get("categories") or ["Uncategorized"]
+            line = f"- [{title}]({raw_url}): {description}"
+            for cat in cats:
+                grouped.setdefault(cat, []).append(line)
+
+        lines = [
+            "## Docs",
+            "This section lists documentation pages by category. Each entry links to a raw markdown version of the page and includes a short description.",
+        ]
+        seen = set()
+        for cat in category_order:
+            entries = grouped.get(cat)
+            if not entries:
+                continue
+            lines.append(f"\nDocs: {cat}")
+            lines.extend(entries)
+            seen.add(cat)
+
+        remaining = sorted(cat for cat in grouped if cat not in seen)
+        for cat in remaining:
+            lines.append(f"\nDocs: {cat}")
+            lines.extend(grouped[cat])
+
+        return "\n".join(lines)
 
     @staticmethod
     def normalize_branch(name: str) -> str:
