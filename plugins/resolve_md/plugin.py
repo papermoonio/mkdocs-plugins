@@ -1,4 +1,17 @@
-# resolve_md plugin
+"""
+resolve_md: plugin for Mkdocs
+
+This plugin creates "resolved" Markdown files from documentation
+pages which have been processed as follows:
+- All variable placeholders replaced with their value as defined in variables.yml
+- All snippet placeholders replaced with their code or text block values
+- Any HTML comments stripped
+
+These resolved Markdown files are output to an AI artifact directory where they are used to:
+- Create files bundling pages by topic/category
+- Create full-site files such as a site index
+- Serve files for users to copy or download for use with AI coding tools and assistants
+"""
 
 # imports
 import json
@@ -72,7 +85,9 @@ class ResolveMDPlugin(BasePlugin):
 
         # Determine output directory for resolved markdown
         ai_pages_dir = self.get_ai_output_dir(project_root)
-        self.reset_ai_output_dir(ai_pages_dir)
+        ai_root = ai_pages_dir.parent
+        ai_root.mkdir(parents=True, exist_ok=True)
+        self.reset_directory(ai_pages_dir)
         log.info(f"[resolve_md] writing resolved pages to {ai_pages_dir}")
 
         # Loop through docs_dir MD files, filter for exclusions defined in llms_config.json
@@ -88,12 +103,19 @@ class ResolveMDPlugin(BasePlugin):
 
         processed = 0
 
+        ai_pages: list[dict] = []
+
         # For each file in markdown_files
         for md_path in markdown_files:
             text = Path(md_path).read_text(encoding="utf-8")
             # Separate, filter, map, and return desired front matter
             front_matter, body = self.split_front_matter(text)
             reduced_fm = self.map_front_matter(front_matter)
+            categories = self.normalize_categories(reduced_fm.get("categories"))
+            if categories:
+                reduced_fm["categories"] = categories
+            elif "categories" in reduced_fm:
+                reduced_fm.pop("categories")
             # Resolve snippet placeholders first
             snippet_body = self.replace_snippet_placeholders(body, snippet_dir, variables)
             if snippet_body != body:
@@ -111,20 +133,53 @@ class ResolveMDPlugin(BasePlugin):
             rel_path = Path(md_path).relative_to(docs_dir)
             rel_no_ext = str(rel_path.with_suffix(""))
             slug, url = self.compute_slug_and_url(rel_no_ext, docs_base_url)
+            # Calculate word count and estimated token count
+            word_count = self.word_count(cleaned_body)
+            token_estimate = self.estimate_tokens(cleaned_body)
+
             # Output resolved Markdown file to AI artifacts directory
             header = dict(reduced_fm)
             header["url"] = url
+            header["word_count"] = word_count
+            header["token_estimate"] = token_estimate
             self.write_ai_page(ai_pages_dir, slug, header, cleaned_body)
             processed += 1
+            # Creates list used later for category file creation
+            cats = reduced_fm.get("categories") or []
+            if isinstance(cats, str):
+                cats_value = [cats]
+            else:
+                cats_value = cats
+
+            ai_pages.append(
+                {
+                    "slug": slug,
+                    "path": Path(md_path),
+                    "title": header.get("title") or slug,
+                    "description": header.get("description") or "",
+                    "categories": cats_value,
+                    "url": url,
+                    "word_count": word_count,
+                    "token_estimate": token_estimate,
+                    "body": cleaned_body,
+                }
+            )
 
             log.debug(f"[resolve_md] {md_path} FM keys: {list(front_matter.keys())}")
             log.debug(f"[resolve_md] {md_path} mapped FM: {reduced_fm}")
 
         log.info(f"[resolve_md] processed {processed} AI pages")
+        if ai_pages:
+            log.debug(
+                f"[resolve_md] sample AI page metadata: slug={ai_pages[0]['slug']} cats={ai_pages[0].get('categories')}"
+            )
+
+        # Build category bundles based on current AI pages
+        self.build_category_bundles(ai_pages, ai_root)
 
         # Mirror resolved pages into site/ so the UI widgets can fetch them.
         site_dir = Path(config["site_dir"]).resolve()
-        self.copy_ai_pages_to_site(ai_pages_dir, site_dir)
+        self.copy_ai_artifacts_to_site(ai_root, site_dir)
 
 
     # ----- Helper functions -------
@@ -217,6 +272,34 @@ class ResolveMDPlugin(BasePlugin):
         if "categories" in fm:
             out["categories"] = fm["categories"]
         return out
+
+    @staticmethod
+    def normalize_categories(raw) -> list[str]:
+        """Normalize categories value into a list of non-empty strings."""
+        if raw is None:
+            return []
+        result: list[str] = []
+        if isinstance(raw, list):
+            candidates = raw
+        elif isinstance(raw, str):
+            val = raw.strip()
+            if not val:
+                return []
+            if val.startswith("[") and val.endswith("]"):
+                try:
+                    parsed = yaml.safe_load(val)
+                    candidates = parsed if isinstance(parsed, list) else [val]
+                except Exception:
+                    candidates = [val]
+            else:
+                candidates = val.split(",")
+        else:
+            candidates = [raw]
+        for item in candidates:
+            text = str(item).strip()
+            if text:
+                result.append(text)
+        return result
 
     # Resolve variable and placeholders
 
@@ -342,7 +425,17 @@ class ResolveMDPlugin(BasePlugin):
     def remove_html_comments(content: str) -> str:
         """Remove <!-- ... --> comments (multiline)."""
         return re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
-    
+
+    # Word count & token estimation
+
+    @staticmethod
+    def word_count(content: str) -> int:
+        return len(re.findall(r"\b\w+\b", content, flags=re.UNICODE))
+
+    @staticmethod
+    def estimate_tokens(content: str) -> int:
+        return len(re.findall(r"\w+|[^\s\w]", content, flags=re.UNICODE))
+
     # Convert file path to slug, create markdown file URL
 
     @staticmethod
@@ -389,8 +482,8 @@ class ResolveMDPlugin(BasePlugin):
             ai_path = (project_root / public_root / pages_dir).resolve()
         return Path(ai_path)
 
-    def reset_ai_output_dir(self, output_dir: Path) -> None:
-        """Remove existing AI page artifacts before writing fresh files."""
+    def reset_directory(self, output_dir: Path) -> None:
+        """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
         for entry in output_dir.iterdir():
             if entry.is_dir():
@@ -403,7 +496,7 @@ class ResolveMDPlugin(BasePlugin):
         ai_pages_dir.mkdir(parents=True, exist_ok=True)
         out_path = ai_pages_dir / f"{slug}.md"
         fm_obj = {}
-        for key in ("title", "description", "categories", "url"):
+        for key in ("title", "description", "categories", "url", "word_count", "token_estimate"):
             val = header.get(key)
             if val not in (None, "", []):
                 fm_obj[key] = val
@@ -416,17 +509,12 @@ class ResolveMDPlugin(BasePlugin):
             fh.write(content)
         log.debug(f"[resolve_md] wrote {out_path}")
 
-    def copy_ai_pages_to_site(self, source_dir: Path, site_dir: Path) -> None:
-        """Copy resolved AI pages into the built site directory."""
+    def copy_ai_artifacts_to_site(self, source_dir: Path, site_dir: Path) -> None:
+        """Copy resolved AI artifacts (pages + bundles) into the built site directory."""
         outputs_cfg = self.llms_config.get("outputs", {})
         public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
-        pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
-
         target_segments = [seg for seg in public_root.split("/") if seg]
-        if pages_dir:
-            target_segments.append(pages_dir)
-
-        target_dir = site_dir.joinpath(*target_segments) if target_segments else site_dir / pages_dir
+        target_dir = site_dir.joinpath(*target_segments) if target_segments else site_dir
         target_dir = target_dir.resolve()
 
         if target_dir.exists():
@@ -434,6 +522,170 @@ class ResolveMDPlugin(BasePlugin):
 
         try:
             shutil.copytree(source_dir, target_dir)
-            log.info(f"[resolve_md] copied AI pages to {target_dir}")
+            log.info(f"[resolve_md] copied AI artifacts to {target_dir}")
         except Exception as exc:
-            log.error(f"[resolve_md] failed to copy AI pages to site dir: {exc}")
+            log.error(f"[resolve_md] failed to copy AI artifacts to site dir: {exc}")
+
+    # Category file creation helper functions
+    @staticmethod
+    def slugify_category(name: str) -> str:
+        s = name.strip().lower()
+        s = re.sub(r"[^\w\s-]", "", s)
+        s = re.sub(r"\s+", "-", s)
+        s = re.sub(r"-{2,}", "-", s).strip("-")
+        return s or "category"
+
+    @staticmethod
+    def select_pages_for_category(category: str, pages: list[dict]) -> list[dict]:
+        cat_lower = category.lower()
+        selected = []
+        for page in pages:
+            cats = page.get("categories") or []
+            if isinstance(cats, str):
+                cats_iter = [cats]
+            else:
+                cats_iter = cats
+            if any(str(c).lower() == cat_lower for c in cats_iter):
+                selected.append(page)
+        return selected
+
+    @staticmethod
+    def union_pages(sets: list[list[dict]]) -> list[dict]:
+        seen = set()
+        out: list[dict] = []
+        for lst in sets:
+            for p in lst:
+                slug = p.get("slug")
+                if slug in seen:
+                    continue
+                seen.add(slug)
+                out.append(p)
+        return out
+
+    def write_category_bundle(
+        self,
+        out_path: Path,
+        category: str,
+        includes_base: bool,
+        base_categories: list[str],
+        pages: list[dict],
+        raw_base: str,
+    ) -> None:
+        """Concatenate pages into a single Markdown bundle."""
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        total_words = sum(p.get("word_count", 0) for p in pages)
+        total_tokens = sum(p.get("token_estimate", 0) for p in pages)
+
+        fm_obj = {
+            "category": category,
+            "includes_base_categories": bool(includes_base),
+            "base_categories": base_categories if includes_base else [],
+            "word_count": total_words,
+            "token_estimate": total_tokens,
+            "page_count": len(pages),
+        }
+        fm_yaml = yaml.safe_dump(
+            fm_obj, sort_keys=False, allow_unicode=True, width=4096
+        ).strip()
+
+        lines: list[str] = [f"---\n{fm_yaml}\n---\n"]
+        lines.append(f"# Begin New Bundle: {category}")
+        if includes_base and base_categories:
+            lines.append(
+                f"Includes shared base categories: {', '.join(base_categories)}"
+            )
+        lines.append("")
+
+        for page in pages:
+            lines.append("\n---\n")
+            title = page.get("title") or page["slug"]
+            lines.append(f"Page Title: {title}\n")
+            lines.append(f"- Source (raw): {raw_base}/{page['slug']}.md")
+            html_url = page.get("url")
+            if html_url:
+                lines.append(f"- Canonical (HTML): {html_url}")
+            description = page.get("description")
+            if description:
+                lines.append(f"- Summary: {description}")
+            lines.append(
+                f"- Word Count: {page.get('word_count', 0)}; Token Estimate: {page.get('token_estimate', 0)}"
+            )
+            lines.append("")
+            lines.append(page.get("body", "").strip())
+            lines.append("")
+
+        out_path.write_text("\n".join(lines), encoding="utf-8")
+
+    def build_category_bundles(self, pages: list[dict], ai_root: Path) -> None:
+        """Generate per-category bundle files based on AI pages."""
+        content_cfg = self.llms_config.get("content", {})
+        categories_order = content_cfg.get("categories_order") or []
+        if not categories_order:
+            log.info("[resolve_md] no categories configured; skipping bundles")
+            return
+        base_cats = content_cfg.get("base_context_categories") or []
+
+        categories_dir = ai_root / "categories"
+        self.reset_directory(categories_dir)
+
+        raw_base = self.build_raw_base()
+
+        base_sets = [self.select_pages_for_category(cat, pages) for cat in base_cats]
+        base_union = self.union_pages(base_sets) if base_sets else []
+
+        log.debug(
+            f"[resolve_md] building category bundles for {len(categories_order)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
+        )
+
+        for category in categories_order:
+            cat_slug = self.slugify_category(category)
+            out_path = categories_dir / f"{cat_slug}.md"
+            is_base = category in base_cats
+            category_pages = self.select_pages_for_category(category, pages)
+
+            if is_base:
+                bundle_pages = sorted(
+                    category_pages, key=lambda p: p.get("title", "").lower()
+                )
+                log.debug(
+                    f"[resolve_md] base bundle {category}: {len(bundle_pages)} pages"
+                )
+                self.write_category_bundle(
+                    out_path, category, False, base_cats, bundle_pages, raw_base
+                )
+            else:
+                combined = self.union_pages([base_union, category_pages])
+                bundle_pages = sorted(
+                    combined, key=lambda p: p.get("title", "").lower()
+                )
+                log.debug(
+                    f"[resolve_md] category bundle {category}: base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
+                )
+                self.write_category_bundle(
+                    out_path, category, True, base_cats, bundle_pages, raw_base
+                )
+
+        log.info(f"[resolve_md] category bundles written to {categories_dir}")
+
+    @staticmethod
+    def normalize_branch(name: str) -> str:
+        return (
+            name.replace("refs/heads/", "", 1)
+            if name and name.startswith("refs/heads/")
+            else name
+        )
+
+    def build_raw_base(self) -> str:
+        """Return base URL for raw markdown artifacts on GitHub."""
+        repo = self.llms_config.get("repository", {})
+        org = repo.get("org", "")
+        name = repo.get("repo", "")
+        branch = self.normalize_branch(repo.get("default_branch", "main"))
+        ai_path = repo.get("ai_artifacts_path")
+        if not ai_path:
+            outputs = self.llms_config.get("outputs", {})
+            public_root = outputs.get("public_root", "/ai/").strip("/")
+            pages_dir = outputs.get("files", {}).get("pages_dir", "pages").strip("/")
+            ai_path = f"{public_root}/{pages_dir}"
+        ai_path = ai_path.strip("/")
+        return f"https://raw.githubusercontent.com/{org}/{name}/{branch}/{ai_path}"
