@@ -185,7 +185,7 @@ class ResolveMDPlugin(BasePlugin):
         # Build site index + llms JSONL artifacts
         self.build_site_index(ai_pages, ai_root)
         # Build llms.txt for downstream LLM usage
-        self.build_llms_txt(ai_pages, project_root)
+        self.build_llms_txt(ai_pages, docs_dir)
 
         # Mirror resolved pages into site/ so the UI widgets can fetch them.
         site_dir = Path(config["site_dir"]).resolve()
@@ -806,7 +806,7 @@ class ResolveMDPlugin(BasePlugin):
                 )
 
         log.info(f"[resolve_md] category bundles written to {categories_dir}")
-
+    # Create full-site content related AI artifact files
     def build_site_index(self, pages: list[dict], ai_root: Path) -> None:
         """Generate site-index.json and llms_full.jsonl from AI pages."""
         if not pages:
@@ -896,8 +896,8 @@ class ResolveMDPlugin(BasePlugin):
         log.info(
             f"[resolve_md] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
         )
-
-    def build_llms_txt(self, pages: list[dict], project_root: Path) -> None:
+    
+    def build_llms_txt(self, pages: list[dict], docs_dir: Path) -> None:
         """Generate llms.txt listing raw markdown links grouped by category."""
         if not pages:
             return
@@ -917,7 +917,7 @@ class ResolveMDPlugin(BasePlugin):
         output_rel = self.llms_config.get("llms_txt_output_path", "llms.txt")
         out_path = Path(output_rel)
         if not out_path.is_absolute():
-            out_path = (project_root / out_path).resolve()
+            out_path = (docs_dir / out_path).resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_section = self.format_llms_metadata_section(pages)
