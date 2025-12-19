@@ -1,33 +1,16 @@
-"""
-resolve_md: plugin for Mkdocs
-
-This plugin creates "resolved" Markdown files from documentation
-pages which have been processed as follows:
-- All variable placeholders replaced with their value as defined in variables.yml
-- All snippet placeholders replaced with their code or text block values
-- Any HTML comments stripped
-
-These resolved Markdown files are output to an AI artifact directory where they are used to:
-- Create files bundling pages by topic/category
-- Create full-site files such as a site index
-- Serve files for users to copy or download for use with AI coding tools and assistants
-"""
-
-# imports
 import hashlib
 import json
 import os
 import re
 import shutil
-import yaml
-
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from mkdocs.utils import log
+import yaml
 from mkdocs.config.config_options import Type
 from mkdocs.plugins import BasePlugin
+from mkdocs.utils import log
 
 # Module scope regex variables
 
@@ -61,15 +44,10 @@ class ResolveMDPlugin(BasePlugin):
         snippet_cfg = self.llms_config.get("snippets", {})
         self.allow_remote_snippets = snippet_cfg.get("allow_remote", True)
 
-        log.info(f"[resolve_md] loaded llms_config from {project_root}")
-
         # Resolve docs_dir to normalized path
         docs_dir = self.load_mkdocs_docs_dir(project_root)
         if docs_dir is None:
             docs_dir = Path(config["docs_dir"]).resolve()
-
-        log.info(f"[resolve_md] resolved docs_dir to {docs_dir}")
-
         site_dir = Path(config["site_dir"]).resolve()
 
         # Snippet directory defaults to docs/.snippets
@@ -82,10 +60,6 @@ class ResolveMDPlugin(BasePlugin):
         variables = self.load_yaml(str(variables_path))
         if not variables:
             log.warning(f"[resolve_md] no variables loaded from {variables_path}")
-        else:
-            log.info(
-                f"[resolve_md] loaded {len(variables)} top-level variables from {variables_path}"
-            )
 
         # Determine docs_base_url for canonical URLs
         project_cfg = self.llms_config.get("project", {})
@@ -125,7 +99,9 @@ class ResolveMDPlugin(BasePlugin):
             elif "categories" in reduced_fm:
                 reduced_fm.pop("categories")
             # Resolve snippet placeholders first
-            snippet_body = self.replace_snippet_placeholders(body, snippet_dir, variables)
+            snippet_body = self.replace_snippet_placeholders(
+                body, snippet_dir, variables
+            )
             if snippet_body != body:
                 log.debug(f"[resolve_md] resolved snippets in {md_path}")
             body = snippet_body
@@ -188,7 +164,6 @@ class ResolveMDPlugin(BasePlugin):
         self.build_site_index(ai_pages, ai_root)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir)
-
 
     # ----- Helper functions -------
 
@@ -381,7 +356,9 @@ class ResolveMDPlugin(BasePlugin):
             with urllib_request.urlopen(url, timeout=10) as response:
                 snippet_content = response.read().decode("utf-8")
         except (urllib_error.URLError, urllib_error.HTTPError) as exc:
-            log.warning(f"[resolve_md] error fetching remote snippet {snippet_ref}: {exc}")
+            log.warning(
+                f"[resolve_md] error fetching remote snippet {snippet_ref}: {exc}"
+            )
             return f"<!-- ERROR FETCHING REMOTE SNIPPET {snippet_ref} -->"
 
         if line_start is not None or line_end is not None:
@@ -413,7 +390,8 @@ class ResolveMDPlugin(BasePlugin):
             if not indent:
                 return snippet_content
             indented = [
-                f"{indent}{line}" if line else "" for line in snippet_content.split("\n")
+                f"{indent}{line}" if line else ""
+                for line in snippet_content.split("\n")
             ]
             return "\n".join(indented)
 
@@ -439,11 +417,7 @@ class ResolveMDPlugin(BasePlugin):
     def strip_snippet_section_markers(content: str) -> str:
         """Remove snippet section markers (# --8<-- [start:end]) from snippet content."""
         lines = content.splitlines()
-        cleaned = [
-            ln
-            for ln in lines
-            if not SNIPPET_SECTION_REGEX.match(ln.strip())
-        ]
+        cleaned = [ln for ln in lines if not SNIPPET_SECTION_REGEX.match(ln.strip())]
         return "\n".join(cleaned)
 
     # Word count & token estimation
@@ -571,7 +545,7 @@ class ResolveMDPlugin(BasePlugin):
         # Normalize to forward slashes
         route = rel_path_no_ext.replace(os.sep, "/")
         if route.endswith("/index"):
-            route = route[:-len("/index")]
+            route = route[: -len("/index")]
         # slug
         slug = route.replace("/", "-").lower()
         # url (ensure one trailing slash)
@@ -586,9 +560,11 @@ class ResolveMDPlugin(BasePlugin):
         repo = config["repository"]["repo"]
         branch = config["repository"]["default_branch"]
         public_root = config.get("outputs", {}).get("public_root", "/.ai/").strip("/")
-        pages_dirname = config.get("outputs", {}).get("files", {}).get("pages_dir", "pages")
+        pages_dirname = (
+            config.get("outputs", {}).get("files", {}).get("pages_dir", "pages")
+        )
         return f"https://raw.githubusercontent.com/{org}/{repo}/{branch}/{public_root}/{pages_dirname}/{slug}"
-    
+
     def get_ai_output_dir(self, base_dir: Path) -> Path:
         """Resolve target directory for resolved markdown files."""
         repo_cfg = self.llms_config.get("repository", {})
@@ -603,7 +579,7 @@ class ResolveMDPlugin(BasePlugin):
             pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
             ai_path = (base_dir / public_root / pages_dir).resolve()
         return Path(ai_path)
-    
+
     def reset_directory(self, output_dir: Path) -> None:
         """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -612,13 +588,20 @@ class ResolveMDPlugin(BasePlugin):
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
-   
+
     def write_ai_page(self, ai_pages_dir: Path, slug: str, header: dict, body: str):
         """Write resolved markdown with YAML front matter."""
         ai_pages_dir.mkdir(parents=True, exist_ok=True)
         out_path = ai_pages_dir / f"{slug}.md"
         fm_obj = {}
-        for key in ("title", "description", "categories", "url", "word_count", "token_estimate"):
+        for key in (
+            "title",
+            "description",
+            "categories",
+            "url",
+            "word_count",
+            "token_estimate",
+        ):
             val = header.get(key)
             if val not in (None, "", []):
                 fm_obj[key] = val
@@ -630,6 +613,7 @@ class ResolveMDPlugin(BasePlugin):
         with out_path.open("w", encoding="utf-8") as fh:
             fh.write(content)
         log.debug(f"[resolve_md] wrote {out_path}")
+
     # Replaces copy_md plugin actions
     # Category file creation helper functions
     @staticmethod
@@ -787,6 +771,7 @@ class ResolveMDPlugin(BasePlugin):
                 )
 
         log.info(f"[resolve_md] category bundles written to {categories_dir}")
+
     # Create full-site content related AI artifact files
     def build_site_index(self, pages: list[dict], ai_root: Path) -> None:
         """Generate site-index.json and llms_full.jsonl from AI pages."""
@@ -877,7 +862,7 @@ class ResolveMDPlugin(BasePlugin):
         log.info(
             f"[resolve_md] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
         )
-    
+
     def build_llms_txt(self, pages: list[dict], docs_dir: Path) -> None:
         """Generate llms.txt listing raw markdown links grouped by category."""
         if not pages:
@@ -902,9 +887,7 @@ class ResolveMDPlugin(BasePlugin):
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_section = self.format_llms_metadata_section(pages)
-        docs_section = self.format_llms_docs_section(
-            pages, raw_base, category_order
-        )
+        docs_section = self.format_llms_docs_section(pages, raw_base, category_order)
         summary_line = summary_line.strip()
 
         content_lines = [
