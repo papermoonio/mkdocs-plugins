@@ -284,7 +284,7 @@ class ResolveMDPlugin(BasePlugin):
                 result.append(text)
         return result
 
-    # Resolve variable and placeholders
+    # Resolve variables and placeholders
 
     @staticmethod
     def get_value_from_path(data, path):
