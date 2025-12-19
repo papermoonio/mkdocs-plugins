@@ -324,9 +324,15 @@ class ResolveMDPlugin(BasePlugin):
     def fetch_local_snippet(self, snippet_ref: str, snippet_directory: Path) -> str:
         """Load snippet content from docs/.snippets (optionally slicing by line range)."""
         file_only, line_start, line_end = self.parse_line_range(snippet_ref)
-        snippet_directory = Path(snippet_directory)
-        absolute_snippet_path = (snippet_directory / file_only).resolve()
+        snippet_directory_root = Path(snippet_directory).resolve()
+        absolute_snippet_path = (snippet_directory_root / file_only).resolve()
 
+        # Ensure the resolved path is still within the snippet directory to prevent traversal
+        try:
+            absolute_snippet_path.relative_to(snippet_directory_root)
+        except ValueError:
+            log.warning(f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}")
+            return f"<!-- INVALID LOCAL SNIPPET PATH {snippet_ref} -->"
         if not absolute_snippet_path.exists():
             log.warning(f"[resolve_md] missing local snippet {snippet_ref}")
             return f"<!-- MISSING LOCAL SNIPPET {snippet_ref} -->"
