@@ -70,6 +70,8 @@ class ResolveMDPlugin(BasePlugin):
 
         log.info(f"[resolve_md] resolved docs_dir to {docs_dir}")
 
+        site_dir = Path(config["site_dir"]).resolve()
+
         # Snippet directory defaults to docs/.snippets
         snippet_dir = docs_dir / ".snippets"
         if not snippet_dir.exists():
@@ -89,8 +91,8 @@ class ResolveMDPlugin(BasePlugin):
         project_cfg = self.llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
 
-        # Determine output directory for resolved markdown
-        ai_pages_dir = self.get_ai_output_dir(project_root)
+        # Determine output directory for resolved markdown (inside site directory)
+        ai_pages_dir = self.get_ai_output_dir(site_dir)
         ai_root = ai_pages_dir.parent
         ai_root.mkdir(parents=True, exist_ok=True)
         self.reset_directory(ai_pages_dir)
@@ -184,12 +186,8 @@ class ResolveMDPlugin(BasePlugin):
         self.build_category_bundles(ai_pages, ai_root)
         # Build site index + llms JSONL artifacts
         self.build_site_index(ai_pages, ai_root)
-        # Build llms.txt for downstream LLM usage
-        self.build_llms_txt(ai_pages, docs_dir)
-
-        # Mirror resolved pages into site/ so the UI widgets can fetch them.
-        site_dir = Path(config["site_dir"]).resolve()
-        self.copy_ai_artifacts_to_site(ai_root, site_dir)
+        # Build llms.txt for downstream LLM usage directly into the site output
+        self.build_llms_txt(ai_pages, site_dir)
 
 
     # ----- Helper functions -------
@@ -591,19 +589,19 @@ class ResolveMDPlugin(BasePlugin):
         pages_dirname = config.get("outputs", {}).get("files", {}).get("pages_dir", "pages")
         return f"https://raw.githubusercontent.com/{org}/{repo}/{branch}/{public_root}/{pages_dirname}/{slug}"
     
-    def get_ai_output_dir(self, project_root: Path) -> Path:
+    def get_ai_output_dir(self, base_dir: Path) -> Path:
         """Resolve target directory for resolved markdown files."""
         repo_cfg = self.llms_config.get("repository", {})
         ai_path = repo_cfg.get("ai_artifacts_path")
         if ai_path:
             ai_path = Path(ai_path)
             if not ai_path.is_absolute():
-                ai_path = (project_root / ai_path).resolve()
+                ai_path = (base_dir / ai_path).resolve()
         else:
             outputs_cfg = self.llms_config.get("outputs", {})
             public_root = outputs_cfg.get("public_root", "/.ai/").strip("/")
             pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
-            ai_path = (project_root / public_root / pages_dir).resolve()
+            ai_path = (base_dir / public_root / pages_dir).resolve()
         return Path(ai_path)
     
     def reset_directory(self, output_dir: Path) -> None:
@@ -633,23 +631,6 @@ class ResolveMDPlugin(BasePlugin):
             fh.write(content)
         log.debug(f"[resolve_md] wrote {out_path}")
     # Replaces copy_md plugin actions
-    def copy_ai_artifacts_to_site(self, source_dir: Path, site_dir: Path) -> None:
-        """Copy resolved AI artifacts (pages + bundles) into the built site directory."""
-        outputs_cfg = self.llms_config.get("outputs", {})
-        public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
-        target_segments = [seg for seg in public_root.split("/") if seg]
-        target_dir = site_dir.joinpath(*target_segments) if target_segments else site_dir
-        target_dir = target_dir.resolve()
-
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
-
-        try:
-            shutil.copytree(source_dir, target_dir)
-            log.info(f"[resolve_md] copied AI artifacts to {target_dir}")
-        except Exception as exc:
-            log.error(f"[resolve_md] failed to copy AI artifacts to site dir: {exc}")
-
     # Category file creation helper functions
     @staticmethod
     def slugify_category(name: str) -> str:
