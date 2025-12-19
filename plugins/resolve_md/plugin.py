@@ -901,7 +901,7 @@ class ResolveMDPlugin(BasePlugin):
             f"\n> {summary_line}\n" if summary_line else "",
             "## How to Use This File",
             (
-                "This directory lists URLs for raw Markdown pages that complement the rendered pages on the documentation site. "
+                "This file lists URLs for raw Markdown pages that complement the rendered pages on the documentation site. "
                 "Use these Markdown files when prompting models to retain semantic context without HTML noise."
             ),
             "",
