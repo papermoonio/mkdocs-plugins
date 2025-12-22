@@ -31,5 +31,5 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
 - The plugin will overwrite the target directory on each build to avoid stale files.
 - Once `llms_config.json` is in place and referenced from `mkdocs.yml`, `resolve_md` picks up everything automatically—no additional YAML needed.
-- This plugin includes the functionality originally provided by `copy_md` 
+- This plugin includes the functionality originally provided by `copy_md`, so you no longer need to enable `copy_md` separately.
 
