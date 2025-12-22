@@ -575,7 +575,7 @@ class ResolveMDPlugin(BasePlugin):
                 ai_path = (base_dir / ai_path).resolve()
         else:
             outputs_cfg = self.llms_config.get("outputs", {})
-            public_root = outputs_cfg.get("public_root", "/.ai/").strip("/")
+            public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
             pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
             ai_path = (base_dir / public_root / pages_dir).resolve()
         return Path(ai_path)
