@@ -12,7 +12,7 @@ plugins:
       llms_config: llms_config.json
 ```
 
-The plugin reads its settings from the `llms_config.json` file, resolves every placeholder (variables and snippets), and writes the resolved artifacts directly into your build output directory (`site_dir`) under the path specified by `repository.ai_artifacts_path` (defaulting to `ai/pages`). If you set a custom `site_dir` in `mkdocs.yml`, the resolved files—and their accompanying bundles, indexes, and `llms.txt`—will simply appear under that directory’s configured AI path.
+The plugin reads its settings from the `llms_config.json` file, resolves every placeholder (variables and snippets), and writes the resolved artifacts directly into your build output directory (`site_dir`) under the path specified by `repository.ai_artifacts_path` (defaulting to `ai/pages` for individual page files and `ai/categories` for category bundle files). If you set a custom `site_dir` in `mkdocs.yml`, the resolved files—and their accompanying category bundles, indexes, and `llms.txt`—will simply appear under that directory’s configured AI path.
 
 ## 🔹 Configuration
 
