@@ -27,6 +27,30 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
     <li>"docs_base_url": base URL for deployed docs site</li>
   </ul>
 </details>
+<details>
+  <summary>"repository"</summary>
+  <ul>
+    <li>"host": "github" (site where docs repo lives)</li>
+    <li>"org": GitHub organization name for docs repo</li>
+    <li>"repo": repo name on GitHub</li>
+    <li>"default_branch": branch where deployed docs live (main, dev, etc.)</li>
+    <li>"docs_path": allows you to designate a custom path for docs</li>
+    <li>"ai_artifacts_path": output location for AI artifact files</li>
+  </ul>
+</details>
+<details>
+  <summary></summary>
+  <ul>
+    <li></li>
+  </ul>
+</details>
+<details>
+  <summary></summary>
+  <ul>
+    <li></li>
+  </ul>
+</details>
+
 
 
 ## 🔹 Notes
