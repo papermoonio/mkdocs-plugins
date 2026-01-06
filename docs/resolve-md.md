@@ -38,20 +38,83 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
       <li>"ai_artifacts_path": output location for AI artifact files</li>
     </ul>
   </details>
-<details>
-  <summary></summary>
-  <ul>
-    <li></li>
-  </ul>
-</details>
-<details>
-  <summary></summary>
-  <ul>
-    <li></li>
-  </ul>
-</details>
+  <details>
+    <summary>"content"</summary>
+    <ul>
+      <li>"docs_dir": allows you to specify a custom directory for docs</li>
+      <li>"base_context_categories": an array of categories to include in base context</li>
+      <li>"categories_order": an array of category names in preferred order</li>
+      <li>"exclusions": "skip_basenames" and "skip_paths" arrays to exclude files and paths from processing</li>
+    </ul>
+  </details>
+  <details>
+    <summary>"outputs":</summary>
+    <ul>
+      <li>"public_root": output directory for AI artifacts</li>
+      <li>"files": defines full-site file name and sub-directory for AI pages</li>
+    </ul>
+  </details>
 
+  The following is an example of a completed `llms_config.json` file for reference:
 
+  ```json 
+  {
+    "schema_version": "1.2",
+
+    "project": {
+        "id": "polkadot",
+        "name": "Polkadot",
+        "project_url": "https://polkadot.network/",
+        "docs_base_url": "https://docs.polkadot.com/"
+    },
+
+    "repository": {
+        "host": "github",
+        "org": "polkadot-developers",
+        "repo": "polkadot-docs",
+        "default_branch": "master",
+        "docs_path": ".",
+        "ai_artifacts_path": "ai/pages"
+    },
+
+    "content": {
+        "docs_dir": ".",
+        "base_context_categories": ["Basics", "Reference"],
+        "categories_order": [
+            "Basics",
+            "Smart Contracts",
+            "Parachains",
+            "dApps",
+            "Networks",
+            "Polkadot Protocol",
+            "Infrastructure",
+            "Tooling",
+            "Reference"
+        ],
+        "exclusions": {
+            "skip_basenames": [
+                "README.md",
+                ".CONTRIBUTING.md",
+                "pull-request-template.md",
+                "cookie-policy.md",
+                "LICENSE.md",
+                "ai-chatbot-policy.md",
+                "terms-of-use.md",
+                "privacy-policy.md"
+            ],
+            "skip_paths": [".snippets", ".github", ".venv", "venv"]
+        }
+    },
+
+    "outputs": {
+        "public_root": "/ai/",
+        "files": {
+            "llms_full": "llms-full.jsonl",
+            "pages_dir": "pages"
+        }
+    }
+  }
+  ```
 
 ## 🔹 Notes
 
