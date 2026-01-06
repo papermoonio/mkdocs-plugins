@@ -18,26 +18,26 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
 - **`llms_config` (required)**: Should point to the JSON file that describes your project, repository, content filters, and output paths. Use a relative path when the file lives next to `mkdocs.yml`, or an absolute path if you store it elsewhere. The following elements breakdown the key-value pairs of each JSON object found in the config:
 
-<details>
-  <summary>"project"</summary>
-  <ul>
-    <li>"id": internal use, all lowercase slug-style name</li>
-    <li>"name": name of the project</li>
-    <li>"project_url": URL for project marketing/public site</li>
-    <li>"docs_base_url": base URL for deployed docs site</li>
-  </ul>
-</details>
-<details>
-  <summary>"repository"</summary>
-  <ul>
-    <li>"host": "github" (site where docs repo lives)</li>
-    <li>"org": GitHub organization name for docs repo</li>
-    <li>"repo": repo name on GitHub</li>
-    <li>"default_branch": branch where deployed docs live (main, dev, etc.)</li>
-    <li>"docs_path": allows you to designate a custom path for docs</li>
-    <li>"ai_artifacts_path": output location for AI artifact files</li>
-  </ul>
-</details>
+  <details>
+    <summary>"project"</summary>
+    <ul>
+      <li>"id": internal use, all lowercase slug-style name</li>
+      <li>"name": name of the project</li>
+      <li>"project_url": URL for project marketing/public site</li>
+      <li>"docs_base_url": base URL for deployed docs site</li>
+    </ul>
+  </details>
+  <details>
+    <summary>"repository"</summary>
+    <ul>
+      <li>"host": "github" (site where docs repo lives)</li>
+      <li>"org": GitHub organization name for docs repo</li>
+      <li>"repo": repo name on GitHub</li>
+      <li>"default_branch": branch where deployed docs live (main, dev, etc.)</li>
+      <li>"docs_path": allows you to designate a custom path for docs</li>
+      <li>"ai_artifacts_path": output location for AI artifact files</li>
+    </ul>
+  </details>
 <details>
   <summary></summary>
   <ul>
