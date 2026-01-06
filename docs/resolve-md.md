@@ -16,15 +16,17 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
 ## 🔹 Configuration
 
-- **`llms_config` (required)**: Should point to the JSON file that describes your project, repository, content filters, and output paths. Use a relative path when the file lives next to `mkdocs.yml`, or an absolute path if you store it elsewhere.
+- **`llms_config` (required)**: Should point to the JSON file that describes your project, repository, content filters, and output paths. Use a relative path when the file lives next to `mkdocs.yml`, or an absolute path if you store it elsewhere. The following elements breakdown the key-value pairs of each JSON object found in the config:
 
-| Section      | Required keys                                                                                                   | Notes                                                                                                  |
-|--------------|-----------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
-| `project`    | `name`, `docs_base_url` (optional but recommended)                                                              | Used for `llms.txt` metadata and canonical URLs.                                                       |
-| `repository` | `org`, `repo`, `default_branch`, `ai_artifacts_path`                                                            | `ai_artifacts_path` controls where resolved Markdown lands inside `site_dir` (defaults to `ai/pages`). |
-| `content`    | `docs_dir`, `exclusions.skip_basenames`, `exclusions.skip_paths`, `categories_order`, `base_context_categories` | Drives which Markdown files are processed, category grouping, and base-context bundles.                |
-| `outputs`    | `public_root`, `files.pages_dir`, `files.llms_full`, `files.site_index` (optional)                              | Controls where secondary artifacts (bundle files, site-index, JSONL) are written under `site_dir`.     |
-| `snippets`   | `allow_remote` (optional)                                                                                       | Allows/disables HTTP snippet fetches.                                                                  |
+<details>
+  <summary>"project"</summary>
+  <ul>
+    <li>"id": internal use, all lowercase slug-style name</li>
+    <li>"name": name of the project</li>
+    <li>"project_url": URL for project marketing/public site</li>
+    <li>"docs_base_url": base URL for deployed docs site</li>
+  </ul>
+</details>
 
 
 ## 🔹 Notes
