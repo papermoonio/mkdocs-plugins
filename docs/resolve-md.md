@@ -57,7 +57,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
   The following is an example of a completed `llms_config.json` file for reference:
 
-  ```json title="llms_config.json"
+  ``` json
   {
     "schema_version": "1.2",
 

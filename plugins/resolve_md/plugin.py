@@ -241,17 +241,14 @@ class ResolveMDPlugin(BasePlugin):
         """
         Emit front matter fields:
         - title (as-is)
-        - description (prefer 'description', else fallback to 'summary' if present)
+        - description (as-is)
         - categories (as-is)
         """
         out = {}
         if "title" in fm:
             out["title"] = fm["title"]
-        # prefer description; fallback to summary if authors used that
         if "description" in fm:
             out["description"] = fm["description"]
-        elif "summary" in fm:
-            out["description"] = fm["summary"]
         if "categories" in fm:
             out["categories"] = fm["categories"]
         return out
