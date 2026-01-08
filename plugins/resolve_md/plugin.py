@@ -25,6 +25,9 @@ SNIPPET_SECTION_REGEX = re.compile(
     r"""^\s*(?:#|//|;|<!--)\s*--8<--\s*\[(?:start|end):[^\]]+\]\s*(?:-->)*\s*$""",
     re.IGNORECASE,
 )
+SNIPPET_RANGE_PATTERN = re.compile(
+    r"^(?P<path>.+?)(?:(?:::|:)(?P<start>\d+))?(?::(?P<end>\d+))?$"
+)
 
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
@@ -312,10 +315,14 @@ class ResolveMDPlugin(BasePlugin):
     @staticmethod
     def parse_line_range(snippet_path: str):
         """Split snippet reference into filename and optional start/end line numbers."""
-        parts = snippet_path.split(":")
-        file_only = parts[0]
-        line_start = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
-        line_end = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+        match = SNIPPET_RANGE_PATTERN.match(snippet_path.strip())
+        if not match:
+            return snippet_path, None, None
+        file_only = match.group("path")
+        start = match.group("start")
+        end = match.group("end")
+        line_start = int(start) if start else None
+        line_end = int(end) if end else None
         return file_only, line_start, line_end
 
     def fetch_local_snippet(self, snippet_ref: str, snippet_directory: Path) -> str:
@@ -346,14 +353,10 @@ class ResolveMDPlugin(BasePlugin):
         """Retrieve remote snippet via HTTP unless remote fetching is disabled."""
         if not self.allow_remote_snippets:
             return f"<!-- REMOTE SNIPPET SKIPPED (disabled): {snippet_ref} -->"
-        match = re.match(r"^(https?://.+?)(?::(\d+))?(?::(\d+))?$", snippet_ref)
-        if not match:
+        url, line_start, line_end = self.parse_line_range(snippet_ref)
+        if not url.startswith("http"):
             log.warning(f"[resolve_md] invalid remote snippet ref {snippet_ref}")
             return f"<!-- INVALID REMOTE SNIPPET {snippet_ref} -->"
-
-        url = match.group(1)
-        line_start = int(match.group(2)) if match.group(2) else None
-        line_end = int(match.group(3)) if match.group(3) else None
 
         try:
             with urllib_request.urlopen(url, timeout=10) as response:
