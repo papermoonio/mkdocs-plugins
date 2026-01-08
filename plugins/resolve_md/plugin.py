@@ -37,6 +37,7 @@ class ResolveMDPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self.allow_remote_snippets = True
+        self.docs_base_url = "/"
 
     # Process will start after site build is complete
     def on_post_build(self, config):
@@ -67,6 +68,7 @@ class ResolveMDPlugin(BasePlugin):
         # Determine docs_base_url for canonical URLs
         project_cfg = self.llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
+        self.docs_base_url = docs_base_url
 
         # Determine output directory for resolved markdown (inside site directory)
         ai_pages_dir = self.get_ai_output_dir(site_dir)
@@ -116,7 +118,7 @@ class ResolveMDPlugin(BasePlugin):
             cleaned_body = self.remove_html_comments(resolved_body)
             if cleaned_body != resolved_body:
                 log.debug(f"[resolve_md] stripped HTML comments in {md_path}")
-            # Convert path to slug and create raw file URL
+            # Convert path to slug and canonical URLs
             rel_path = Path(md_path).relative_to(docs_dir)
             rel_no_ext = str(rel_path.with_suffix(""))
             slug, url = self.compute_slug_and_url(rel_no_ext, docs_base_url)
@@ -560,17 +562,6 @@ class ResolveMDPlugin(BasePlugin):
         url = f"{docs_base_url}{route}"
         return slug, url
 
-    @staticmethod
-    def build_raw_url(config: dict, slug: str) -> str:
-        org = config["repository"]["org"]
-        repo = config["repository"]["repo"]
-        branch = config["repository"]["default_branch"]
-        public_root = config.get("outputs", {}).get("public_root", "/.ai/").strip("/")
-        pages_dirname = (
-            config.get("outputs", {}).get("files", {}).get("pages_dir", "pages")
-        )
-        return f"https://raw.githubusercontent.com/{org}/{repo}/{branch}/{public_root}/{pages_dirname}/{slug}"
-
     def get_ai_output_dir(self, base_dir: Path) -> Path:
         """Resolve target directory for resolved markdown files."""
         repo_cfg = self.llms_config.get("repository", {})
@@ -680,7 +671,7 @@ class ResolveMDPlugin(BasePlugin):
         includes_base: bool,
         base_categories: list[str],
         pages: list[dict],
-        raw_base: str,
+        resolved_base: str,
     ) -> None:
         """Concatenate pages into a single Markdown bundle."""
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -711,7 +702,8 @@ class ResolveMDPlugin(BasePlugin):
             lines.append("\n---\n")
             title = page.get("title") or page["slug"]
             lines.append(f"Page Title: {title}\n")
-            lines.append(f"- Source (raw): {raw_base}/{page['slug']}.md")
+            resolved_url = f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+            lines.append(f"- Resolved Markdown: {resolved_url}")
             html_url = page.get("url")
             if html_url:
                 lines.append(f"- Canonical (HTML): {html_url}")
@@ -739,7 +731,7 @@ class ResolveMDPlugin(BasePlugin):
         categories_dir = ai_root / "categories"
         self.reset_directory(categories_dir)
 
-        raw_base = self.build_raw_base()
+        resolved_base = self.build_resolved_base_url()
 
         base_sets = [self.select_pages_for_category(cat, pages) for cat in base_cats]
         base_union = self.union_pages(base_sets) if base_sets else []
@@ -762,7 +754,7 @@ class ResolveMDPlugin(BasePlugin):
                     f"[resolve_md] base bundle {category}: {len(bundle_pages)} pages"
                 )
                 self.write_category_bundle(
-                    out_path, category, False, base_cats, bundle_pages, raw_base
+                    out_path, category, False, base_cats, bundle_pages, resolved_base
                 )
             else:
                 combined = self.union_pages([base_union, category_pages])
@@ -773,7 +765,7 @@ class ResolveMDPlugin(BasePlugin):
                     f"[resolve_md] category bundle {category}: base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
                 )
                 self.write_category_bundle(
-                    out_path, category, True, base_cats, bundle_pages, raw_base
+                    out_path, category, True, base_cats, bundle_pages, resolved_base
                 )
 
         log.info(f"[resolve_md] category bundles written to {categories_dir}")
@@ -796,7 +788,7 @@ class ResolveMDPlugin(BasePlugin):
         index_path.parent.mkdir(parents=True, exist_ok=True)
         llms_path.parent.mkdir(parents=True, exist_ok=True)
 
-        raw_base = self.build_raw_base()
+        resolved_base = self.build_resolved_base_url()
         site_index: list[dict] = []
         jsonl_lines: list[str] = []
 
@@ -838,21 +830,24 @@ class ResolveMDPlugin(BasePlugin):
                 "sections_indexed": len(sections),
             }
 
-            site_index.append(
-                {
-                    "id": page["slug"],
-                    "title": page.get("title"),
-                    "slug": page["slug"],
-                    "categories": page.get("categories", []),
-                    "raw_md_url": f"{raw_base}/{page['slug']}.md",
-                    "html_url": page.get("url"),
-                    "preview": preview,
-                    "outline": outline,
-                    "stats": stats,
-                    "hash": self.sha256_text(body),
-                    "token_estimator": token_estimator,
-                }
+            resolved_md_url = (
+                f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
             )
+            entry = {
+                "id": page["slug"],
+                "title": page.get("title"),
+                "slug": page["slug"],
+                "categories": page.get("categories", []),
+                "resolved_md_url": resolved_md_url,
+                "html_url": page.get("url"),
+                "preview": preview,
+                "outline": outline,
+                "stats": stats,
+                "hash": self.sha256_text(body),
+                "token_estimator": token_estimator,
+            }
+            entry["raw_md_url"] = resolved_md_url
+            site_index.append(entry)
 
         index_path.write_text(
             json.dumps(site_index, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -870,12 +865,10 @@ class ResolveMDPlugin(BasePlugin):
         )
 
     def build_llms_txt(self, pages: list[dict], docs_dir: Path) -> None:
-        """Generate llms.txt listing raw markdown links grouped by category."""
+        """Generate llms.txt listing resolved markdown links grouped by category."""
         if not pages:
             return
-        repo_cfg = self.llms_config.get("repository", {})
-        ai_path = repo_cfg.get("ai_artifacts_path", "ai/pages").lstrip("/")
-        raw_base = self.build_raw_base()
+        resolved_base = self.build_resolved_base_url()
 
         project_cfg = self.llms_config.get("project", {})
         project_name = project_cfg.get("name", "Documentation")
@@ -893,7 +886,9 @@ class ResolveMDPlugin(BasePlugin):
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_section = self.format_llms_metadata_section(pages)
-        docs_section = self.format_llms_docs_section(pages, raw_base, category_order)
+        docs_section = self.format_llms_docs_section(
+            pages, resolved_base, category_order
+        )
         summary_line = summary_line.strip()
 
         content_lines = [
@@ -901,7 +896,7 @@ class ResolveMDPlugin(BasePlugin):
             f"\n> {summary_line}\n" if summary_line else "",
             "## How to Use This File",
             (
-                "This file lists URLs for raw Markdown pages that complement the rendered pages on the documentation site. "
+                "This file lists URLs for resolved Markdown pages that complement the rendered pages on the documentation site. "
                 "Use these Markdown files when prompting models to retain semantic context without HTML noise."
             ),
             "",
@@ -931,21 +926,25 @@ class ResolveMDPlugin(BasePlugin):
 
     @staticmethod
     def format_llms_docs_section(
-        pages: list[dict], raw_base: str, category_order: list[str]
+        pages: list[dict], resolved_base: str, category_order: list[str]
     ) -> str:
         grouped: dict[str, list[str]] = {}
         for page in pages:
-            raw_url = f"{raw_base}/{page['slug']}.md"
+            resolved_url = (
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
+            )
             title = page.get("title") or page["slug"]
             description = page.get("description") or ""
             cats = page.get("categories") or ["Uncategorized"]
-            line = f"- [{title}]({raw_url}): {description}"
+            line = f"- [{title}]({resolved_url}): {description}"
             for cat in cats:
                 grouped.setdefault(cat, []).append(line)
 
         lines = [
             "## Docs",
-            "This section lists documentation pages by category. Each entry links to a raw markdown version of the page and includes a short description.",
+            "This section lists documentation pages by category. Each entry links to the resolved markdown version of the page and includes a short description.",
         ]
         seen = set()
         for cat in category_order:
@@ -963,25 +962,29 @@ class ResolveMDPlugin(BasePlugin):
 
         return "\n".join(lines)
 
-    @staticmethod
-    def normalize_branch(name: str) -> str:
-        return (
-            name.replace("refs/heads/", "", 1)
-            if name and name.startswith("refs/heads/")
-            else name
-        )
+    def get_resolved_pages_relpath(self) -> str:
+        """Return the site-relative path where resolved markdown files are published."""
+        repo_cfg = self.llms_config.get("repository", {})
+        ai_path = repo_cfg.get("ai_artifacts_path")
+        if ai_path:
+            ai_str = str(ai_path)
+            if ai_str and not os.path.isabs(ai_str):
+                rel_path = ai_str.strip("/")
+                if rel_path:
+                    return rel_path
+        outputs = self.llms_config.get("outputs", {})
+        public_root = outputs.get("public_root", "/ai/").strip("/")
+        pages_dir = outputs.get("files", {}).get("pages_dir", "pages").strip("/")
+        rel_path = "/".join(part for part in (public_root, pages_dir) if part)
+        return rel_path or "ai/pages"
 
-    def build_raw_base(self) -> str:
-        """Return base URL for raw markdown artifacts on GitHub."""
-        repo = self.llms_config.get("repository", {})
-        org = repo.get("org", "")
-        name = repo.get("repo", "")
-        branch = self.normalize_branch(repo.get("default_branch", "main"))
-        ai_path = repo.get("ai_artifacts_path")
-        if not ai_path:
-            outputs = self.llms_config.get("outputs", {})
-            public_root = outputs.get("public_root", "/ai/").strip("/")
-            pages_dir = outputs.get("files", {}).get("pages_dir", "pages").strip("/")
-            ai_path = f"{public_root}/{pages_dir}"
-        ai_path = ai_path.strip("/")
-        return f"https://raw.githubusercontent.com/{org}/{name}/{branch}/{ai_path}"
+    def build_resolved_base_url(self) -> str:
+        """Return base URL for resolved markdown artifacts on the published site."""
+        rel_path = self.get_resolved_pages_relpath()
+        base = self.docs_base_url or "/"
+        if rel_path:
+            prefix = f"{base}{rel_path}" if base.endswith("/") else f"{base}/{rel_path}"
+        else:
+            prefix = base
+        cleaned = prefix.rstrip("/")
+        return cleaned or "/"
