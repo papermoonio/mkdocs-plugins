@@ -25,6 +25,9 @@ SNIPPET_SECTION_REGEX = re.compile(
     r"""^\s*(?:#|//|;|<!--)?\s*--8<--\s*\[(?P<kind>start|end):(?P<name>[^\]]+)\]\s*(?:-->)*\s*$""",
     re.IGNORECASE,
 )
+SNIPPET_DOUBLE_RANGE_RE = re.compile(r"^(?P<path>.+?)::(?P<end>-?\d+)$")
+SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$")
+SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
@@ -306,37 +309,50 @@ class ResolveMDPlugin(BasePlugin):
         if not ref:
             return "", None, None, None
 
-        line_start = None
-        line_end = None
-        section = None
+        double_match = SNIPPET_DOUBLE_RANGE_RE.match(ref)
+        if double_match:
+            file_only = double_match.group("path")
+            line_end = ResolveMDPlugin._parse_line_number(double_match.group("end"))
+            return file_only, 1, line_end, None
 
-        end_match = re.search(r"(?<!:):(\d+)$", ref)
-        if end_match:
-            line_end = int(end_match.group(1))
-            ref = ref[: end_match.start()]
+        range_match = SNIPPET_RANGE_RE.match(ref)
+        if range_match:
+            file_only = range_match.group("path")
+            line_start = ResolveMDPlugin._parse_line_number(range_match.group("start"))
+            line_end = ResolveMDPlugin._parse_line_number(range_match.group("end"))
+            return file_only, line_start, line_end, None
 
-        selector = None
-        double_idx = ref.rfind("::")
-        if double_idx != -1:
-            selector = ref[double_idx + 2 :]
-            ref = ref[:double_idx]
-        else:
-            idx = ResolveMDPlugin._find_selector_colon(ref)
-            if idx is not None:
-                selector = ref[idx + 1 :]
-                ref = ref[:idx]
+        single_match = SNIPPET_SINGLE_RANGE_RE.match(ref)
+        if single_match:
+            file_only = single_match.group("path")
+            line_start = ResolveMDPlugin._parse_line_number(single_match.group("start"))
+            return file_only, line_start, None, None
 
-        if selector:
-            selector = selector.strip()
-            if selector.isdigit():
-                line_start = int(selector)
-            else:
-                section = selector
+        idx = ResolveMDPlugin._find_selector_colon(ref)
+        if idx is not None:
+            section = ref[idx + 1 :].strip()
+            file_only = ref[:idx]
+            return file_only, None, None, section
 
-        if line_start is None:
-            line_end = None
+        return ref, None, None, None
 
-        return ref, line_start, line_end, section
+    @staticmethod
+    def _parse_line_number(value: str) -> int | None:
+        """Parse a signed integer string; return None if invalid/empty."""
+        if value is None:
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        if text[0] in "+-":
+            sign = -1 if text[0] == "-" else 1
+            digits = text[1:]
+            if not digits.isdigit():
+                return None
+            return sign * int(digits)
+        if text.isdigit():
+            return int(text)
+        return None
 
     @staticmethod
     def _find_selector_colon(reference: str) -> int | None:
@@ -373,10 +389,32 @@ class ResolveMDPlugin(BasePlugin):
             selected = section_content
         if line_start is not None or line_end is not None:
             lines = selected.split("\n")
-            start_idx = max(line_start - 1, 0) if line_start is not None else 0
-            end_idx = line_end if line_end is not None else len(lines)
-            selected = "\n".join(lines[start_idx:end_idx])
+            total = len(lines)
+            if total == 0:
+                return ""
+            start_idx = self._normalize_line_index(line_start, total, default=1)
+            end_idx = self._normalize_line_index(line_end, total, default=total)
+            if end_idx < start_idx:
+                log.warning(
+                    f"[resolve_md] invalid line range ({line_start}:{line_end}) in {snippet_ref}"
+                )
+                return ""
+            selected = "\n".join(lines[start_idx - 1 : end_idx])
         return selected
+
+    @staticmethod
+    def _normalize_line_index(index: int | None, total: int, default: int) -> int:
+        """Convert possible negative/zero indexes into 1-based inclusive bounds."""
+        if index is None:
+            value = default
+        else:
+            value = index
+            if value == 0:
+                value = 1
+            if value < 0:
+                value = total + value + 1
+        value = max(1, min(value, total)) if total else 1
+        return value
 
     @staticmethod
     def extract_snippet_section(content: str, section: str, snippet_ref: str) -> str | None:
