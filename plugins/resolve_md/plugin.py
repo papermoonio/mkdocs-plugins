@@ -22,11 +22,8 @@ SNIPPET_LINE_REGEX = re.compile(
 )
 HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*#*\s*$")
 SNIPPET_SECTION_REGEX = re.compile(
-    r"""^\s*(?:#|//|;|<!--)\s*--8<--\s*\[(?:start|end):[^\]]+\]\s*(?:-->)*\s*$""",
+    r"""^\s*(?:#|//|;|<!--)?\s*--8<--\s*\[(?P<kind>start|end):(?P<name>[^\]]+)\]\s*(?:-->)*\s*$""",
     re.IGNORECASE,
-)
-SNIPPET_RANGE_PATTERN = re.compile(
-    r"^(?P<path>.+?)(?:(?:::|:)(?P<start>\d+))?(?::(?P<end>\d+))?$"
 )
 
 # Define plugin class
@@ -48,10 +45,8 @@ class ResolveMDPlugin(BasePlugin):
         snippet_cfg = self.llms_config.get("snippets", {})
         self.allow_remote_snippets = snippet_cfg.get("allow_remote", True)
 
-        # Resolve docs_dir to normalized path
-        docs_dir = self.load_mkdocs_docs_dir(project_root)
-        if docs_dir is None:
-            docs_dir = Path(config["docs_dir"]).resolve()
+        # Resolve docs_dir from MkDocs config (already parsed/resolved by MkDocs)
+        docs_dir = Path(config["docs_dir"]).resolve()
         site_dir = Path(config["site_dir"]).resolve()
 
         # Snippet directory defaults to docs/.snippets
@@ -213,16 +208,6 @@ class ResolveMDPlugin(BasePlugin):
             return {}
         return data or {}
 
-    def load_mkdocs_docs_dir(self, repo_root: Path) -> Path | None:
-        """Prefer mkdocs.yml docs_dir if present; fall back to plugin config."""
-        mkdocs_path = repo_root / "mkdocs.yml"
-        if mkdocs_path.exists():
-            mk = self.load_yaml(str(mkdocs_path))
-            docs_dir = mk.get("docs_dir") if isinstance(mk, dict) else None
-            if docs_dir:
-                return (repo_root / docs_dir).resolve()
-        return None
-
     # Front-matter helpers
 
     @staticmethod
@@ -317,19 +302,115 @@ class ResolveMDPlugin(BasePlugin):
     @staticmethod
     def parse_line_range(snippet_path: str):
         """Split snippet reference into filename and optional start/end line numbers."""
-        match = SNIPPET_RANGE_PATTERN.match(snippet_path.strip())
-        if not match:
-            return snippet_path, None, None
-        file_only = match.group("path")
-        start = match.group("start")
-        end = match.group("end")
-        line_start = int(start) if start else None
-        line_end = int(end) if end else None
-        return file_only, line_start, line_end
+        ref = snippet_path.strip()
+        if not ref:
+            return "", None, None, None
+
+        line_start = None
+        line_end = None
+        section = None
+
+        end_match = re.search(r"(?<!:):(\d+)$", ref)
+        if end_match:
+            line_end = int(end_match.group(1))
+            ref = ref[: end_match.start()]
+
+        selector = None
+        double_idx = ref.rfind("::")
+        if double_idx != -1:
+            selector = ref[double_idx + 2 :]
+            ref = ref[:double_idx]
+        else:
+            idx = ResolveMDPlugin._find_selector_colon(ref)
+            if idx is not None:
+                selector = ref[idx + 1 :]
+                ref = ref[:idx]
+
+        if selector:
+            selector = selector.strip()
+            if selector.isdigit():
+                line_start = int(selector)
+            else:
+                section = selector
+
+        if line_start is None:
+            line_end = None
+
+        return ref, line_start, line_end, section
+
+    @staticmethod
+    def _find_selector_colon(reference: str) -> int | None:
+        """Return index of the last ':' separator that is not part of a scheme like 'http://'."""
+        for idx in range(len(reference) - 1, -1, -1):
+            if reference[idx] != ":":
+                continue
+            # Skip if part of '://'
+            if reference[idx : idx + 3] == "://":
+                continue
+            # Skip Windows drive letters (:'\' or :'/')
+            if idx + 1 < len(reference) and reference[idx + 1] in ("/", "\\"):
+                continue
+            # Skip double-colon sequences (handled elsewhere)
+            if idx > 0 and reference[idx - 1] == ":":
+                continue
+            return idx
+        return None
+
+    def apply_snippet_selectors(
+        self,
+        content: str,
+        line_start: int | None,
+        line_end: int | None,
+        section: str | None,
+        snippet_ref: str,
+    ) -> str | None:
+        """Apply section or line slicing to snippet content."""
+        selected = content
+        if section:
+            section_content = self.extract_snippet_section(selected, section, snippet_ref)
+            if section_content is None:
+                return None
+            selected = section_content
+        if line_start is not None or line_end is not None:
+            lines = selected.split("\n")
+            start_idx = max(line_start - 1, 0) if line_start is not None else 0
+            end_idx = line_end if line_end is not None else len(lines)
+            selected = "\n".join(lines[start_idx:end_idx])
+        return selected
+
+    @staticmethod
+    def extract_snippet_section(content: str, section: str, snippet_ref: str) -> str | None:
+        """Return the text between --8<-- [start:section] and [end:section] markers."""
+        target = section.strip().lower()
+        if not target:
+            return None
+        lines = content.split("\n")
+        start_idx = None
+        for idx, line in enumerate(lines):
+            match = SNIPPET_SECTION_REGEX.match(line.strip())
+            if not match:
+                continue
+            name = (match.group("name") or "").strip().lower()
+            if name != target:
+                continue
+            kind = (match.group("kind") or "").strip().lower()
+            if kind == "start":
+                start_idx = idx + 1
+            elif kind == "end" and start_idx is not None:
+                return "\n".join(lines[start_idx:idx])
+        if start_idx is not None:
+            log.warning(
+                f"[resolve_md] snippet section '{section}' missing end marker in {snippet_ref}"
+            )
+        else:
+            log.warning(
+                f"[resolve_md] snippet section '{section}' not found in {snippet_ref}"
+            )
+        return None
 
     def fetch_local_snippet(self, snippet_ref: str, snippet_directory: Path) -> str:
         """Load snippet content from docs/.snippets (optionally slicing by line range)."""
-        file_only, line_start, line_end = self.parse_line_range(snippet_ref)
+        file_only, line_start, line_end, section = self.parse_line_range(snippet_ref)
         snippet_directory_root = Path(snippet_directory).resolve()
         absolute_snippet_path = (snippet_directory_root / file_only).resolve()
 
@@ -344,18 +425,18 @@ class ResolveMDPlugin(BasePlugin):
             return f"<!-- MISSING LOCAL SNIPPET {snippet_ref} -->"
 
         snippet_content = absolute_snippet_path.read_text(encoding="utf-8")
-        lines = snippet_content.split("\n")
-        if line_start is not None or line_end is not None:
-            start_idx = max(line_start - 1, 0) if line_start is not None else 0
-            end_idx = line_end if line_end is not None else len(lines)
-            snippet_content = "\n".join(lines[start_idx:end_idx])
+        snippet_content = self.apply_snippet_selectors(
+            snippet_content, line_start, line_end, section, snippet_ref
+        )
+        if snippet_content is None:
+            return f"<!-- MISSING SNIPPET SECTION {snippet_ref} -->"
         return self.strip_snippet_section_markers(snippet_content)
 
     def fetch_remote_snippet(self, snippet_ref: str) -> str:
         """Retrieve remote snippet via HTTP unless remote fetching is disabled."""
         if not self.allow_remote_snippets:
             return f"<!-- REMOTE SNIPPET SKIPPED (disabled): {snippet_ref} -->"
-        url, line_start, line_end = self.parse_line_range(snippet_ref)
+        url, line_start, line_end, section = self.parse_line_range(snippet_ref)
         if not url.startswith("http"):
             log.warning(f"[resolve_md] invalid remote snippet ref {snippet_ref}")
             return f"<!-- INVALID REMOTE SNIPPET {snippet_ref} -->"
@@ -369,11 +450,11 @@ class ResolveMDPlugin(BasePlugin):
             )
             return f"<!-- ERROR FETCHING REMOTE SNIPPET {snippet_ref} -->"
 
-        if line_start is not None or line_end is not None:
-            lines = snippet_content.split("\n")
-            start_idx = max(line_start - 1, 0) if line_start is not None else 0
-            end_idx = line_end if line_end is not None else len(lines)
-            snippet_content = "\n".join(lines[start_idx:end_idx])
+        snippet_content = self.apply_snippet_selectors(
+            snippet_content, line_start, line_end, section, snippet_ref
+        )
+        if snippet_content is None:
+            return f"<!-- MISSING REMOTE SNIPPET SECTION {snippet_ref} -->"
         snippet_content = snippet_content.strip()
         return self.strip_snippet_section_markers(snippet_content)
 
