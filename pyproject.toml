@@ -24,6 +24,7 @@ dependencies = [
 [project.entry-points."mkdocs.plugins"]
 minify = "plugins.minify.plugin:MinifyPlugin"
 copy_md = "plugins.copy_md.plugin:CopyMDPlugin"
+resolve_md = "plugins.resolve_md.plugin:ResolveMDPlugin"
 
 # Configuration for development tools
 [tool.black]
