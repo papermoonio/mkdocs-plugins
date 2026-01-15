@@ -688,14 +688,24 @@ class ResolveMDPlugin(BasePlugin):
         if ai_path:
             ai_path = Path(ai_path)
             if not ai_path.is_absolute():
-                ai_path = (base_dir / ai_path).resolve()
+                ai_path = base_dir / ai_path
         else:
             outputs_cfg = self.llms_config.get("outputs", {})
             public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
             pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
-            ai_path = (base_dir / public_root / pages_dir).resolve()
-        return Path(ai_path)
+            ai_path = base_dir / public_root / pages_dir
 
+        base_dir_resolved = base_dir.resolve()
+        ai_path = ai_path.resolve()
+        try:
+            # Ensure the resolved artifacts directory stays within the site base directory.
+            ai_path.relative_to(base_dir_resolved)
+        except ValueError:
+            raise ValueError(
+                "Configured ai_artifacts_path resolves outside of the site directory"
+            ) from None
+
+        return ai_path
     def reset_directory(self, output_dir: Path) -> None:
         """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
