@@ -1008,10 +1008,20 @@ class ResolveMDPlugin(BasePlugin):
         content_cfg = self.llms_config.get("content", {})
         category_order = content_cfg.get("categories_order", []) or []
 
+        docs_root = docs_dir.resolve()
         output_rel = self.llms_config.get("llms_txt_output_path", "llms.txt")
         out_path = Path(output_rel)
         if not out_path.is_absolute():
-            out_path = (docs_dir / out_path).resolve()
+            out_path = (docs_root / out_path).resolve()
+        else:
+            out_path = out_path.resolve()
+
+        try:
+            out_path.relative_to(docs_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Configured llms_txt_output_path '{output_rel}' must be within docs_dir '{docs_root}'"
+            ) from exc
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         metadata_section = self.format_llms_metadata_section(pages)
