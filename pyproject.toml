@@ -25,6 +25,7 @@ dependencies = [
 minify = "plugins.minify.plugin:MinifyPlugin"
 copy_md = "plugins.copy_md.plugin:CopyMDPlugin"
 resolve_md = "plugins.resolve_md.plugin:ResolveMDPlugin"
+page_toggle = "plugins.page_toggle.plugin:TogglePagesPlugin"
 
 # Configuration for development tools
 [tool.black]
