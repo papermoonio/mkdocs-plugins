@@ -6,6 +6,7 @@ from mkdocs.plugins import BasePlugin
 from mkdocs.structure.pages import Page
 from mkdocs.structure.files import Files
 from mkdocs.config.defaults import MkDocsConfig
+from bs4 import BeautifulSoup
 
 
 class TogglePagesPlugin(BasePlugin):
@@ -45,6 +46,51 @@ class TogglePagesPlugin(BasePlugin):
             variant=variant,
             is_canonical=is_canonical,
         )
+
+        # Fix tabbed elements for non-canonical pages
+        if not is_canonical:
+            soup = BeautifulSoup(html, "html.parser")
+            for tabbed in soup.select(".tabbed-set"):
+                labels = tabbed.select(".tabbed-labels label")
+                inputs = tabbed.select("input[type='radio']")
+                if not inputs:
+                    continue
+
+                # Use same name for all inputs in this tabbed set
+                group_name = f"{variant}{inputs[0].get('name', '__tabbed')}"
+                
+                # Update input IDs and names
+                for inp in inputs:
+                    input_id = inp.get("id")
+                    new_id = f"{variant}{input_id}"
+                    inp["id"] = new_id
+                    inp["name"] = group_name
+                    inp.attrs.pop("checked", None)
+
+                # Update labels AFTER inputs IDs are updated
+                for label_tag in labels:
+                    if label_tag.find("a"):
+                        continue
+                    input_id = label_tag.get("for")
+                    text = label_tag.text.strip()
+                    label_tag.clear()
+                    label_tag["for"] = f"{variant}{input_id}"
+                    a_tag = soup.new_tag("a", href=f"#{variant}{input_id}", tabindex="-1")
+                    a_tag.string = text
+                    label_tag.append(a_tag)
+
+                # Check the first input
+                first_input = inputs[0]
+                first_input.attrs["checked"] = "checked"
+
+                # Set indicator CSS
+                first_label = labels[0]
+                indicator_width = str(len(first_label.text.strip()) * 8) + "px"
+                tabbed["style"] = f"--md-indicator-x: 0px; --md-indicator-width: {indicator_width};"
+
+
+            html = str(soup)
+
         group_data["variants"][variant] = {
             "page": page,
             "label": label,
