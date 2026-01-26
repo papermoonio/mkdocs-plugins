@@ -47,9 +47,16 @@ class TogglePagesPlugin(BasePlugin):
             is_canonical=is_canonical,
         )
 
+        soup = BeautifulSoup(html, "html.parser")
+
+        h1 = soup.find("h1")
+        h1_html = None
+        if h1:
+            h1_html = str(h1)
+            h1.extract()
+
         # Fix tabbed elements for non-canonical pages
         if not is_canonical:
-            soup = BeautifulSoup(html, "html.parser")
             for tabbed in soup.select(".tabbed-set"):
                 labels = tabbed.select(".tabbed-labels label")
                 inputs = tabbed.select("input[type='radio']")
@@ -89,12 +96,13 @@ class TogglePagesPlugin(BasePlugin):
                 tabbed["style"] = f"--md-indicator-x: 0px; --md-indicator-width: {indicator_width};"
 
 
-            html = str(soup)
+        html = str(soup)
 
         group_data["variants"][variant] = {
             "page": page,
             "label": label,
             "html": html,
+            "h1_html": h1_html,
             "toc_html": toc_html,
         }
 
@@ -133,6 +141,7 @@ class TogglePagesPlugin(BasePlugin):
 
         buttons_html = []
         content_html = []
+        headers_html = []
 
         # Ensure canonical variant is first
         ordered_variants = [canonical] + [
@@ -145,6 +154,11 @@ class TogglePagesPlugin(BasePlugin):
                 ""
                 if variant == canonical
                 else f"{data['page'].url.rstrip('/').split('/')[-1]}"
+            )
+
+            # Header
+            headers_html.append(
+                f'<span data-variant="{variant}">{data["h1_html"] or ""}</span>'
             )
 
             # Buttons
@@ -165,8 +179,11 @@ class TogglePagesPlugin(BasePlugin):
 
         return f"""
 <div class="toggle-container" data-toggle-group="{group}">
-  <div class="toggle-buttons">
-    {''.join(buttons_html)}
+  <div class="toggle-header">
+   {''.join(headers_html)}
+    <div class="toggle-buttons">
+        {''.join(buttons_html)}
+    </div>
   </div>
   <div class="toggle-content">
     {''.join(content_html)}
