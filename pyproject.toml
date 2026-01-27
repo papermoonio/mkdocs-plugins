@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "papermoon-mkdocs-plugins"
-version = "0.1.0a3"
+version = "0.1.0a4"
 description = "A collection of MkDocs plugins"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -25,6 +25,7 @@ dependencies = [
 minify = "plugins.minify.plugin:MinifyPlugin"
 copy_md = "plugins.copy_md.plugin:CopyMDPlugin"
 resolve_md = "plugins.resolve_md.plugin:ResolveMDPlugin"
+page_toggle = "plugins.page_toggle.plugin:TogglePagesPlugin"
 
 # Configuration for development tools
 [tool.black]
