@@ -52,6 +52,13 @@ class ResolveMDPlugin(BasePlugin):
         docs_dir = Path(config["docs_dir"]).resolve()
         site_dir = Path(config["site_dir"]).resolve()
 
+        # Handle i18n: if the current language is not English, append the language code 
+        # to the site_dir so that artifacts are written to the localized subdirectory.
+        # This prevents the translator build from overwriting the English artifacts in the root.
+        current_lang = config.get("theme", {}).get("language", "en")
+        if current_lang != "en" and site_dir.name != current_lang:
+            site_dir = site_dir / current_lang
+
         # Snippet directory defaults to docs/.snippets
         snippet_dir = docs_dir / ".snippets"
         if not snippet_dir.exists():
