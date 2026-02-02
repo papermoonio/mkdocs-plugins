@@ -29,6 +29,7 @@ SNIPPET_DOUBLE_RANGE_RE = re.compile(r"^(?P<path>.+?)::(?P<end>-?\d+)$")
 SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$")
 SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
+
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
     # Define value for `llms_config` in the project mkdocs.yml file
@@ -59,10 +60,13 @@ class ResolveMDPlugin(BasePlugin):
         supported_translations = i18n_cfg.get("supported_translations", [])
 
         # Separate output directories for supported translation builds
-        if self.current_lang != default_locale and self.current_lang in supported_translations:
+        if (
+            self.current_lang != default_locale
+            and self.current_lang in supported_translations
+        ):
             if site_dir.name != self.current_lang:
-                 site_dir = site_dir / self.current_lang
-                
+                site_dir = site_dir / self.current_lang
+
         # Snippet directory defaults to docs/.snippets
         snippet_dir = docs_dir / ".snippets"
         if not snippet_dir.exists():
@@ -77,11 +81,14 @@ class ResolveMDPlugin(BasePlugin):
         # Determine docs_base_url for canonical URLs
         project_cfg = self.llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
-        
+
         # Append locale to base URL if we are building a supported translation
-        if self.current_lang != default_locale and self.current_lang in supported_translations:
+        if (
+            self.current_lang != default_locale
+            and self.current_lang in supported_translations
+        ):
             docs_base_url = f"{docs_base_url}{self.current_lang}/"
-            
+
         self.docs_base_url = docs_base_url
 
         # Determine output directory for resolved markdown (inside site directory)
@@ -136,7 +143,10 @@ class ResolveMDPlugin(BasePlugin):
             rel_path = os.path.relpath(md_path, docs_dir)
             # If localized build, strip the language directory from rel_path
             # This ensures slugs utilize 'builders/index' instead of 'pt/builders/index'
-            if self.current_lang != default_locale and self.current_lang in supported_translations:
+            if (
+                self.current_lang != default_locale
+                and self.current_lang in supported_translations
+            ):
                 parts = rel_path.split(os.sep)
                 if parts and parts[0] == self.current_lang:
                     rel_path = os.path.join(*parts[1:])
@@ -200,12 +210,12 @@ class ResolveMDPlugin(BasePlugin):
         for root, _, files in os.walk(docs_dir):
             if any(x in root for x in skip_paths):
                 continue
-            
+
             # --- NEW FILTERING LOGIC ---
             # Determine if this folder is a localized folder (e.g. /pt/) based on config
             rel_root = os.path.relpath(root, docs_dir)
             path_parts = rel_root.split(os.sep)
-            
+
             # Load i18n config again (or pass it in arguments)
             i18n_cfg = self.llms_config.get("i18n", {})
             default_locale = i18n_cfg.get("default_locale", "en")
@@ -218,31 +228,31 @@ class ResolveMDPlugin(BasePlugin):
             # If building Default (English), skip translation folders
             if self.current_lang == default_locale and is_translation_folder:
                 continue
-            
+
             # If building Translaton (e.g. pt), skip root folder (except its own files)
             # and skip OTHER translation folders (if multiple supported langs exist)
             if self.current_lang in supported_translations:
-                 # Skip if we are in a translation folder that isn't THIS language
-                 if is_translation_folder and folder_lang != self.current_lang:
-                     continue
-                 
-                 # Skip if we are in the root folder (non-localized files)
-                 if not is_translation_folder:
-                     if rel_root == '.':
-                         pass # handled in file loop below
-                     else:
-                         continue
+                # Skip if we are in a translation folder that isn't THIS language
+                if is_translation_folder and folder_lang != self.current_lang:
+                    continue
+
+                # Skip if we are in the root folder (non-localized files)
+                if not is_translation_folder:
+                    if rel_root == ".":
+                        pass  # handled in file loop below
+                    else:
+                        continue
             # ---------------------------
 
             for file in files:
                 if file.endswith((".md", ".mdx")) and file not in skip_basenames:
                     # Additional check for root files if strictly separating
-                    if self.current_lang in supported_translations and rel_root == '.':
-                         # If in root, only allow files that explicitly start with lang code (rare)
-                         # otherwise skip all english root files
-                         if not file.startswith(f"{self.current_lang}."):
-                             continue
-                    
+                    if self.current_lang in supported_translations and rel_root == ".":
+                        # If in root, only allow files that explicitly start with lang code (rare)
+                        # otherwise skip all english root files
+                        if not file.startswith(f"{self.current_lang}."):
+                            continue
+
                     results.append(os.path.join(root, file))
         return sorted(results)
 
@@ -446,7 +456,9 @@ class ResolveMDPlugin(BasePlugin):
         """Apply section or line slicing to snippet content."""
         selected = content
         if section:
-            section_content = self.extract_snippet_section(selected, section, snippet_ref)
+            section_content = self.extract_snippet_section(
+                selected, section, snippet_ref
+            )
             if section_content is None:
                 return None
             selected = section_content
@@ -480,7 +492,9 @@ class ResolveMDPlugin(BasePlugin):
         return value
 
     @staticmethod
-    def extract_snippet_section(content: str, section: str, snippet_ref: str) -> str | None:
+    def extract_snippet_section(
+        content: str, section: str, snippet_ref: str
+    ) -> str | None:
         """Return the text between --8<-- [start:section] and [end:section] markers."""
         target = section.strip().lower()
         if not target:
@@ -519,7 +533,9 @@ class ResolveMDPlugin(BasePlugin):
         try:
             absolute_snippet_path.relative_to(snippet_directory_root)
         except ValueError:
-            log.warning(f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}")
+            log.warning(
+                f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}"
+            )
             return f"<!-- INVALID LOCAL SNIPPET PATH {snippet_ref} -->"
         if not absolute_snippet_path.exists():
             log.warning(f"[resolve_md] missing local snippet {snippet_ref}")
@@ -773,6 +789,7 @@ class ResolveMDPlugin(BasePlugin):
             ) from None
 
         return ai_path
+
     def reset_directory(self, output_dir: Path) -> None:
         """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -898,7 +915,11 @@ class ResolveMDPlugin(BasePlugin):
             lines.append("\n---\n")
             title = page.get("title") or page["slug"]
             lines.append(f"Page Title: {title}\n")
-            resolved_url = f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+            resolved_url = (
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
+            )
             lines.append(f"- Resolved Markdown: {resolved_url}")
             html_url = page.get("url")
             if html_url:
@@ -1027,7 +1048,9 @@ class ResolveMDPlugin(BasePlugin):
             }
 
             resolved_md_url = (
-                f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
             )
             entry = {
                 "id": page["slug"],
