@@ -77,6 +77,11 @@ class ResolveMDPlugin(BasePlugin):
         # Determine docs_base_url for canonical URLs
         project_cfg = self.llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
+        
+        # Append locale to base URL if we are building a supported translation
+        if self.current_lang != default_locale and self.current_lang in supported_translations:
+            docs_base_url = f"{docs_base_url}{self.current_lang}/"
+            
         self.docs_base_url = docs_base_url
 
         # Determine output directory for resolved markdown (inside site directory)
@@ -127,10 +132,17 @@ class ResolveMDPlugin(BasePlugin):
             cleaned_body = self.remove_html_comments(resolved_body)
             if cleaned_body != resolved_body:
                 log.debug(f"[resolve_md] stripped HTML comments in {md_path}")
-            # Convert path to slug and canonical URLs
-            rel_path = Path(md_path).relative_to(docs_dir)
-            rel_no_ext = str(rel_path.with_suffix(""))
-            slug, url = self.compute_slug_and_url(rel_no_ext, docs_base_url)
+            # Calculate relative path for slug generation
+            rel_path = os.path.relpath(md_path, docs_dir)
+            # If localized build, strip the language directory from rel_path
+            # This ensures slugs utilize 'builders/index' instead of 'pt/builders/index'
+            if self.current_lang != default_locale and self.current_lang in supported_translations:
+                parts = rel_path.split(os.sep)
+                if parts and parts[0] == self.current_lang:
+                    rel_path = os.path.join(*parts[1:])
+
+            slug, url = self.get_markdown_slug(rel_path, self.docs_base_url)
+
             # Calculate word count and estimated token count
             word_count = self.word_count(cleaned_body)
             token_estimate = self.estimate_tokens(cleaned_body)
@@ -713,13 +725,17 @@ class ResolveMDPlugin(BasePlugin):
     # Convert file path to slug, create markdown file URL
 
     @staticmethod
-    def compute_slug_and_url(rel_path_no_ext: str, docs_base_url: str):
+    def get_markdown_slug(rel_path: str, docs_base_url: str):
         """
-        rel_path_no_ext: docs-relative path without extension, using OS separators.
+        rel_path: docs-relative path (with extension), using OS separators.
+        - Removes extension.
         - If endswith '/index', drop the trailing 'index' for the URL and slug base.
         - Slug = path segments joined by '-', lowercased.
         - URL = docs_base_url + route + '/'
         """
+        # Remove extension
+        rel_path_no_ext, _ = os.path.splitext(rel_path)
+
         # Normalize to forward slashes
         route = rel_path_no_ext.replace(os.sep, "/")
         if route.endswith("/index"):
@@ -1026,7 +1042,6 @@ class ResolveMDPlugin(BasePlugin):
                 "hash": self.sha256_text(body),
                 "token_estimator": token_estimator,
             }
-            entry["raw_md_url"] = resolved_md_url
             site_index.append(entry)
 
         index_path.write_text(
