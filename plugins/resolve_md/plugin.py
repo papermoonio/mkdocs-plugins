@@ -229,7 +229,7 @@ class ResolveMDPlugin(BasePlugin):
             if self.current_lang == default_locale and is_translation_folder:
                 continue
 
-            # If building Translaton (e.g. pt), skip root folder (except its own files)
+            # If building Translation (e.g. pt), skip root folder (except its own files)
             # and skip OTHER translation folders (if multiple supported langs exist)
             if self.current_lang in supported_translations:
                 # Skip if we are in a translation folder that isn't THIS language
