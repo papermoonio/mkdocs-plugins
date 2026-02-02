@@ -53,11 +53,16 @@ class ResolveMDPlugin(BasePlugin):
         docs_dir = Path(config["docs_dir"]).resolve()
         site_dir = Path(config["site_dir"]).resolve()
 
-        # Separate output directories for non-English builds if they aren't already separated
-        # (mkdocs-static-i18n usually handles this, but resolve_md sees the raw site_dir)
-        if self.current_lang != "en" and site_dir.name != self.current_lang:
-             site_dir = site_dir / self.current_lang
+        # Load i18n config
+        i18n_cfg = self.llms_config.get("i18n", {})
+        default_locale = i18n_cfg.get("default_locale", "en")
+        supported_translations = i18n_cfg.get("supported_translations", [])
 
+        # Separate output directories for supported translation builds
+        if self.current_lang != default_locale and self.current_lang in supported_translations:
+            if site_dir.name != self.current_lang:
+                 site_dir = site_dir / self.current_lang
+                
         # Snippet directory defaults to docs/.snippets
         snippet_dir = docs_dir / ".snippets"
         if not snippet_dir.exists():
@@ -185,33 +190,47 @@ class ResolveMDPlugin(BasePlugin):
                 continue
             
             # --- NEW FILTERING LOGIC ---
-            # Determine if this folder is a localized folder (e.g. /pt/)
+            # Determine if this folder is a localized folder (e.g. /pt/) based on config
             rel_root = os.path.relpath(root, docs_dir)
             path_parts = rel_root.split(os.sep)
-            is_localized_folder = (len(path_parts) > 0 and path_parts[0] == 'pt') # Add other languages if needed
             
-            # If building English, skip 'pt' folder
-            if self.current_lang == 'en' and is_localized_folder:
+            # Load i18n config again (or pass it in arguments)
+            i18n_cfg = self.llms_config.get("i18n", {})
+            default_locale = i18n_cfg.get("default_locale", "en")
+            supported_translations = i18n_cfg.get("supported_translations", [])
+
+            # Check if current folder belongs to a supported translation
+            folder_lang = path_parts[0] if len(path_parts) > 0 else None
+            is_translation_folder = folder_lang in supported_translations
+
+            # If building Default (English), skip translation folders
+            if self.current_lang == default_locale and is_translation_folder:
                 continue
             
-            # If building Portuguese, skip root folder (non-localized files)
-            # You might want to adjust this if you WANT fallback content
-            if self.current_lang == 'pt' and not is_localized_folder:
-                # Optional: Allow skipping check if you want English dupes in PT build, 
-                # but to avoid incorrect content, we often skip.
-                if rel_root == '.':
-                     pass # deciding on individual files
-                else:
+            # If building Translaton (e.g. pt), skip root folder (except its own files)
+            # and skip OTHER translation folders (if multiple supported langs exist)
+            if self.current_lang in supported_translations:
+                 # Skip if we are in a translation folder that isn't THIS language
+                 if is_translation_folder and folder_lang != self.current_lang:
                      continue
+                 
+                 # Skip if we are in the root folder (non-localized files)
+                 if not is_translation_folder:
+                     if rel_root == '.':
+                         pass # handled in file loop below
+                     else:
+                         continue
             # ---------------------------
 
             for file in files:
                 if file.endswith((".md", ".mdx")) and file not in skip_basenames:
                     # Additional check for root files if strictly separating
-                    if self.current_lang == 'pt' and rel_root == '.' and not file.startswith('pt.'):
-                         # Logic to ensure we don't pick up English root files in PT build
-                         continue
-
+                    if self.current_lang in supported_translations and rel_root == '.':
+                         # If in root, only allow files that explicitly start with lang code (rare)
+                         # otherwise skip all english root files
+                         if not file.startswith(f"{self.current_lang}."):
+                             continue
+                    
                     results.append(os.path.join(root, file))
         return sorted(results)
 
