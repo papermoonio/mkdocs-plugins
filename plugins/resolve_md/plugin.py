@@ -47,17 +47,16 @@ class ResolveMDPlugin(BasePlugin):
         self.llms_config = self.load_llms_config(project_root)
         snippet_cfg = self.llms_config.get("snippets", {})
         self.allow_remote_snippets = snippet_cfg.get("allow_remote", True)
+        self.current_lang = config.get("theme", {}).get("language", "en")
 
         # Resolve docs_dir from MkDocs config (already parsed/resolved by MkDocs)
         docs_dir = Path(config["docs_dir"]).resolve()
         site_dir = Path(config["site_dir"]).resolve()
 
-        # Handle i18n: if the current language is not English, append the language code 
-        # to the site_dir so that artifacts are written to the localized subdirectory.
-        # This prevents the translator build from overwriting the English artifacts in the root.
-        current_lang = config.get("theme", {}).get("language", "en")
-        if current_lang != "en" and site_dir.name != current_lang:
-            site_dir = site_dir / current_lang
+        # Separate output directories for non-English builds if they aren't already separated
+        # (mkdocs-static-i18n usually handles this, but resolve_md sees the raw site_dir)
+        if self.current_lang != "en" and site_dir.name != self.current_lang:
+             site_dir = site_dir / self.current_lang
 
         # Snippet directory defaults to docs/.snippets
         snippet_dir = docs_dir / ".snippets"
@@ -178,15 +177,41 @@ class ResolveMDPlugin(BasePlugin):
     # ----- Helper functions -------
 
     # File discovery and filtering per skip names/paths in llms_config.json
-    @staticmethod
-    def get_all_markdown_files(docs_dir, skip_basenames, skip_paths):
+    def get_all_markdown_files(self, docs_dir, skip_basenames, skip_paths):
         """Collect *.md|*.mdx, skipping basenames and paths that contain any skip_paths substring."""
         results = []
         for root, _, files in os.walk(docs_dir):
             if any(x in root for x in skip_paths):
                 continue
+            
+            # --- NEW FILTERING LOGIC ---
+            # Determine if this folder is a localized folder (e.g. /pt/)
+            rel_root = os.path.relpath(root, docs_dir)
+            path_parts = rel_root.split(os.sep)
+            is_localized_folder = (len(path_parts) > 0 and path_parts[0] == 'pt') # Add other languages if needed
+            
+            # If building English, skip 'pt' folder
+            if self.current_lang == 'en' and is_localized_folder:
+                continue
+            
+            # If building Portuguese, skip root folder (non-localized files)
+            # You might want to adjust this if you WANT fallback content
+            if self.current_lang == 'pt' and not is_localized_folder:
+                # Optional: Allow skipping check if you want English dupes in PT build, 
+                # but to avoid incorrect content, we often skip.
+                if rel_root == '.':
+                     pass # deciding on individual files
+                else:
+                     continue
+            # ---------------------------
+
             for file in files:
                 if file.endswith((".md", ".mdx")) and file not in skip_basenames:
+                    # Additional check for root files if strictly separating
+                    if self.current_lang == 'pt' and rel_root == '.' and not file.startswith('pt.'):
+                         # Logic to ensure we don't pick up English root files in PT build
+                         continue
+
                     results.append(os.path.join(root, file))
         return sorted(results)
 
