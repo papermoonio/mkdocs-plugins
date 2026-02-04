@@ -1,0 +1,42 @@
+{
+  "actions": [
+    {
+      "type": "link",
+      "id": "view-markdown",
+      "label": "View Markdown",
+      "href": "{{ page_url }}",
+      "analyticsKey": "view_page_markdown"
+    },
+    {
+      "type": "link",
+      "id": "download-markdown",
+      "label": "Download Markdown",
+      "href": "{{ page_url }}",
+      "download": "{{ filename }}",
+      "analyticsKey": "download_page_markdown"
+    },
+    {
+      "type": "clipboard",
+      "id": "copy-markdown",
+      "label": "Copy Markdown",
+      "clipboardContent": "{{ content }}",
+      "analyticsKey": "copy_page_markdown"
+    },
+    {
+      "type": "link",
+      "id": "open-chat-gpt",
+      "label": "Open in ChatGPT",
+      "href": "https://chatgpt.com/?q={{ prompt }}",
+      "promptTemplate": "Read this documentation:\n\n{{ content }}",
+      "analyticsKey": "open_page_markdown_chatgpt"
+    },
+    {
+      "type": "link",
+      "id": "open-claude",
+      "label": "Open in Claude",
+      "href": "https://claude.ai/new?q={{ prompt }}",
+      "promptTemplate": "Read this documentation:\n\n{{ content }}",
+      "analyticsKey": "open_page_markdown_claude"
+    }
+  ]
+}
