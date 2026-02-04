@@ -20,7 +20,8 @@ from mkdocs.plugins import BasePlugin
 from mkdocs.structure.pages import Page
 from packaging import version
 
-logger = logging.getLogger(__name__)
+# Use MkDocs' recommended plugin logger namespace so debug logs appear only with `--verbose`.
+logger = logging.getLogger(f"mkdocs.plugins.{__name__}")
 
 # Maps asset type to the MkDocs config key that lists additional assets to inject.
 # JS files are defined under `extra_javascript`, CSS under `extra_css`.
@@ -81,6 +82,7 @@ class MinifyPlugin(BasePlugin):
         ('cache_safe',  c.Type(bool, default=False)),
         ('scoped_css',  c.Type(dict, default={})),
         ('scoped_css_templates', c.Type(dict, default={})),
+        ('debug', c.Type(bool, default=False)),
     )
 
     # Cache of content hashes per original relative path, used to generate cache-safe names.
@@ -98,6 +100,21 @@ class MinifyPlugin(BasePlugin):
     # -------------------------------
     # Helpers
     # -------------------------------
+
+    def _debug_enabled(self) -> bool:
+        return bool(self.config.get("debug", False))
+
+    def _dbg(self, msg: str, *args) -> None:
+        """Debug log gated by plugin config.
+
+        Note: MkDocs only shows DEBUG logs when run with `--verbose`.
+        """
+        if not self._debug_enabled():
+            return
+        # Avoid any expensive work if debug isn't actually enabled at the logger level.
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        logger.debug(msg, *args)
 
     def _gather_scoped_css_files(self) -> List[str]:
         """Return a de-duplicated list of CSS paths referenced in either `scoped_css`
@@ -145,6 +162,7 @@ class MinifyPlugin(BasePlugin):
     def _minify(self, file_type: str, config: MkDocsConfig) -> None:
         """Minify assets of a given type ("js" or "css") and rename on disk."""
         minify_func: Callable = MINIFIERS[file_type]
+        self._dbg("[minify] start type=%s cache_safe=%s", file_type, bool(self.config.get("cache_safe", False)))
         file_paths: Union[str, List[str]] = self.config.get(f"{file_type}_files") or []
 
         # Normalize to a list so we can iterate uniformly.
@@ -153,6 +171,7 @@ class MinifyPlugin(BasePlugin):
 
         # Work under the build output directory (already rendered/copied by MkDocs).
         site_dir = Path(config['site_dir'])
+        self._dbg("[minify] site_dir=%s", site_dir.as_posix())
 
         # Expand simple one-segment globs like "assets/*.css" relative to site_dir.
         file_paths2: List[Path] = []
@@ -165,12 +184,15 @@ class MinifyPlugin(BasePlugin):
             else:
                 file_paths2.append(site_dir / fp.lstrip('/'))
 
+        self._dbg("[minify] expanded targets (pre-dedupe) count=%d", len(file_paths2))
         # Remove duplicates to avoid double-processing.
         file_paths2 = list(set(file_paths2))
+        self._dbg("[minify] targets (deduped) count=%d", len(file_paths2))
 
         for file_path in file_paths2:
             site_file_path: str = str(file_path.as_posix())
             rel_file_path: str = site_file_path.replace(site_dir.as_posix(), "").strip("/")
+            self._dbg("[minify] processing %s", rel_file_path)
 
             # Open the built asset and either write cached data or minified content.
             with open(site_file_path, mode="r+", encoding="utf8") as f:
@@ -186,7 +208,9 @@ class MinifyPlugin(BasePlugin):
             file_hash: str = self.path_to_hash.get(rel_file_path, "")
 
             # Finalize by renaming the file to include `.min` and/or the hash.
-            os.rename(site_file_path, self._minified_asset(site_file_path, file_type, file_hash))
+            new_path = self._minified_asset(site_file_path, file_type, file_hash)
+            self._dbg("[minify] rename %s -> %s", site_file_path, new_path)
+            os.rename(site_file_path, new_path)
 
     def _minify_html_page(self, output: str) -> Optional[str]:
         """Minify HTML using plugin config and merged options."""
@@ -219,6 +243,7 @@ class MinifyPlugin(BasePlugin):
         minify_func: Callable = MINIFIERS[file_type]
         minify_flag: bool = self.config.get(f"minify_{file_type}", False)
         extra: str = EXTRAS[file_type]
+        self._dbg("[extra_config] start type=%s extra_key=%s cache_safe=%s minify=%s", file_type, extra, bool(self.config.get("cache_safe", False)), bool(self.config.get(f"minify_{file_type}", False)))
 
         if not isinstance(files_to_minify, list):
             files_to_minify = [files_to_minify]
@@ -232,6 +257,7 @@ class MinifyPlugin(BasePlugin):
             raw = str(extra_item)
             had_leading = raw.startswith('/')
             norm = raw.lstrip('/')
+            self._dbg("[extra_config] candidate extra[%d]=%s (norm=%s)", i, raw, norm)
 
             if norm not in norm_targets:
                 continue
@@ -271,6 +297,7 @@ class MinifyPlugin(BasePlugin):
             new_file_path = self._minified_asset(norm, file_type, file_hash)
             if had_leading:
                 new_file_path = '/' + new_file_path.lstrip('/')
+            self._dbg("[extra_config] rewrite %s -> %s", raw, new_file_path)
 
             if isinstance(extra_item, str):
                 config[extra][i] = new_file_path
@@ -296,6 +323,8 @@ class MinifyPlugin(BasePlugin):
         dest_path = getattr(getattr(page, "file", None), "dest_path", "") or url_html
         url_path = url.rstrip("/")
 
+        self._dbg("[scoped_css/page] page src=%s url=%s dest=%s", src_path, url, dest_path)
+
         depth = max(0, url_html.strip("/").count("/"))
         rel_prefix = "" if depth == 0 else "../" * depth
 
@@ -310,6 +339,8 @@ class MinifyPlugin(BasePlugin):
                 or fnmatch.fnmatch(url_html, pattern)
                 or fnmatch.fnmatch(url_path, pattern)
             )
+            if matches:
+                self._dbg("[scoped_css/page] matched pattern=%s", pattern)
             if not matches:
                 continue
             # css_files can be str or list
@@ -320,6 +351,8 @@ class MinifyPlugin(BasePlugin):
 
         if not css_files_to_process:
             return output
+
+        self._dbg("[scoped_css/page] css_files_to_process=%s", ",".join([c.lstrip('/') for c in css_files_to_process]))
 
         links_to_inject: List[str] = []
         for css_file in css_files_to_process:
@@ -345,8 +378,10 @@ class MinifyPlugin(BasePlugin):
 
             new_output, replaced_count = pattern.subn(_sub_href, output)
             if replaced_count > 0:
+                self._dbg("[scoped_css/page] replaced existing link basename=%s -> %s", basename, final_name)
                 output = new_output
             else:
+                self._dbg("[scoped_css/page] will inject link basename=%s -> %s", basename, final_name)
                 href = f"{rel_prefix}{final_name}"
                 links_to_inject.append(f'<link rel="stylesheet" href="{href}">')
 
@@ -366,13 +401,17 @@ class MinifyPlugin(BasePlugin):
 
     def on_post_page(self, output: str, *, page: Page, config: MkDocsConfig) -> Optional[str]:
         """Minify rendered HTML and apply scoped CSS for Markdown pages."""
+        self._dbg("[post_page] start page=%s", getattr(page, "url", ""))
         if self.config.get("minify_html", False):
             output = self._minify_html_page(output)
+            self._dbg("[post_page] minified HTML")
         output = self._inject_scoped_css(output, page=page, config=config)
+        self._dbg("[post_page] done")
         return output
 
     def on_pre_build(self, *, config: MkDocsConfig) -> None:
         """Before build: prepare config rewrites and optionally compute hashes."""
+        self._dbg("[pre_build] start minify_html=%s minify_js=%s minify_css=%s cache_safe=%s", bool(self.config.get("minify_html", False)), bool(self.config.get("minify_js", False)), bool(self.config.get("minify_css", False)), bool(self.config.get("cache_safe", False)))
         if self.config.get("minify_js", False) or self.config.get("cache_safe", False):
             self._minify_extra_config("js", config)
         if self.config.get("minify_css", False) or self.config.get("cache_safe", False):
@@ -407,10 +446,12 @@ class MinifyPlugin(BasePlugin):
             file_hash = hashlib.sha384(data.encode("utf8")).hexdigest()
             self.path_to_hash[rel_css] = file_hash
             self.path_to_data[rel_css] = data
-            logger.debug("pre_build cached scoped CSS: %s -> hash=%s", rel_css, file_hash[:8])
+            self._dbg("[pre_build] cached scoped CSS %s hash=%s", rel_css, file_hash[:8])
+        self._dbg("[pre_build] done scoped_files=%d", len(scoped_files))
 
     def on_post_build(self, *, config: MkDocsConfig) -> None:
         """After build: write minified assets and perform renames."""
+        self._dbg("[post_build] start")
         if self.config.get("minify_js", False) or self.config.get("cache_safe", False):
             self._minify("js", config)
         if self.config.get("minify_css", False) or self.config.get("cache_safe", False):
@@ -429,7 +470,7 @@ class MinifyPlugin(BasePlugin):
                 final_abs = site_dir / final_rel
                 final_abs.parent.mkdir(parents=True, exist_ok=True)
                 final_abs.write_text(data, encoding="utf8")
-                logger.debug("post_build wrote scoped CSS: %s", final_rel)
+                self._dbg("[post_build] wrote scoped CSS %s", final_rel)
 
             scoped_map = self.config.get("scoped_css") or {}
             if scoped_map:
@@ -442,7 +483,7 @@ class MinifyPlugin(BasePlugin):
 
                 for html_file in site_dir.rglob('*.html'):
                     rel_html = html_file.relative_to(site_dir).as_posix()
-                    logger.debug("post_build scanning HTML: %s", rel_html)
+                    self._dbg("[post_build] scanning HTML %s", rel_html)
 
                     matched_css: List[str] = []
                     for pattern, css_list in scoped_map.items():
@@ -453,7 +494,7 @@ class MinifyPlugin(BasePlugin):
                                 matched_css.extend(p.lstrip('/') for p in css_list)
 
                     if not matched_css:
-                        logger.debug("no scoped_css match for: %s", rel_html)
+                        self._dbg("[post_build] no scoped_css match for %s", rel_html)
                         continue
 
                     html = html_file.read_text(encoding='utf8')
@@ -467,7 +508,7 @@ class MinifyPlugin(BasePlugin):
                         if not final_rel:
                             continue
 
-                        logger.debug("want CSS for this HTML: %s (basename=%s) -> final=%s", rel_css, base, final_rel)
+                        self._dbg("[post_build] want CSS %s (base=%s) -> %s", rel_css, base, final_rel)
                         pat = re.compile(
                             rf'(<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref=["\'])([^"\']*?{re.escape(base)})(["\'][^>]*>)',
                             re.IGNORECASE,
@@ -483,9 +524,9 @@ class MinifyPlugin(BasePlugin):
 
                         new_html, replaced = pat.subn(_sub, html)
                         if replaced > 0:
-                            logger.debug("replaced link for %s in %s", base, rel_html)
+                            self._dbg("[post_build] replaced link base=%s in %s", base, rel_html)
                         else:
-                            logger.debug("will inject link for %s into %s", base, rel_html)
+                            self._dbg("[post_build] will inject link base=%s into %s", base, rel_html)
                         html = new_html
                         if replaced == 0:
                             href = f"/{final_rel.lstrip('/')}" if rel_prefix == '' else f"{rel_prefix}{final_rel}"
@@ -526,12 +567,12 @@ class MinifyPlugin(BasePlugin):
             # Scan every generated HTML and replace hrefs that match any of the basenames
             for html_file in site_dir.rglob('*.html'):
                 rel_html = html_file.relative_to(site_dir).as_posix()
-                logger.debug("post_build (templates) scanning HTML: %s", rel_html)
+                self._dbg("[post_build/templates] scanning HTML %s", rel_html)
                 html = html_file.read_text(encoding='utf8')
                 original_html = html
 
                 for base, final_rel in tpl_final_by_basename.items():
-                    logger.debug("(templates) trying pattern for %s in %s", base, rel_html)
+                    self._dbg("[post_build/templates] trying base=%s in %s", base, rel_html)
 
                     # Strict pattern: require rel=stylesheet somewhere, and match href with or without quotes
                     strict_pat = re.compile(
@@ -555,24 +596,25 @@ class MinifyPlugin(BasePlugin):
 
                     new_html, replaced = strict_pat.subn(_sub, html)
                     if replaced > 0:
-                        logger.debug("replaced (template) link for %s in %s [strict]", base, rel_html)
+                        self._dbg("[post_build/templates] replaced base=%s in %s [strict]", base, rel_html)
                         html = new_html
                     else:
                         # Fallback: broad pattern without requiring rel=stylesheet; also matches unquoted href
-                        logger.debug("strict missed for %s in %s, trying broad fallback", base, rel_html)
+                        self._dbg("[post_build/templates] strict missed base=%s in %s; trying fallback", base, rel_html)
                         broad_pat = re.compile(
                             rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
                             re.IGNORECASE,
                         )
                         new_html2, replaced2 = broad_pat.subn(_sub, html)
                         if replaced2 > 0:
-                            logger.debug("replaced (template) link for %s in %s [fallback]", base, rel_html)
+                            self._dbg("[post_build/templates] replaced base=%s in %s [fallback]", base, rel_html)
                             html = new_html2
                         else:
-                            logger.debug("no link matched for %s in %s", base, rel_html)
+                            self._dbg("[post_build/templates] no link matched base=%s in %s", base, rel_html)
 
                 if html is not original_html:
                     html_file.write_text(html, encoding='utf8')
+        self._dbg("[post_build] done")
     def on_post_template(self, output_content: str, *, template_name: str, config: MkDocsConfig) -> Optional[str]:
         """Minify HTML templates (home.html, 404.html, index-page.html, etc.) and
         apply scoped CSS replacement/injection when `scoped_css_templates` patterns match.
@@ -583,7 +625,7 @@ class MinifyPlugin(BasePlugin):
           - If not present, we INJECT a new <link> just before </head>.
           - Absolute hrefs remain absolute (/assets/..); relative become root-relative for templates.
         """
-        logger.debug("on_post_template for template: %s", template_name)
+        self._dbg("[post_template] template=%s", template_name)
         # Minify template HTML if enabled
         if self.config.get("minify_html", False):
             output_content = self._minify_html_page(output_content) or output_content
@@ -602,7 +644,7 @@ class MinifyPlugin(BasePlugin):
                     matched_css.extend(p.lstrip('/') for p in css_list)
 
         if not matched_css:
-            logger.debug("no scoped_css_templates match for: %s", template_name)
+            self._dbg("[post_template] no scoped_css_templates match for %s", template_name)
             return output_content
 
         links_to_inject: List[str] = []
@@ -611,7 +653,7 @@ class MinifyPlugin(BasePlugin):
             file_hash = self.path_to_hash.get(rel_css, "")
             final_rel = self._minified_asset(rel_css, "css", file_hash)  # e.g. assets/.../home.<hash>.min.css
 
-            logger.debug("template %s: processing CSS %s -> final %s", template_name, rel_css, final_rel)
+            self._dbg("[post_template] processing CSS %s -> %s", rel_css, final_rel)
             pattern_re = re.compile(
                 rf'(<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
                 re.IGNORECASE,
@@ -628,10 +670,10 @@ class MinifyPlugin(BasePlugin):
 
             new_html, replaced_count = pattern_re.subn(_sub_href, output_content)
             if replaced_count > 0:
-                logger.debug("replaced existing link for %s in template %s", base, template_name)
+                self._dbg("[post_template] replaced link base=%s", base)
                 output_content = new_html
             else:
-                logger.debug("will inject link for %s in template %s", base, template_name)
+                self._dbg("[post_template] will inject link base=%s", base)
                 links_to_inject.append(f'<link rel="stylesheet" href="/{final_rel.lstrip("/")}">')
 
         if links_to_inject:
@@ -647,4 +689,5 @@ class MinifyPlugin(BasePlugin):
             else:
                 output_content = "\n".join(links_to_inject) + "\n" + output_content
 
+        self._dbg("[post_template] done")
         return output_content
