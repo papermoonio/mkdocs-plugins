@@ -80,11 +80,21 @@ class AIFileUtilsPlugin(BasePlugin):
         # 1. Resolve Prompt if a template exists
         prompt_text = ""
         if "promptTemplate" in action:
-            # Simple replacement for content in prompt template
             tpl = action["promptTemplate"]
-            prompt_text = tpl.replace("{{ content }}", content)
+            # Apply replacements to the prompt template first
+            # We construct a specific dict for prompt replacements to avoid circular dependency with "{{ prompt }}"
+            # and to handle content/url availability
+            prompt_replacements = {
+                "{{ content }}": content,
+                "{{ page_url }}": page_url,
+                "{{ filename }}": filename
+            }
+            for placeholder, replacement in prompt_replacements.items():
+                if placeholder in tpl:
+                    tpl = tpl.replace(placeholder, replacement)
+            prompt_text = tpl
+            
             # Remove the template from the output as it's processed
-            # (Optional: keep it if the UI needs it, but usually we just want the result)
             # action.pop("promptTemplate") 
         
         # 2. Prepare Context Variables

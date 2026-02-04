@@ -27,7 +27,7 @@
       "id": "open-chat-gpt",
       "label": "Open in ChatGPT",
       "href": "https://chatgpt.com/?q={{ prompt }}",
-      "promptTemplate": "Read this documentation:\n\n{{ content }}",
+      "promptTemplate": "Analyze the documentation at https://r.jina.ai/{{ page_url }}. Focus on the technical implementation details and code examples. I want to ask you questions about implementing these protocols.",
       "analyticsKey": "open_page_markdown_chatgpt"
     },
     {
@@ -35,7 +35,7 @@
       "id": "open-claude",
       "label": "Open in Claude",
       "href": "https://claude.ai/new?q={{ prompt }}",
-      "promptTemplate": "Read this documentation:\n\n{{ content }}",
+      "promptTemplate": "Read {{ page_url }} so I can ask questions about it.",
       "analyticsKey": "open_page_markdown_claude"
     }
   ]
