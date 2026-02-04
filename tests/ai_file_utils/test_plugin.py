@@ -41,7 +41,14 @@ class TestAIFileUtilsPlugin:
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         # The prompt should be encoded in the URL
         assert "chatgpt.com" in chatgpt_action["href"]
-        assert "%23+Polkadot+Basics" in chatgpt_action["href"]  # Encoded '# Polkadot Basics'
+        # Should contain encoded reference to jina.ai (part of the prompt now)
+        assert "r.jina.ai" in chatgpt_action["href"]
+
+        # Inspect the "Claude" action
+        claude_action = next(a for a in actions if a["id"] == "open-claude")
+        assert "claude.ai" in claude_action["href"]
+        # Should contain encoded page url as it's part of the prompt
+        assert "docs.polkadot.com" in claude_action["href"]
 
         # This would be the structure consumed by the UI generator
         print("\n--- Resolved Actions Example ---")
