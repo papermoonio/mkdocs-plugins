@@ -8,7 +8,7 @@ Currently included:
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
 - **[Resolve Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md)**: Resolve variable and code snippet placeholders and serve resolved Markdown files directly from your site's build folder.
-- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-utils.md): Serves as a centralized "contract" and utility service for defining and resolving actions related to AI artifacts.
+- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-utils.md)**: Serves as a centralized "contract" and utility service for defining and resolving actions related to AI artifacts.
 
 ## Installation
 
