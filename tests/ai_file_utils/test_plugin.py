@@ -37,6 +37,10 @@ class TestAIFileUtilsPlugin:
         download_action = next(a for a in actions if a["id"] == "download-markdown")
         assert download_action["download"] == "basics.md"
 
+        # Inspect the "Copy Markdown" action
+        copy_action = next(a for a in actions if a["id"] == "copy-markdown")
+        assert copy_action["clipboardContent"] == content
+
         # Inspect the "ChatGPT" action (check prompt encoding)
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         # The prompt should be encoded in the URL
