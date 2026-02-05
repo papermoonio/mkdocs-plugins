@@ -97,6 +97,19 @@ class MinifyPlugin(BasePlugin):
     The file data is stored once per normalized path (no leading '/').
     """
 
+    def __init__(self):
+        super().__init__()
+        # Per-build tracking: template_name -> base -> replaced_count
+        # Used to decide whether the post_build templates scan needs to run as a true fallback.
+        self._tpl_rewrite_replaced: Dict[str, Dict[str, int]] = {}
+
+    def _tpl_replaced_in_post_template(self, base: str) -> bool:
+        """Return True if on_post_template already replaced at least one link for this basename."""
+        for _tpl, by_base in (self._tpl_rewrite_replaced or {}).items():
+            if int(by_base.get(base, 0)) > 0:
+                return True
+        return False
+
     # -------------------------------
     # Helpers
     # -------------------------------
@@ -107,13 +120,18 @@ class MinifyPlugin(BasePlugin):
     def _dbg(self, msg: str, *args) -> None:
         """Debug log gated by plugin config.
 
-        Note: MkDocs only shows DEBUG logs when run with `--verbose`.
+        MkDocs only shows DEBUG logs when run with `-v/--verbose`.
+
         """
         if not self._debug_enabled():
             return
-        if not logger.isEnabledFor(logging.DEBUG):
+
+        mkdocs_logger = logging.getLogger("mkdocs")
+        if not mkdocs_logger.isEnabledFor(logging.DEBUG):
             return
-        logger.debug(msg, *args)
+
+        # Prefix so grepping stays easy and logs remain attributable.
+        mkdocs_logger.debug("[minify] " + msg, *args)
 
     def _extract_line_with(self, text: str, needle: str) -> str:
         """Return a single line from `text` containing `needle` (trimmed), or ""."""
@@ -602,6 +620,20 @@ class MinifyPlugin(BasePlugin):
                 tpl_final_by_basename[base] = final_rel
                 if file_hash == "":
                     self._dbg_hash_missing(rel_css, final_rel)
+            # Fallback gating: if on_post_template already replaced links for a basename,
+            # skip scanning all HTML files for that basename.
+            skipped_bases: List[str] = []
+            for base in list(tpl_final_by_basename.keys()):
+                if self._tpl_replaced_in_post_template(base):
+                    skipped_bases.append(base)
+                    tpl_final_by_basename.pop(base, None)
+
+            for base in skipped_bases:
+                self._dbg("[post_build/templates] fallback skipped base=%s (already replaced in on_post_template)", base)
+
+            if not tpl_final_by_basename:
+                self._dbg("[post_build/templates] fallback skipped (all bases already replaced in on_post_template)")
+                return
 
             for base in tpl_final_by_basename.keys():
                 tpl_stats[base] = {"found": 0, "replaced": 0, "injected": 0, "sample_logged": False}
@@ -736,6 +768,11 @@ class MinifyPlugin(BasePlugin):
 
             found_in_html = base in output_content
             new_html, replaced_count = pattern_re.subn(_sub_href, output_content)
+            # Track replacements so post_build templates scan can act as a true fallback.
+            self._tpl_rewrite_replaced.setdefault(template_name, {})
+            self._tpl_rewrite_replaced[template_name][base] = (
+                int(self._tpl_rewrite_replaced[template_name].get(base, 0)) + int(replaced_count)
+            )
             if replaced_count > 0:
                 self._dbg("[post_template] base=%s found_in_html=%s replaced=%d injected=0", base, found_in_html, replaced_count)
                 output_content = new_html
