@@ -64,3 +64,63 @@ class TestAIFileUtilsPlugin:
                 print(f"  Href: {action['href'][:50]}...") # Truncated for display
             if "clipboardContent" in action:
                 print(f"  Clipboard: {action['clipboardContent'][:20]}...")
+
+    def test_missing_schema_file(self, tmp_path, caplog):
+        """Test behavior when schema file is missing."""
+        plugin = AIFileUtilsPlugin()
+        # Override path to non-existent file
+        plugin._actions_config_path = tmp_path / "non_existent.json"
+        
+        plugin.on_config({})
+        
+        # Verify warning log
+        assert "Actions schema file not found" in caplog.text
+        
+        # Should return empty list, not crash
+        actions = plugin.resolve_actions("url", "file", "content")
+        assert actions == []
+
+    def test_malformed_json_schema(self, tmp_path, caplog):
+        """Test behavior when schema file contains invalid JSON."""
+        plugin = AIFileUtilsPlugin()
+        # Create bad JSON file
+        bad_file = tmp_path / "bad.json"
+        bad_file.write_text("{ not valid json ", encoding="utf-8")
+        plugin._actions_config_path = bad_file
+        
+        plugin.on_config({})
+        
+        # Verify error log
+        assert "Failed to parse actions schema JSON" in caplog.text
+        
+        actions = plugin.resolve_actions("url", "file", "content")
+        assert actions == []
+
+    def test_action_resolution_failure(self, caplog):
+        """Test that one bad action doesn't crash the whole list."""
+        plugin = AIFileUtilsPlugin()
+        # Manually set schema with one good and one bad action (bad promptTemplate type)
+        plugin._actions_schema = {
+            "actions": [
+                {
+                    "id": "good-action",
+                    "type": "link", 
+                    "href": "{{ page_url }}"
+                },
+                {
+                    "id": "bad-action",
+                    "type": "link",
+                    "promptTemplate": 123  # This will cause AttributeError on replace()
+                }
+            ]
+        }
+        
+        actions = plugin.resolve_actions("http://example.com", "test.md", "content")
+        
+        # We should get the good action
+        assert len(actions) == 1
+        assert actions[0]["id"] == "good-action"
+        
+        # We should see a warning for the bad action
+        assert "Failed to resolve action bad-action" in caplog.text
+

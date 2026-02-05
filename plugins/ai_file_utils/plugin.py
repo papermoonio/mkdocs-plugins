@@ -1,13 +1,10 @@
 import json
-import logging
-import re
+import copy
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from mkdocs.plugins import BasePlugin
-
-# Configure Logger
-log = logging.getLogger("mkdocs.plugins.ai_file_utils")
+from mkdocs.utils import log
 
 class AIFileUtilsPlugin(BasePlugin):
     """
@@ -39,8 +36,11 @@ class AIFileUtilsPlugin(BasePlugin):
             else:
                 log.warning(f"[ai_file_utils] Actions schema file not found at {self._actions_config_path}")
                 self._actions_schema = {"actions": []}
+        except json.JSONDecodeError as e:
+            log.error(f"[ai_file_utils] Failed to parse actions schema JSON: {e}")
+            self._actions_schema = {"actions": []}
         except Exception as e:
-            log.error(f"[ai_file_utils] Failed to load actions schema: {e}")
+            log.error(f"[ai_file_utils] Unexpected error loading actions schema: {e}", exc_info=True)
             self._actions_schema = {"actions": []}
 
     def resolve_actions(self, page_url: str, filename: str, content: str) -> List[Dict[str, Any]]:
@@ -66,7 +66,7 @@ class AIFileUtilsPlugin(BasePlugin):
                 resolved_action = self._resolve_single_action(action_def, page_url, filename, content)
                 resolved_actions.append(resolved_action)
             except Exception as e:
-                log.warning(f"[ai_file_utils] Failed to resolve action {action_def.get('id')}: {e}")
+                log.warning(f"[ai_file_utils] Failed to resolve action {action_def.get('id')}: {e}", exc_info=True)
 
         return resolved_actions
 
@@ -74,8 +74,8 @@ class AIFileUtilsPlugin(BasePlugin):
         """
         Resolves a single action definition by replacing placeholders.
         """
-        # Create a copy to avoid modifying the schema
-        action = action_def.copy()
+        # Create a deep copy to avoid modifying the schema if it has nested structures
+        action = copy.deepcopy(action_def)
         
         # 1. Resolve Prompt if a template exists
         prompt_text = ""
@@ -95,7 +95,7 @@ class AIFileUtilsPlugin(BasePlugin):
             prompt_text = tpl
             
             # Remove the template from the output as it's processed
-            # action.pop("promptTemplate") 
+            action.pop("promptTemplate") 
         
         # 2. Prepare Context Variables
         # URL encode the prompt for use in query parameters
