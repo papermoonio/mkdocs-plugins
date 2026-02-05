@@ -111,10 +111,35 @@ class MinifyPlugin(BasePlugin):
         """
         if not self._debug_enabled():
             return
-        # Avoid any expensive work if debug isn't actually enabled at the logger level.
         if not logger.isEnabledFor(logging.DEBUG):
             return
         logger.debug(msg, *args)
+
+    def _extract_line_with(self, text: str, needle: str) -> str:
+        """Return a single line from `text` containing `needle` (trimmed), or ""."""
+        if not text or not needle:
+            return ""
+        idx = text.find(needle)
+        if idx == -1:
+            return ""
+        start = text.rfind("\n", 0, idx)
+        end = text.find("\n", idx)
+        if start == -1:
+            start = 0
+        else:
+            start += 1
+        if end == -1:
+            end = len(text)
+        line = text[start:end].strip()
+        if len(line) > 240:
+            line = line[:240] + "…"
+        return line
+
+    def _dbg_hash_missing(self, rel_css: str, final_rel: str) -> None:
+        """Debug helper to surface missing hash/data situations."""
+        if not self._debug_enabled():
+            return
+        self._dbg("[hash] missing hash for %s -> final=%s", rel_css, final_rel)
 
     def _gather_scoped_css_files(self) -> List[str]:
         """Return a de-duplicated list of CSS paths referenced in either `scoped_css`
@@ -359,6 +384,8 @@ class MinifyPlugin(BasePlugin):
             norm_css = css_file.lstrip('/')
             file_hash = self.path_to_hash.get(norm_css, "")
             final_name = self._minified_asset(norm_css, "css", file_hash)  # e.g., assets/.../home.<hash>.min.css
+            if file_hash == "":
+                self._dbg_hash_missing(norm_css, final_name)            
             basename = os.path.basename(css_file)  # e.g., home.css
 
             # Regex to capture an existing <link rel="stylesheet" href="...basename"> and replace href value.
@@ -437,6 +464,7 @@ class MinifyPlugin(BasePlugin):
                     docs_file_path = temp_path
                     found = True
             if not found and not os.path.exists(docs_file_path):
+                self._dbg("[pre_build] scoped CSS missing on disk: %s (tried=%s)", rel_css, docs_file_path)
                 continue
 
             with open(docs_file_path, encoding="utf8") as f:
@@ -545,6 +573,7 @@ class MinifyPlugin(BasePlugin):
         tpl_map = self.config.get("scoped_css_templates") or {}
         if tpl_map:
             site_dir = Path(config['site_dir'])
+            tpl_stats: Dict[str, Dict[str, Union[int, bool]]] = {}            
 
             # Build a de-duplicated list of CSS paths from the templates map
             tpl_css: List[str] = []
@@ -560,9 +589,14 @@ class MinifyPlugin(BasePlugin):
             tpl_final_by_basename: Dict[str, str] = {}
             for rel_css in tpl_css:
                 base = os.path.basename(rel_css)
-                tpl_final_by_basename[base] = self._minified_asset(
-                    rel_css, "css", self.path_to_hash.get(rel_css, "")
-                )
+                file_hash = self.path_to_hash.get(rel_css, "")
+                final_rel = self._minified_asset(rel_css, "css", file_hash)
+                tpl_final_by_basename[base] = final_rel
+                if file_hash == "":
+                    self._dbg_hash_missing(rel_css, final_rel)
+
+            for base in tpl_final_by_basename.keys():
+                tpl_stats[base] = {"found": 0, "replaced": 0, "injected": 0, "sample_logged": False}
 
             # Scan every generated HTML and replace hrefs that match any of the basenames
             for html_file in site_dir.rglob('*.html'):
@@ -572,6 +606,8 @@ class MinifyPlugin(BasePlugin):
                 original_html = html
 
                 for base, final_rel in tpl_final_by_basename.items():
+                    if base in html:
+                        tpl_stats[base]["found"] += 1
                     self._dbg("[post_build/templates] trying base=%s in %s", base, rel_html)
 
                     # Strict pattern: require rel=stylesheet somewhere, and match href with or without quotes
@@ -596,7 +632,8 @@ class MinifyPlugin(BasePlugin):
 
                     new_html, replaced = strict_pat.subn(_sub, html)
                     if replaced > 0:
-                        self._dbg("[post_build/templates] replaced base=%s in %s [strict]", base, rel_html)
+                        tpl_stats[base]["replaced"] += replaced
+                        self._dbg("[post_build/templates] replaced base=%s in %s [strict] count=%d", base, rel_html, replaced)
                         html = new_html
                     else:
                         # Fallback: broad pattern without requiring rel=stylesheet; also matches unquoted href
@@ -607,13 +644,33 @@ class MinifyPlugin(BasePlugin):
                         )
                         new_html2, replaced2 = broad_pat.subn(_sub, html)
                         if replaced2 > 0:
-                            self._dbg("[post_build/templates] replaced base=%s in %s [fallback]", base, rel_html)
+                            tpl_stats[base]["replaced"] += replaced2
+                            self._dbg("[post_build/templates] replaced base=%s in %s [fallback] count=%d", base, rel_html, replaced2)
                             html = new_html2
                         else:
                             self._dbg("[post_build/templates] no link matched base=%s in %s", base, rel_html)
+                            if (base in html) and (not tpl_stats[base]["sample_logged"]):
+                                line = self._extract_line_with(html, base)
+                                if line:
+                                    self._dbg("[post_build/templates] sample line for base=%s: %s", base, line)
+                                    tpl_stats[base]["sample_logged"] = True
 
                 if html is not original_html:
                     html_file.write_text(html, encoding='utf8')
+            # Summary (templates): how often each CSS basename appeared vs was replaced.
+            if self._debug_enabled() and logger.isEnabledFor(logging.DEBUG):
+                try:
+                    for base, s in tpl_stats.items():
+                        self._dbg(
+                            "[post_build/templates] summary base=%s found_in_html_files=%d replaced=%d injected=%d",
+                            base,
+                            int(s.get("found", 0)),
+                            int(s.get("replaced", 0)),
+                            int(s.get("injected", 0)),
+                        )
+                except Exception:
+                    pass
+
         self._dbg("[post_build] done")
     def on_post_template(self, output_content: str, *, template_name: str, config: MkDocsConfig) -> Optional[str]:
         """Minify HTML templates (home.html, 404.html, index-page.html, etc.) and
@@ -652,7 +709,8 @@ class MinifyPlugin(BasePlugin):
             base = os.path.basename(rel_css)
             file_hash = self.path_to_hash.get(rel_css, "")
             final_rel = self._minified_asset(rel_css, "css", file_hash)  # e.g. assets/.../home.<hash>.min.css
-
+            if file_hash == "":
+                self._dbg_hash_missing(rel_css, final_rel)   
             self._dbg("[post_template] processing CSS %s -> %s", rel_css, final_rel)
             pattern_re = re.compile(
                 rf'(<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
@@ -668,12 +726,17 @@ class MinifyPlugin(BasePlugin):
                 new_href = "/" + final_rel.lstrip("/")
                 return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
+            found_in_html = base in output_content
             new_html, replaced_count = pattern_re.subn(_sub_href, output_content)
             if replaced_count > 0:
-                self._dbg("[post_template] replaced link base=%s", base)
+                self._dbg("[post_template] base=%s found_in_html=%s replaced=%d injected=0", base, found_in_html, replaced_count)
                 output_content = new_html
             else:
-                self._dbg("[post_template] will inject link base=%s", base)
+                self._dbg("[post_template] base=%s found_in_html=%s replaced=0 injected=1", base, found_in_html)
+                if found_in_html:
+                    line = self._extract_line_with(output_content, base)
+                    if line:
+                        self._dbg("[post_template] sample line for base=%s: %s", base, line)
                 links_to_inject.append(f'<link rel="stylesheet" href="/{final_rel.lstrip("/")}">')
 
         if links_to_inject:
