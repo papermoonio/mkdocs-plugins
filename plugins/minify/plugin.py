@@ -391,17 +391,22 @@ class MinifyPlugin(BasePlugin):
             # Regex to capture an existing <link rel="stylesheet" href="...basename"> and replace href value.
             # Groups: 1) prefix up to href value, 2) href value, 3) rest of tag
             pattern = re.compile(
-                rf'(<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref=["\'])([^"\']*?{re.escape(basename)})(["\'][^>]*>)',
+                rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(basename)})(\2)?([^>]*>)',
                 re.IGNORECASE,
             )
 
             def _sub_href(m: re.Match) -> str:
-                orig_href = m.group(2)
+                orig_href = m.group(3)
+                quote = m.group(2) or ""
+                tail_quote = m.group(4) or ""
+                tail_rest = m.group(5)
+
                 if orig_href.startswith("/"):
                     new_href = "/" + final_name.lstrip("/")
                 else:
                     new_href = f"{rel_prefix}{final_name}"
-                return f"{m.group(1)}{new_href}{m.group(3)}"
+
+                return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
             new_output, replaced_count = pattern.subn(_sub_href, output)
             if replaced_count > 0:
@@ -538,19 +543,22 @@ class MinifyPlugin(BasePlugin):
 
                         self._dbg("[post_build] want CSS %s (base=%s) -> %s", rel_css, base, final_rel)
                         pat = re.compile(
-                            rf'(<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref=["\'])([^"\']*?{re.escape(base)})(["\'][^>]*>)',
+                            rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
                             re.IGNORECASE,
                         )
+                        def _sub_href(m: re.Match) -> str:
+                            orig = m.group(3)
+                            quote = m.group(2) or ""
+                            tail_quote = m.group(4) or ""
+                            tail_rest = m.group(5)
 
-                        def _sub(m: re.Match) -> str:
-                            orig = m.group(2)
                             if orig.startswith('/'):
                                 new_href = '/' + final_rel.lstrip('/')
                             else:
                                 new_href = f"{rel_prefix}{final_rel}"
-                            return f"{m.group(1)}{new_href}{m.group(3)}"
+                            return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
-                        new_html, replaced = pat.subn(_sub, html)
+                        new_html, replaced = pat.subn(_sub_href, html)
                         if replaced > 0:
                             self._dbg("[post_build] replaced link base=%s in %s", base, rel_html)
                         else:
@@ -639,7 +647,7 @@ class MinifyPlugin(BasePlugin):
                         # Fallback: broad pattern without requiring rel=stylesheet; also matches unquoted href
                         self._dbg("[post_build/templates] strict missed base=%s in %s; trying fallback", base, rel_html)
                         broad_pat = re.compile(
-                            rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
+                            rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
                             re.IGNORECASE,
                         )
                         new_html2, replaced2 = broad_pat.subn(_sub, html)
@@ -713,7 +721,7 @@ class MinifyPlugin(BasePlugin):
                 self._dbg_hash_missing(rel_css, final_rel)   
             self._dbg("[post_template] processing CSS %s -> %s", rel_css, final_rel)
             pattern_re = re.compile(
-                rf'(<link\b[^>]*\brel=["\']stylesheet["\'][^>]*\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
+                rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
                 re.IGNORECASE,
             )
 
