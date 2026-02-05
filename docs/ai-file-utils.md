@@ -26,15 +26,6 @@ actions = utils.resolve_actions(
 )
 ```
 
-## 🔹 The Action Model    filename="my-page.md",
-    content="# My Page Content..."
-)
-```
-
-## 🔹 The Action Model
-
-The core of this plugin is the **Action Model**, defined in `ai_file_actions.json`. This JSON schema defines what actions are available and how they behave.
-
 ### Schema Fields
 
 | Field | Type | Description |
@@ -50,7 +41,7 @@ The core of this plugin is the **Action Model**, defined in `ai_file_actions.jso
 
 ### Interpolation Variables
 
-The plugin supports dynamic injection of context using `{{ variable }}` syntax.
+The module supports dynamic injection of context using `{{ variable }}` syntax.
 
 | Variable | Description |
 | :--- | :--- |
@@ -63,7 +54,7 @@ The plugin supports dynamic injection of context using `{{ variable }}` syntax.
 
 To add a new action (e.g., "Open in Gemini"), you modify `plugins/ai_file_utils/ai_file_actions.json`. You do not need to write new Python code.
 
-### Example: Adding a new LLM
+### Example: Adding a New LLM
 
 ```json
 {
