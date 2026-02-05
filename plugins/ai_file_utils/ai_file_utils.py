@@ -3,26 +3,18 @@ import copy
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List
-from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
 
-class AIFileUtilsPlugin(BasePlugin):
+class AIFileUtils:
     """
-    A MkDocs plugin that provides utilities for resolving AI file actions.
-    This plugin acts as a library/service for other plugins to resolve
+    A utility class that provides methods for resolving AI file actions.
+    This acts as a shared library/service for plugins to resolve
     links, clipboard content, and LLM prompts based on a defined schema.
     """
 
     def __init__(self):
         self._actions_schema = None
         self._actions_config_path = Path(__file__).parent / "ai_file_actions.json"
-
-    def on_config(self, config, **kwargs):
-        """
-        Load the actions schema when the configuration is loaded.
-        """
-        self._load_actions_schema()
-        return config
 
     def _load_actions_schema(self):
         """

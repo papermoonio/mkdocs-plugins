@@ -1,34 +1,32 @@
-# AI File Utils Plugin
+# AI File Utils
 
-The AI File Utils plugin serves as a centralized "contract" and utility service for defining and resolving actions related to AI artifacts. It allows you to separate the *definition* of actions (like "View Markdown", "Open in ChatGPT") from the *implementation* in the UI.
+The `ai_file_utils` module serves as a centralized "contract" and utility service for defining and resolving actions related to AI artifacts. It allows you to separate the *definition* of actions (like "View Markdown", "Open in ChatGPT") from the *implementation* in the UI.
 
-This plugin does not output files directly; instead, it provides a Python API that other plugins (like `resolve_md`) can essentially import and use to generate standardized action lists for any documentation page.
+This is not a standalone MkDocs plugin but a shared library that other plugins (like `resolve_md`) can import to generate standardized action lists for any documentation page.
 
 ## 🔹 Usage
 
-Enable the plugin in your `mkdocs.yml`. It requires no configuration options in the YAML itself, as it loads its schema from an internal JSON file.
-
-```yaml
-plugins:
-  - ai_file_utils
-```
+Since this is a helper library, you do not need to add it to your `mkdocs.yml` plugins list.
 
 ### Using in Python Code
 
-Other plugins can access the utilities provided by this plugin. The primary API is `resolve_actions`, which takes page context and returns a list of fully resolved action objects.
+Import the utility class directly in your code. The primary API is `resolve_actions`, which takes page context and returns a list of fully resolved action objects.
 
 ```python
-from plugins.ai_file_utils.plugin import AIFileUtilsPlugin
+from plugins.ai_file_utils.ai_file_utils import AIFileUtils
 
-# Instantiate (or get reference to)
-utils = AIFileUtilsPlugin()
-# Ensure config is loaded
-utils.on_config({})
+# Instantiate
+utils = AIFileUtils()
 
 # Resolve actions for a specific page context
 actions = utils.resolve_actions(
     page_url="https://docs.example.com/ai/pages/my-page.md",
     filename="my-page.md",
+    content="# My Page Content..."
+)
+```
+
+## 🔹 The Action Model    filename="my-page.md",
     content="# My Page Content..."
 )
 ```
