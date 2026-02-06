@@ -25,6 +25,7 @@ actions = utils.resolve_actions(
     content="# My Page Content..."
 )
 ```
+
 ## Action Model
 
 The core of this plugin is the **Action Model**, defined in `ai_file_actions.json`. This JSON schema defines what actions are available and how they behave.
