@@ -120,18 +120,12 @@ class MinifyPlugin(BasePlugin):
     def _dbg(self, msg: str, *args) -> None:
         """Debug log gated by plugin config.
 
-        MkDocs only shows DEBUG logs when run with `-v/--verbose`.
-
+        MkDocs only shows DEBUG when run with `-v/--verbose`.
         """
         if not self._debug_enabled():
             return
 
-        mkdocs_logger = logging.getLogger("mkdocs")
-        if not mkdocs_logger.isEnabledFor(logging.DEBUG):
-            return
-
-        # Prefix so grepping stays easy and logs remain attributable.
-        mkdocs_logger.debug("[minify] " + msg, *args)
+        logger.debug("[minify] " + msg, *args)
 
     def _extract_line_with(self, text: str, needle: str) -> str:
         """Return a single line from `text` containing `needle` (trimmed), or ""."""
@@ -350,6 +344,26 @@ class MinifyPlugin(BasePlugin):
     # -------------------------------
     # Scoped CSS (per-page injection / replacement)
     # -------------------------------
+
+    def _html_references_original_scoped_css(self, html: str, rel_css: str) -> bool:
+        """True if HTML still references the original scoped CSS (path or basename)."""
+        if not html:
+            return False
+        rel_css_norm = rel_css.lstrip("/")
+        base = os.path.basename(rel_css_norm)
+        return (rel_css_norm in html) or (base in html)
+
+    def _can_delete_original_scoped_css(self, site_dir: Path, rel_css: str) -> bool:
+        """Return True if no built HTML references the original CSS anymore."""
+        rel_css_norm = rel_css.lstrip("/")
+        for html_file in site_dir.rglob("*.html"):
+            try:
+                html = html_file.read_text(encoding="utf8")
+            except Exception:
+                continue
+            if self._html_references_original_scoped_css(html, rel_css_norm):
+                return False
+        return True
 
     def _inject_scoped_css(self, output: str, *, page: Page, config: MkDocsConfig) -> str:
         """Inject or replace page-scoped CSS links when patterns match."""
@@ -633,85 +647,103 @@ class MinifyPlugin(BasePlugin):
 
             if not tpl_final_by_basename:
                 self._dbg("[post_build/templates] fallback skipped (all bases already replaced in on_post_template)")
-                return
+            else:
+                for base in tpl_final_by_basename.keys():
+                    tpl_stats[base] = {"found": 0, "replaced": 0, "fallback_injected": 0, "sample_logged": False}
 
-            for base in tpl_final_by_basename.keys():
-                tpl_stats[base] = {"found": 0, "replaced": 0, "injected": 0, "sample_logged": False}
+                # Scan every generated HTML and replace hrefs that match any of the basenames
+                for html_file in site_dir.rglob('*.html'):
+                    rel_html = html_file.relative_to(site_dir).as_posix()
+                    self._dbg("[post_build/templates] scanning HTML %s", rel_html)
+                    html = html_file.read_text(encoding='utf8')
+                    original_html = html
 
-            # Scan every generated HTML and replace hrefs that match any of the basenames
-            for html_file in site_dir.rglob('*.html'):
-                rel_html = html_file.relative_to(site_dir).as_posix()
-                self._dbg("[post_build/templates] scanning HTML %s", rel_html)
-                html = html_file.read_text(encoding='utf8')
-                original_html = html
+                    for base, final_rel in tpl_final_by_basename.items():
+                        if base in html:
+                            tpl_stats[base]["found"] += 1
+                        self._dbg("[post_build/templates] trying base=%s in %s", base, rel_html)
 
-                for base, final_rel in tpl_final_by_basename.items():
-                    if base in html:
-                        tpl_stats[base]["found"] += 1
-                    self._dbg("[post_build/templates] trying base=%s in %s", base, rel_html)
-
-                    # Strict pattern: require rel=stylesheet somewhere, and match href with or without quotes
-                    strict_pat = re.compile(
-                        rf'(<link\b(?=[^>]*\brel=(?:["\']?)stylesheet(?:["\']?))[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
-                        re.IGNORECASE,
-                    )
-
-                    def _sub(m: re.Match) -> str:
-                        orig = m.group(3)
-                        quote = m.group(2) or ''
-                        tail_quote = m.group(4) or ''
-                        tail_rest = m.group(5)
-                        # Keep absolute if original was absolute; otherwise use a path relative to the file
-                        if orig.startswith('/'):
-                            new_href = '/' + final_rel.lstrip('/')
-                        else:
-                            depth = rel_html.count('/')
-                            rel_prefix = '' if depth == 0 else '../' * depth
-                            new_href = f"{rel_prefix}{final_rel}"
-                        return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
-
-                    new_html, replaced = strict_pat.subn(_sub, html)
-                    if replaced > 0:
-                        tpl_stats[base]["replaced"] += replaced
-                        self._dbg("[post_build/templates] replaced base=%s in %s [strict] count=%d", base, rel_html, replaced)
-                        html = new_html
-                    else:
-                        # Fallback: broad pattern without requiring rel=stylesheet; also matches unquoted href
-                        self._dbg("[post_build/templates] strict missed base=%s in %s; trying fallback", base, rel_html)
-                        broad_pat = re.compile(
-                            rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
+                        # Strict pattern: require rel=stylesheet somewhere, and match href with or without quotes
+                        strict_pat = re.compile(
+                            rf'(<link\b(?=[^>]*\brel=(?:["\']?)stylesheet(?:["\']?))[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*{re.escape(base)})(\2)?([^>]*>)',
                             re.IGNORECASE,
                         )
-                        new_html2, replaced2 = broad_pat.subn(_sub, html)
-                        if replaced2 > 0:
-                            tpl_stats[base]["replaced"] += replaced2
-                            self._dbg("[post_build/templates] replaced base=%s in %s [fallback] count=%d", base, rel_html, replaced2)
-                            html = new_html2
-                        else:
-                            self._dbg("[post_build/templates] no link matched base=%s in %s", base, rel_html)
-                            if (base in html) and (not tpl_stats[base]["sample_logged"]):
-                                line = self._extract_line_with(html, base)
-                                if line:
-                                    self._dbg("[post_build/templates] sample line for base=%s: %s", base, line)
-                                    tpl_stats[base]["sample_logged"] = True
 
-                if html is not original_html:
-                    html_file.write_text(html, encoding='utf8')
-            # Summary (templates): how often each CSS basename appeared vs was replaced.
-            if self._debug_enabled() and logger.isEnabledFor(logging.DEBUG):
-                try:
-                    for base, s in tpl_stats.items():
-                        self._dbg(
-                            "[post_build/templates] summary base=%s found_in_html_files=%d replaced=%d injected=%d",
-                            base,
-                            int(s.get("found", 0)),
-                            int(s.get("replaced", 0)),
-                            int(s.get("injected", 0)),
-                        )
-                except Exception:
-                    pass
+                        def _sub(m: re.Match) -> str:
+                            orig = m.group(3)
+                            quote = m.group(2) or ''
+                            tail_quote = m.group(4) or ''
+                            tail_rest = m.group(5)
+                            # Keep absolute if original was absolute; otherwise use a path relative to the file
+                            if orig.startswith('/'):
+                                new_href = '/' + final_rel.lstrip('/')
+                            else:
+                                depth = rel_html.count('/')
+                                rel_prefix = '' if depth == 0 else '../' * depth
+                                new_href = f"{rel_prefix}{final_rel}"
+                            return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
+
+                        new_html, replaced = strict_pat.subn(_sub, html)
+                        if replaced > 0:
+                            tpl_stats[base]["replaced"] += replaced
+                            self._dbg("[post_build/templates] replaced base=%s in %s [strict] count=%d", base, rel_html, replaced)
+                            html = new_html
+                        else:
+                            # Fallback: broad pattern without requiring rel=stylesheet; also matches unquoted href
+                            self._dbg("[post_build/templates] strict missed base=%s in %s; trying fallback", base, rel_html)
+                            broad_pat = re.compile(
+                                rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
+                                re.IGNORECASE,
+                            )
+                            new_html2, replaced2 = broad_pat.subn(_sub, html)
+                            if replaced2 > 0:
+                                tpl_stats[base]["replaced"] += replaced2
+                                self._dbg("[post_build/templates] replaced base=%s in %s [fallback] count=%d", base, rel_html, replaced2)
+                                html = new_html2
+                            else:
+                                self._dbg("[post_build/templates] no link matched base=%s in %s", base, rel_html)
+                                if (base in html) and (not tpl_stats[base]["sample_logged"]):
+                                    line = self._extract_line_with(html, base)
+                                    if line:
+                                        self._dbg("[post_build/templates] sample line for base=%s: %s", base, line)
+                                        tpl_stats[base]["sample_logged"] = True
+
+                    if html is not original_html:
+                        html_file.write_text(html, encoding='utf8')
+                if self._debug_enabled():
+                    try:
+                        for base, s in tpl_stats.items():
+                            self._dbg(
+                                "[post_build/templates] summary base=%s found_in_html_files=%d replaced=%d fallback_injected=%d",
+                                base,
+                                int(s.get("found", 0)),
+                                int(s.get("replaced", 0)),
+                                int(s.get("fallback_injected", 0)),
+                            )
+                    except Exception:
+                        pass
+
+        # Cleanup: delete original scoped CSS if it's no longer referenced by any HTML.
+        if scoped_files:
+            site_dir = Path(config["site_dir"])
+            for rel_css in scoped_files:
+                rel_css_norm = rel_css.lstrip("/")
+                original_abs = site_dir / rel_css_norm
+
+                if not original_abs.exists():
+                    continue
+
+                if self._can_delete_original_scoped_css(site_dir, rel_css_norm):
+                    try:
+                        original_abs.unlink()
+                        self._dbg("[cleanup] deleted original scoped CSS %s", rel_css_norm)
+                    except Exception as e:
+                        self._dbg("[cleanup] failed to delete %s: %s", rel_css_norm, str(e))
+                else:
+                    self._dbg("[cleanup] kept original scoped CSS %s (still referenced by HTML)", rel_css_norm)
 
         self._dbg("[post_build] done")
+
     def on_post_template(self, output_content: str, *, template_name: str, config: MkDocsConfig) -> Optional[str]:
         """Minify HTML templates (home.html, 404.html, index-page.html, etc.) and
         apply scoped CSS replacement/injection when `scoped_css_templates` patterns match.
