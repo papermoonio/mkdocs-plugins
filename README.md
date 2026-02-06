@@ -4,6 +4,7 @@ A collection of custom [MkDocs](https://www.mkdocs.org/) plugins designed to ext
 
 Currently included:
 
+- **[AI Resources Page](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-resources-page.md)**: Automate the generation of an "AI Resources" page with a dynamic table of artifact files.
 - **[Copy Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/copy-md.md)**: Serve raw Markdown files by copying them directly to your site's build folder.
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
@@ -23,6 +24,7 @@ Enable one or more plugins in your `mkdocs.yml`:
 
 ```yaml
 plugins:
+  - ai_resources_page
   - copy_md:
       source_dir: docs/.example
       target_dir: example

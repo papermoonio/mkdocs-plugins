@@ -77,7 +77,9 @@ class AiResourcesPagePlugin(BasePlugin):
 
         # Get project name
         project_cfg = self.llms_config.get("project", {})
-        project_name = project_cfg.get("name", "Polkadot")
+        project_name = project_cfg.get("name")
+        if not project_name:
+             raise KeyError("[ai_resources_page] 'project.name' is missing in llms_config.json")
 
         # Construct the page content
         output = []
@@ -134,5 +136,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
             
             row = f"| {cat} | {description} | <code style=\"white-space: nowrap;\">{filename}</code> | {actions} |"
             output.append(row)
+
+        # Add Note
+        note = """
+!!! note
+    The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
+"""
+        output.append(note)
              
         return "\n".join(output)
