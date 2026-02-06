@@ -16,7 +16,7 @@ dependencies = [
   "mkdocs>=1.6",
   "mkdocs-material>=9.0",
   "pymdown-extensions>=10.0",
-  "htmlmin>=0.1.12",
+  "htmlmin2>=0.1.13",
   "jsmin>=3.0.1",
   "csscompressor>=0.9.5",
   "beautifulsoup4==4.14.2",

@@ -30,7 +30,7 @@ EXTRAS: Dict[str, str] = {
     "css": "extra_css",
 }
 
-# Minifier dispatch table for JS/CSS. HTML is handled via `htmlmin`.
+# Minifier dispatch table for JS/CSS. HTML is handled via `htmlmin2` package.
 MINIFIERS: Dict[str, Callable] = {
     "js": jsmin.jsmin,
     "css": csscompressor.compress,
