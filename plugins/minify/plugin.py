@@ -365,6 +365,19 @@ class MinifyPlugin(BasePlugin):
                 return False
         return True
 
+    def _site_html_contains_base(self, site_dir: Path, base: str) -> bool:
+        """Return True if any generated HTML still contains the basename `base`."""
+        if not base:
+            return False
+        for html_file in site_dir.rglob("*.html"):
+            try:
+                html = html_file.read_text(encoding="utf8")
+            except Exception:
+                continue
+            if base in html:
+                return True
+        return False
+
     def _inject_scoped_css(self, output: str, *, page: Page, config: MkDocsConfig) -> str:
         """Inject or replace page-scoped CSS links when patterns match."""
         scoped_css_config = self.config.get("scoped_css")
@@ -420,9 +433,14 @@ class MinifyPlugin(BasePlugin):
                 self._dbg_hash_missing(norm_css, final_name)            
             basename = os.path.basename(css_file)  # e.g., home.css
 
-            # Regex to capture an existing <link rel="stylesheet" href="...basename"> and replace href value.
-            # Groups: 1) prefix up to href value, 2) href value, 3) rest of tag
-            pattern = re.compile(
+            # Strict: require rel=stylesheet somewhere in the tag (quoted or unquoted)
+            strict_pat = re.compile(
+                rf'(<link\b(?=[^>]*\brel\s*=\s*(?:["\']?)stylesheet(?:["\']?))[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(basename)})(\2)?([^>]*>)',
+                re.IGNORECASE,
+            )
+
+            # Fallback: match any <link ... href=...> (used only if strict misses)
+            broad_pat = re.compile(
                 rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(basename)})(\2)?([^>]*>)',
                 re.IGNORECASE,
             )
@@ -440,7 +458,10 @@ class MinifyPlugin(BasePlugin):
 
                 return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
-            new_output, replaced_count = pattern.subn(_sub_href, output)
+            new_output, replaced_count = strict_pat.subn(_sub_href, output)
+            if replaced_count == 0:
+                self._dbg("[scoped_css/page] strict missed basename=%s; trying fallback", basename)
+                new_output, replaced_count = broad_pat.subn(_sub_href, output)
             if replaced_count > 0:
                 self._dbg("[scoped_css/page] replaced existing link basename=%s -> %s", basename, final_name)
                 output = new_output
@@ -574,7 +595,14 @@ class MinifyPlugin(BasePlugin):
                             continue
 
                         self._dbg("[post_build] want CSS %s (base=%s) -> %s", rel_css, base, final_rel)
-                        pat = re.compile(
+                        # Strict: require rel=stylesheet (quoted or unquoted)
+                        strict_pat = re.compile(
+                            rf'(<link\b(?=[^>]*\brel\s*=\s*(?:["\']?)stylesheet(?:["\']?))[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
+                            re.IGNORECASE,
+                        )
+
+                        # Fallback: match any <link ... href=...>
+                        broad_pat = re.compile(
                             rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
                             re.IGNORECASE,
                         )
@@ -590,7 +618,10 @@ class MinifyPlugin(BasePlugin):
                                 new_href = f"{rel_prefix}{final_rel}"
                             return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
-                        new_html, replaced = pat.subn(_sub_href, html)
+                        new_html, replaced = strict_pat.subn(_sub_href, html)
+                        if replaced == 0:
+                            self._dbg("[post_build] strict missed base=%s in %s; trying fallback", base, rel_html)
+                            new_html, replaced = broad_pat.subn(_sub_href, html)
                         if replaced > 0:
                             self._dbg("[post_build] replaced link base=%s in %s", base, rel_html)
                         else:
@@ -634,19 +665,28 @@ class MinifyPlugin(BasePlugin):
                 tpl_final_by_basename[base] = final_rel
                 if file_hash == "":
                     self._dbg_hash_missing(rel_css, final_rel)
-            # Fallback gating: if on_post_template already replaced links for a basename,
-            # skip scanning all HTML files for that basename.
+            # Fallback gating (validated):
+            # Only skip scanning HTML for a basename if:
+            #   1) on_post_template replaced at least one occurrence for that basename, AND
+            #   2) the basename no longer appears anywhere in the built HTML output.
             skipped_bases: List[str] = []
             for base in list(tpl_final_by_basename.keys()):
                 if self._tpl_replaced_in_post_template(base):
-                    skipped_bases.append(base)
-                    tpl_final_by_basename.pop(base, None)
-
-            for base in skipped_bases:
-                self._dbg("[post_build/templates] fallback skipped base=%s (already replaced in on_post_template)", base)
+                    if not self._site_html_contains_base(site_dir, base):
+                        skipped_bases.append(base)
+                        tpl_final_by_basename.pop(base, None)
+                        self._dbg(
+                            "[post_build/templates] fallback skipped base=%s (template replaced and no remaining refs)",
+                            base,
+                        )
+                    else:
+                        self._dbg(
+                            "[post_build/templates] fallback required base=%s (template replaced but refs still exist)",
+                            base,
+                        )
 
             if not tpl_final_by_basename:
-                self._dbg("[post_build/templates] fallback skipped (all bases already replaced in on_post_template)")
+                self._dbg("[post_build/templates] fallback skipped (all bases validated as replaced)")
             else:
                 for base in tpl_final_by_basename.keys():
                     tpl_stats[base] = {"found": 0, "replaced": 0, "fallback_injected": 0, "sample_logged": False}
@@ -784,7 +824,14 @@ class MinifyPlugin(BasePlugin):
             if file_hash == "":
                 self._dbg_hash_missing(rel_css, final_rel)   
             self._dbg("[post_template] processing CSS %s -> %s", rel_css, final_rel)
-            pattern_re = re.compile(
+            # Strict: require rel=stylesheet (quoted or unquoted)
+            strict_pat = re.compile(
+                rf'(<link\b(?=[^>]*\brel\s*=\s*(?:["\']?)stylesheet(?:["\']?))[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
+                re.IGNORECASE,
+            )
+
+            # Fallback: match any <link ... href=...>
+            broad_pat = re.compile(
                 rf'(<link\b[^>]*?\bhref\s*=\s*)(["\']?)([^"\'>\s]*?{re.escape(base)})(\2)?([^>]*>)',
                 re.IGNORECASE,
             )
@@ -799,7 +846,10 @@ class MinifyPlugin(BasePlugin):
                 return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
             found_in_html = base in output_content
-            new_html, replaced_count = pattern_re.subn(_sub_href, output_content)
+            new_html, replaced_count = strict_pat.subn(_sub_href, output_content)
+            if replaced_count == 0:
+                self._dbg("[post_template] strict missed base=%s; trying fallback", base)
+                new_html, replaced_count = broad_pat.subn(_sub_href, output_content)
             # Track replacements so post_build templates scan can act as a true fallback.
             self._tpl_rewrite_replaced.setdefault(template_name, {})
             self._tpl_rewrite_replaced[template_name][base] = (
