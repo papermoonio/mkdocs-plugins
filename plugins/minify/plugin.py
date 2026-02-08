@@ -102,6 +102,10 @@ class MinifyPlugin(BasePlugin):
         # Per-build tracking: template_name -> base -> replaced_count
         # Used to decide whether the post_build templates scan needs to run as a true fallback.
         self._tpl_rewrite_replaced: Dict[str, Dict[str, int]] = {}
+        # Per-build cache for href-based scans of generated HTML.
+        self._href_scan_site_dir: Optional[Path] = None
+        self._href_scan_any_link_bases: set[str] = set()
+        self._href_scan_stylesheet_bases: set[str] = set()
 
     def _tpl_replaced_in_post_template(self, base: str) -> bool:
         """Return True if on_post_template already replaced at least one link for this basename."""
@@ -182,7 +186,12 @@ class MinifyPlugin(BasePlugin):
         """Return asset filename with optional hash and `.min` suffix."""
         hash_part: str = f".{file_hash[:6]}" if file_hash else ""
         min_part: str = ".min" if self.config.get(f"minify_{file_type}", False) else ""
-        return file_name.replace(f".{file_type}", f"{hash_part}{min_part}.{file_type}")
+        # Always replace only the last occurrence of .{file_type}
+        if file_name.endswith(f".{file_type}"):
+            base = file_name[: -len(f".{file_type}")]
+            return f"{base}{hash_part}{min_part}.{file_type}"
+        else:
+            return file_name  # fallback: unchanged if extension not found
 
     @staticmethod
     def _minify_file_data_with_func(file_data: str, minify_func: Callable) -> str:
@@ -353,30 +362,77 @@ class MinifyPlugin(BasePlugin):
         base = os.path.basename(rel_css_norm)
         return (rel_css_norm in html) or (base in html)
 
-    def _can_delete_original_scoped_css(self, site_dir: Path, rel_css: str) -> bool:
-        """Return True if no built HTML references the original CSS anymore."""
-        rel_css_norm = rel_css.lstrip("/")
+    def _scan_site_link_hrefs_once(self, site_dir: Path) -> None:
+        """Scan generated HTML once and cache basenames referenced by <link ... href=...>."""
+        if self._href_scan_site_dir is not None and self._href_scan_site_dir == site_dir:
+            return
+
+        self._href_scan_site_dir = site_dir
+        self._href_scan_any_link_bases = set()
+        self._href_scan_stylesheet_bases = set()
+
+        # Strict: rel=stylesheet must appear somewhere in the tag.
+        strict_pat = re.compile(
+            r"<link\b(?=[^>]*\brel\s*=\s*(?:['\"]?)stylesheet(?:['\"]?))[^>]*?\bhref\s*=\s*(?P<q>['\"]?)(?P<href>[^'\">\s]+)(?P=q)[^>]*>",
+            re.IGNORECASE,
+        )
+
+        # Broad: any <link ... href=...> (used to avoid false deletes when rel is missing/malformed).
+        broad_pat = re.compile(
+            r"<link\b[^>]*?\bhref\s*=\s*(?P<q>['\"]?)(?P<href>[^'\">\s]+)(?P=q)[^>]*>",
+            re.IGNORECASE,
+        )
+
+        def _base_from_href(href: str) -> str:
+            if not href:
+                return ""
+            # Strip query/hash defensively.
+            href = href.split("?", 1)[0].split("#", 1)[0]
+            return os.path.basename(href)
+
         for html_file in site_dir.rglob("*.html"):
             try:
                 html = html_file.read_text(encoding="utf8")
             except Exception:
                 continue
-            if self._html_references_original_scoped_css(html, rel_css_norm):
-                return False
-        return True
+
+            for m in broad_pat.finditer(html):
+                base = _base_from_href(m.group("href"))
+                if base:
+                    self._href_scan_any_link_bases.add(base)
+
+            for m in strict_pat.finditer(html):
+                base = _base_from_href(m.group("href"))
+                if base:
+                    self._href_scan_stylesheet_bases.add(base)
+
+        self._dbg(
+            "[scan] cached link href basenames: any_link=%d stylesheet=%d",
+            len(self._href_scan_any_link_bases),
+            len(self._href_scan_stylesheet_bases),
+        )
+
+    def _can_delete_original_scoped_css(self, site_dir: Path, rel_css: str) -> bool:
+        """Return True if no generated HTML references the original CSS anymore.
+
+        Uses a single cached scan of <link ... href=...> basenames to avoid
+        O(num_css * num_html) repeated reads.
+        """
+        self._scan_site_link_hrefs_once(site_dir)
+        rel_css_norm = rel_css.lstrip("/")
+        base = os.path.basename(rel_css_norm)
+        return base not in self._href_scan_any_link_bases
 
     def _site_html_contains_base(self, site_dir: Path, base: str) -> bool:
-        """Return True if any generated HTML still contains the basename `base`."""
+        """Return True if any generated HTML still references `base` in a <link href=...>.
+
+        This is intentionally href-based (not arbitrary substring search) to avoid
+        false positives from script/text content.
+        """
         if not base:
             return False
-        for html_file in site_dir.rglob("*.html"):
-            try:
-                html = html_file.read_text(encoding="utf8")
-            except Exception:
-                continue
-            if base in html:
-                return True
-        return False
+        self._scan_site_link_hrefs_once(site_dir)
+        return base in self._href_scan_any_link_bases
 
     def _inject_scoped_css(self, output: str, *, page: Page, config: MkDocsConfig) -> str:
         """Inject or replace page-scoped CSS links when patterns match."""
@@ -538,6 +594,10 @@ class MinifyPlugin(BasePlugin):
     def on_post_build(self, *, config: MkDocsConfig) -> None:
         """After build: write minified assets and perform renames."""
         self._dbg("[post_build] start")
+        # Reset per-build scan cache (site_dir changes per config/build).
+        self._href_scan_site_dir = None
+        self._href_scan_any_link_bases = set()
+        self._href_scan_stylesheet_bases = set()
         if self.config.get("minify_js", False) or self.config.get("cache_safe", False):
             self._minify("js", config)
         if self.config.get("minify_css", False) or self.config.get("cache_safe", False):
