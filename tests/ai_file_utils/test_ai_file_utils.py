@@ -1,4 +1,3 @@
-import pytest
 from plugins.ai_file_utils.ai_file_utils import AIFileUtils
 
 class TestAIFileUtils:
@@ -51,19 +50,11 @@ class TestAIFileUtils:
         # Should contain encoded page url as it's part of the prompt
         assert "docs.polkadot.com" in claude_action["href"]
 
-        # This would be the structure consumed by the UI generator
-        print("\n--- Resolved Actions Example ---")
-        for action in actions:
-            print(f"Action ID: {action['id']}")
-            print(f"  Type: {action['type']}")
-            print(f"  Label: {action['label']}")
-            if "href" in action:
-                print(f"  Href: {action['href'][:50]}...") # Truncated for display
-            if "clipboardContent" in action:
-                print(f"  Clipboard: {action['clipboardContent'][:20]}...")
-
     def test_missing_schema_file(self, tmp_path, caplog):
         """Test behavior when schema file is missing."""
+        import logging
+        caplog.set_level(logging.WARNING)
+        
         utils = AIFileUtils()
         # Override path to non-existent file
         utils._actions_config_path = tmp_path / "non_existent.json"
