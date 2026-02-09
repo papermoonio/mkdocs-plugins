@@ -27,7 +27,7 @@ class AiResourcesPagePlugin(BasePlugin):
     def slugify_category(self, name: str) -> str:
         s = name.strip().lower()
         s = re.sub(r"[^\w\s-]", "", s)
-        s = re.sub(r"\s+", "-", s)
+        s = re.sub(r"[\s_]+", "-", s) # Replace spaces AND underscores with hyphens
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
 
@@ -39,7 +39,7 @@ class AiResourcesPagePlugin(BasePlugin):
         """
         # View Button (Eye icon)
         view_btn = (
-            f'<a href="#" class="llms-view" data-path="{url}" title="View" style="margin-right: 8px; text-decoration: none;">'
+            f'<a href="{url}" target="_blank" rel="noopener noreferrer" class="llms-view" data-path="{url}" title="View" style="margin-right: 8px; text-decoration: none;">'
             f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2C4.14 2 1 5.14 1 8s3.14 6 7 6 7-3.14 7-6-3.14-6-7-6m0 10.5c-2.48 0-4.5-2.02-4.5-4.5S5.52 3.5 8 3.5s4.5 2.02 4.5 4.5-2.02 4.5-4.5 4.5m0-7c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5"/></svg></span>'
             f'</a>'
         )
@@ -67,7 +67,7 @@ class AiResourcesPagePlugin(BasePlugin):
         btns = []
         if view:
             btns.append(
-                f'<a href="#" class="llms-view" data-path="{url}" title="View" style="margin-right: 8px; text-decoration: none;">'
+                f'<a href="{url}" target="_blank" rel="noopener noreferrer" class="llms-view" data-path="{url}" title="View" style="margin-right: 8px; text-decoration: none;">'
                 f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2C4.14 2 1 5.14 1 8s3.14 6 7 6 7-3.14 7-6-3.14-6-7-6m0 10.5c-2.48 0-4.5-2.02-4.5-4.5S5.52 3.5 8 3.5s4.5 2.02 4.5 4.5-2.02 4.5-4.5 4.5m0-7c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5"/></svg></span>'
                 f'</a>'
             )
@@ -171,29 +171,30 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # 3. llms-full.jsonl
         # Typically no "View" for large JSONL
         actions_full = self.generate_global_actions_html(
-            # Sanitize for markdown table
-            cat = self.sanitize_table_content(cat)
-            description = self.sanitize_table_content(description)
-
             f"{public_root_stripped}/llms-full.jsonl", "llms-full.jsonl", view=False
         )
         row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
         output.append(row_full)
 
         # 4. Categories
-        for cat in categories:
-            slug = self.slugify_category(cat)
+        for cat_id in categories:
+            slug = self.slugify_category(cat_id)
 
-            # Use dictionary lookup for description
-            cat_info = categories_info.get(cat, {})
-            description = cat_info.get("description", f"Resources for {cat}.")
+            # Use dictionary lookup for description and name
+            cat_info = categories_info.get(cat_id, {})
+            display_name = cat_info.get("name", cat_id.replace("_", " ").title())
+            description = cat_info.get("description", f"Resources for {display_name}.")
+
+            # Sanitize for markdown table
+            display_name = self.sanitize_table_content(display_name)
+            description = self.sanitize_table_content(description)
 
             filename = f"{slug}.md"
             url = f"{public_root_stripped}/categories/{filename}"
 
             actions = self.generate_actions_html(url, filename)
 
-            row = f'| {cat} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
+            row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
             output.append(row)
 
         # Add Note
