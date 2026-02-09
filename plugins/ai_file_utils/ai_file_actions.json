@@ -1,0 +1,42 @@
+{
+  "actions": [
+    {
+      "type": "link",
+      "id": "view-markdown",
+      "label": "View Markdown",
+      "href": "{{ page_url }}",
+      "analyticsKey": "view_page_markdown"
+    },
+    {
+      "type": "link",
+      "id": "download-markdown",
+      "label": "Download Markdown",
+      "href": "{{ page_url }}",
+      "download": "{{ filename }}",
+      "analyticsKey": "download_page_markdown"
+    },
+    {
+      "type": "clipboard",
+      "id": "copy-markdown",
+      "label": "Copy Markdown",
+      "clipboardContent": "{{ content }}",
+      "analyticsKey": "copy_page_markdown"
+    },
+    {
+      "type": "link",
+      "id": "open-chat-gpt",
+      "label": "Open in ChatGPT",
+      "href": "https://chatgpt.com/?q={{ prompt }}",
+      "promptTemplate": "Analyze the documentation at https://r.jina.ai/{{ page_url }}. Focus on the technical implementation details and code examples. I want to ask you questions about implementing these protocols.",
+      "analyticsKey": "open_page_markdown_chatgpt"
+    },
+    {
+      "type": "link",
+      "id": "open-claude",
+      "label": "Open in Claude",
+      "href": "https://claude.ai/new?q={{ prompt }}",
+      "promptTemplate": "Read {{ page_url }} so I can ask questions about it.",
+      "analyticsKey": "open_page_markdown_claude"
+    }
+  ]
+}
