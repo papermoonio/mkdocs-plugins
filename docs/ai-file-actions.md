@@ -17,9 +17,9 @@ plugins:
 
 The plugin provides a method to generate a consistent dropdown menu component for file actions. This component currently supports:
 
-- **Copy**: Details for copying the file content to the clipboard.
-- **View**: Details for opening the file in a new tab.
-- **Download**: Details for downloading the file to the user's device.
+- **Copy**: Copying the file content to the clipboard.
+- **View**: Opening the file in a new browser tab.
+- **Download**: Downloading the file to the user's device.
 
 ### API
 
