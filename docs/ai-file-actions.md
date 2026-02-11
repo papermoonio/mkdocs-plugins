@@ -23,13 +23,14 @@ The plugin provides a method to generate a consistent dropdown menu component fo
 
 ### API
 
-**`generate_dropdown_html(url: str, filename: str) -> str`**
+**`generate_dropdown_html(url: str, filename: str, view: bool = True) -> str`**
 
 Generates the HTML structure for the AI file actions split-button dropdown.
 
 - **Parameters**:
     - `url` (str): The URL of the file to act upon (e.g., the path to the resolved Markdown file).
     - `filename` (str): The filename to be used when downloading the file.
+    - `view` (bool, optional): Whether to include the "View" action in the dropdown. Defaults to `True`.
 - **Returns**: A string containing the HTML markup for the component.
 
 ## Integration
