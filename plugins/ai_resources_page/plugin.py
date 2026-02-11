@@ -3,6 +3,7 @@ import logging
 import re
 from pathlib import Path
 from mkdocs.plugins import BasePlugin
+from plugins.ai_file_actions.plugin import AiFileActionsPlugin
 
 log = logging.getLogger("mkdocs.plugins.ai_resources_page")
 
@@ -11,6 +12,8 @@ class AiResourcesPagePlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self.llms_config = {}
+        # Instantiate the actions plugin helper
+        self.actions_plugin = AiFileActionsPlugin()
 
     def load_llms_config(self, project_root: Path) -> dict:
         config_path = project_root / "llms_config.json"
@@ -30,61 +33,17 @@ class AiResourcesPagePlugin(BasePlugin):
         s = re.sub(r"[\s_]+", "-", s) # Replace spaces AND underscores with hyphens
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
-
     def generate_actions_html(self, url: str, filename: str) -> str:
         """
-        Generates the HTML for the actions column (View, Copy, Download) using pure HTML anchor tags.
-        This standardizes on the class names and data attributes used by the client-side JS
-        and avoids issues with Markdown parsing inside HTML blocks.
+        Generates the HTML for the actions column using AiFileActionsPlugin.
         """
-        # View Button (Eye icon)
-        view_btn = (
-            f'<a href="{url}" target="_blank" rel="noopener noreferrer" class="llms-view" data-path="{url}" title="View" style="margin-right: 8px; text-decoration: none;">'
-            f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2C4.14 2 1 5.14 1 8s3.14 6 7 6 7-3.14 7-6-3.14-6-7-6m0 10.5c-2.48 0-4.5-2.02-4.5-4.5S5.52 3.5 8 3.5s4.5 2.02 4.5 4.5-2.02 4.5-4.5 4.5m0-7c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5"/></svg></span>'
-            f'</a>'
-        )
-
-        # Copy Button (Copy icon)
-        copy_btn = (
-            f'<a href="#" class="llms-copy" data-path="{url}" title="Copy" style="margin-right: 8px; text-decoration: none;">'
-            f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path fill="currentColor" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg></span>'
-            f'</a>'
-        )
-        
-        # Download Button (Download icon)
-        dl_btn = (
-            f'<a href="#" class="llms-dl" data-path="{url}" data-filename="{filename}" title="Download" style="text-decoration: none;">'
-            f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path fill="currentColor" d="M7.25 7.689V1a.75.75 0 0 1 1.5 0v6.689l2.22-2.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06Z"/></svg></span>'
-            f'</a>'
-        )
-
-        return f'<div class="actions" style="display: flex; align-items: center;"> {view_btn} {copy_btn} {dl_btn} </div>'
+        return self.actions_plugin.generate_dropdown_html(url=url, filename=filename)
 
     def generate_global_actions_html(self, url: str, filename: str, view=True) -> str:
         """
         Generates actions for global files which might differ (e.g. no View for JSONL).
         """
-        btns = []
-        if view:
-            btns.append(
-                f'<a href="{url}" target="_blank" rel="noopener noreferrer" class="llms-view" data-path="{url}" title="View" style="margin-right: 8px; text-decoration: none;">'
-                f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M8 2C4.14 2 1 5.14 1 8s3.14 6 7 6 7-3.14 7-6-3.14-6-7-6m0 10.5c-2.48 0-4.5-2.02-4.5-4.5S5.52 3.5 8 3.5s4.5 2.02 4.5 4.5-2.02 4.5-4.5 4.5m0-7c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5"/></svg></span>'
-                f'</a>'
-            )
-        
-        btns.append(
-            f'<a href="#" class="llms-copy" data-path="{url}" title="Copy" style="margin-right: 8px; text-decoration: none;">'
-            f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path fill="currentColor" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg></span>'
-            f'</a>'
-        )
-        
-        btns.append(
-            f'<a href="#" class="llms-dl" data-path="{url}" data-filename="{filename}" title="Download" style="text-decoration: none;">'
-            f'<span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="currentColor" d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path fill="currentColor" d="M7.25 7.689V1a.75.75 0 0 1 1.5 0v6.689l2.22-2.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06Z"/></svg></span>'
-            f'</a>'
-        )
-
-        return f'<div class="actions" style="display: flex; align-items: center;"> {" ".join(btns)} </div>'
+        return self.actions_plugin.generate_dropdown_html(url=url, filename=filename, view=view)
 
     def sanitize_table_content(self, text: str) -> str:
         """
