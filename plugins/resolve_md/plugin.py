@@ -865,10 +865,7 @@ class ResolveMDPlugin(BasePlugin):
 
         base_sets = []
         for cat_id in base_cats:
-            cat_info = categories_info.get(cat_id, {})
-            # Fallback to cat_id if no name
-            search_name = cat_info.get("name", cat_id)
-            base_sets.append(self.select_pages_for_category(search_name, pages))
+            base_sets.append(self.select_pages_for_category(cat_id, pages))
         base_union = self.union_pages(base_sets) if base_sets else []
 
         log.debug(
@@ -883,7 +880,7 @@ class ResolveMDPlugin(BasePlugin):
             cat_info = categories_info.get(category_id, {})
             display_name = cat_info.get("name", category_id)
 
-            category_pages = self.select_pages_for_category(display_name, pages)
+            category_pages = self.select_pages_for_category(category_id, pages)
 
             if is_base:
                 bundle_pages = sorted(
@@ -1105,12 +1102,12 @@ class ResolveMDPlugin(BasePlugin):
             cat_info = categories_info.get(cat_id, {})
             display_name = cat_info.get("name", cat_id)
 
-            entries = grouped.get(display_name)
+            entries = grouped.get(cat_id)
             if not entries:
                 continue
             lines.append(f"\nDocs: {display_name}")
             lines.extend(entries)
-            seen.add(display_name)
+            seen.add(cat_id)
 
         remaining = sorted(cat for cat in grouped if cat not in seen)
         for cat in remaining:
