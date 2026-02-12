@@ -2,7 +2,9 @@ import json
 import logging
 import re
 from pathlib import Path
+
 from mkdocs.plugins import BasePlugin
+
 from plugins.ai_file_actions.plugin import AiFileActionsPlugin
 
 log = logging.getLogger("mkdocs.plugins.ai_resources_page")
@@ -30,20 +32,25 @@ class AiResourcesPagePlugin(BasePlugin):
     def slugify_category(self, name: str) -> str:
         s = name.strip().lower()
         s = re.sub(r"[^\w\s-]", "", s)
-        s = re.sub(r"[\s_]+", "-", s) # Replace spaces AND underscores with hyphens
+        s = re.sub(r"[\s_]+", "-", s)  # Replace spaces AND underscores with hyphens
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
+
     def generate_actions_html(self, url: str, filename: str) -> str:
         """
         Generates the HTML for the actions column using AiFileActionsPlugin.
         """
         return self.actions_plugin.generate_dropdown_html(url=url, filename=filename)
 
-    def generate_global_actions_html(self, url: str, filename: str, view=True) -> str:
+    def generate_global_actions_html(
+        self, url: str, filename: str, exclude=None
+    ) -> str:
         """
         Generates actions for global files which might differ (e.g. no View for JSONL).
         """
-        return self.actions_plugin.generate_dropdown_html(url=url, filename=filename, view=view)
+        return self.actions_plugin.generate_dropdown_html(
+            url=url, filename=filename, exclude=exclude
+        )
 
     def sanitize_table_content(self, text: str) -> str:
         """
@@ -114,15 +121,13 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         # 1. llms.txt (Root File)
         # Note: llms.txt usually lives at root, so path is "/llms.txt"
-        actions_llms = self.generate_global_actions_html(
-            "/llms.txt", "llms.txt", view=True
-        )
+        actions_llms = self.generate_global_actions_html("/llms.txt", "llms.txt")
         row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
         output.append(row_llms)
 
         # 2. site-index.json
         actions_site_index = self.generate_global_actions_html(
-            f"{public_root_stripped}/site-index.json", "site-index.json", view=True
+            f"{public_root_stripped}/site-index.json", "site-index.json"
         )
         row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
         output.append(row_site_index)
@@ -130,7 +135,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # 3. llms-full.jsonl
         # Typically no "View" for large JSONL
         actions_full = self.generate_global_actions_html(
-            f"{public_root_stripped}/llms-full.jsonl", "llms-full.jsonl", view=False
+            f"{public_root_stripped}/llms-full.jsonl",
+            "llms-full.jsonl",
+            exclude=["view-markdown"],
         )
         row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
         output.append(row_full)
