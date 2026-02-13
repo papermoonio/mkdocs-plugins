@@ -385,14 +385,14 @@ document.addEventListener('DOMContentLoaded', () => {
   padding: 4px 12px;
   border-radius: 9999px;
   font-weight: 500;
-  color: var(--md-default-fg-color);
+  color: INSERT_TEXT_COLOR;
   cursor: pointer;
   transition: color 0.25s ease;
 }
 
 /* Active text color */
 .toggle-btn.active {
-  color: var(--md-default-bg-color);
+  color: INSERT_ACTIVE_TEXT_COLOR;
 }
 
 /* Slider background */
@@ -401,7 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
   top: 4px;
   bottom: 4px;
   left: 0;
-  background: INSERT_SECONDARY_B;
+  background: INSERT_SECONDARY_BACKGROUND_COLOR;
   border-radius: 9999px;
   z-index: 1;
   transition: all 0.25s ease;
