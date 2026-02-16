@@ -192,35 +192,49 @@ class AIFileUtils:
         )
 
     def _render_action_item(self, action: dict, url: str) -> str:
-        """Render a single dropdown item from a resolved action."""
+        """Render a single dropdown item from a resolved action.
+
+        Link-type actions render as ``<a>`` so the browser handles
+        navigation natively.  Clipboard actions render as ``<button>``
+        since copying requires JavaScript.
+        """
         action_type = action.get("type", "link")
         action_id = action.get("id", "")
         label = html.escape(action.get("label", ""), quote=True)
         icon_svg = action.get("icon", "")
         trailing_svg = action.get("trailingIcon", "")
 
-        safe_type = html.escape(action_type, quote=True)
         safe_id = html.escape(action_id, quote=True)
-        attrs = f' data-action-type="{safe_type}"' f' data-action-id="{safe_id}"'
+        inner = f"{icon_svg}" f"<span>{label}</span>" f"{trailing_svg}"
 
         if action_type == "link":
             href = action.get("href", "")
             safe_href = html.escape(href, quote=True)
-            attrs += f' data-href="{safe_href}"'
+            dl_attr = ""
             if "download" in action:
                 safe_dl = html.escape(action["download"], quote=True)
-                attrs += f' data-download="{safe_dl}"'
-        elif action_type == "clipboard":
-            safe_url = html.escape(url, quote=True)
-            attrs += f' data-url="{safe_url}"'
+                dl_attr = f' download="{safe_dl}"'
+            else:
+                dl_attr = ' target="_blank" rel="noopener noreferrer"'
+            return (
+                f'<a class="ai-file-actions-item"'
+                f' href="{safe_href}"'
+                f"{dl_attr}"
+                f' data-action-id="{safe_id}"'
+                f' role="menuitem" tabindex="-1">'
+                f"{inner}"
+                f"</a>"
+            )
 
+        # clipboard (or any non-link type)
+        safe_url = html.escape(url, quote=True)
         return (
             f'<button class="ai-file-actions-item"'
-            f"{attrs}"
+            f' data-action-type="clipboard"'
+            f' data-action-id="{safe_id}"'
+            f' data-url="{safe_url}"'
             f' role="menuitem" tabindex="-1">'
-            f"{icon_svg}"
-            f"<span>{label}</span>"
-            f"{trailing_svg}"
+            f"{inner}"
             f"</button>"
         )
 

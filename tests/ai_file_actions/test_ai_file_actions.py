@@ -69,20 +69,21 @@ class TestAiFileActionsPlugin:
         assert 'class="ai-file-actions-btn ai-file-actions-copy"' in result
         assert 'data-action="copy-markdown"' in result
 
-    def test_link_actions_have_data_href(self):
-        """Link-type actions should include a data-href attribute."""
+    def test_link_actions_render_as_anchor_tags(self):
+        """Link-type actions should render as <a> tags with href."""
         result = self.plugin.generate_dropdown_html(
             url="/ai/pages/test.md", filename="test.md"
         )
-        assert 'data-action-type="link"' in result
-        assert 'data-href="/ai/pages/test.md"' in result
+        assert '<a class="ai-file-actions-item"' in result
+        assert 'href="/ai/pages/test.md"' in result
+        assert 'target="_blank"' in result
 
-    def test_download_actions_have_data_download(self):
-        """Download actions should include a data-download attribute."""
+    def test_download_actions_have_download_attribute(self):
+        """Download actions should be <a> tags with a download attribute."""
         result = self.plugin.generate_dropdown_html(
             url="/ai/pages/test.md", filename="test.md"
         )
-        assert 'data-download="test.md"' in result
+        assert 'download="test.md"' in result
 
     def test_svg_icons_in_dropdown(self):
         """Each dropdown item should contain an SVG icon."""

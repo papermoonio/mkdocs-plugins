@@ -190,7 +190,10 @@ class TestAIFileUtilsDropdownHtml:
         result = self.utils.generate_dropdown_html(url=url, filename="test.md")
         assert '&bar=2"<script>' not in result
         safe = html.escape(url, quote=True)
+        # Primary button still uses data-url
         assert f'data-url="{safe}"' in result
+        # Link actions use href
+        assert f'href="{safe}"' in result
 
     def test_exclude_none_same_as_no_exclude(self):
         """Passing exclude=None should show all actions."""
