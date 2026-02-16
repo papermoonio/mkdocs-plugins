@@ -59,7 +59,6 @@ class AiResourcesPagePlugin(BasePlugin):
         self.llms_config = self.load_llms_config(project_root)
 
         content_cfg = self.llms_config.get("content", {})
-        categories = content_cfg.get("categories_order", [])
         categories_info = content_cfg.get("categories_info", {})
 
         # Determine public root (e.g. "/ai/")
@@ -126,12 +125,10 @@ These AI-ready files do not include any persona or system prompts. They are pure
         row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
         output.append(row_full)
 
-        # 4. Categories
-        for cat_id in categories:
+        # 4. Categories (key order in categories_info controls display order)
+        for cat_id, cat_info in categories_info.items():
             slug = self.slugify_category(cat_id)
 
-            # Use dictionary lookup for description and name
-            cat_info = categories_info.get(cat_id, {})
             display_name = cat_info.get("name", cat_id)
             description = cat_info.get("description", f"Resources for {display_name}.")
 

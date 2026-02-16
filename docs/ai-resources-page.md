@@ -28,8 +28,7 @@ Key sections used by this plugin:
 - **`project`**:
     - `name`: The name of your project (e.g., "Polkadot"). **Required**.
 - **`content`**:
-    - `categories_order`: A list of category names to appear in the table.
-    - `categories_info`: A dictionary where keys match `categories_order` and values contain metadata like `description`.
+    - `categories_info`: A dictionary of category metadata. Key order controls the display order in the table. Each value contains `name` and `description`.
 - **`outputs`**:
     - `public_root`: The URL path where AI artifacts are served (default: `/ai/`).
 
@@ -41,12 +40,13 @@ Key sections used by this plugin:
     "name": "My Project"
   },
   "content": {
-    "categories_order": ["Basics", "Reference"],
     "categories_info": {
-      "Basics": {
+      "basics": {
+        "name": "Basics",
         "description": "General knowledge base and overview content."
       },
-      "Reference": {
+      "reference": {
+        "name": "Reference",
         "description": "API references and glossary."
       }
     }
@@ -64,7 +64,7 @@ Key sections used by this plugin:
     *   It replaces the page content with a standard Introduction/Overview using the `project.name`.
     *   It generates a table including:
         *   **Standard Files**: `llms.txt`, `site-index.json`, `llms-full.jsonl`.
-        *   **Categories**: Iterates through `categories_order` to create rows for each category bundle, using descriptions from `categories_info`.
+        *   **Categories**: Iterates through `categories_info` (in key order) to create rows for each category bundle.
 3.  **Client-Side Actions**: Each table row includes a split-button dropdown (generated via the shared [`ai_file_utils`](ai-file-utils.md) library) with copy, view, download, and LLM tool actions.
 
 ## Notes

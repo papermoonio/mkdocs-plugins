@@ -863,9 +863,8 @@ class ResolveMDPlugin(BasePlugin):
     def build_category_bundles(self, pages: list[dict], ai_root: Path) -> None:
         """Generate per-category bundle files based on AI pages."""
         content_cfg = self.llms_config.get("content", {})
-        categories_order = content_cfg.get("categories_order") or []
         categories_info = content_cfg.get("categories_info") or {}
-        if not categories_order:
+        if not categories_info:
             log.info("[resolve_md] no categories configured; skipping bundles")
             return
         base_cats = content_cfg.get("base_context_categories") or []
@@ -881,15 +880,14 @@ class ResolveMDPlugin(BasePlugin):
         base_union = self.union_pages(base_sets) if base_sets else []
 
         log.debug(
-            f"[resolve_md] building category bundles for {len(categories_order)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
+            f"[resolve_md] building category bundles for {len(categories_info)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
         )
 
-        for category_id in categories_order:
+        for category_id, cat_info in categories_info.items():
             cat_slug = self.slugify_category(category_id)
             out_path = categories_dir / f"{cat_slug}.md"
             is_base = category_id in base_cats
 
-            cat_info = categories_info.get(category_id, {})
             display_name = cat_info.get("name", category_id)
 
             category_pages = self.select_pages_for_category(category_id, pages)
@@ -1032,7 +1030,6 @@ class ResolveMDPlugin(BasePlugin):
         )
 
         content_cfg = self.llms_config.get("content", {})
-        category_order = content_cfg.get("categories_order", []) or []
         categories_info = content_cfg.get("categories_info", {}) or {}
 
         docs_root = docs_dir.resolve()
@@ -1053,7 +1050,7 @@ class ResolveMDPlugin(BasePlugin):
 
         metadata_section = self.format_llms_metadata_section(pages)
         docs_section = self.format_llms_docs_section(
-            pages, resolved_base, category_order, categories_info
+            pages, resolved_base, list(categories_info.keys()), categories_info
         )
         summary_line = summary_line.strip()
 
