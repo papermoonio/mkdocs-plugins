@@ -1,21 +1,18 @@
 import json
-import logging
 import re
 from pathlib import Path
 
 from mkdocs.plugins import BasePlugin
+from mkdocs.utils import log
 
-from plugins.ai_file_actions.plugin import AiFileActionsPlugin
-
-log = logging.getLogger("mkdocs.plugins.ai_resources_page")
+from plugins.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiResourcesPagePlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self.llms_config = {}
-        # Instantiate the actions plugin helper
-        self.actions_plugin = AiFileActionsPlugin()
+        self._file_utils = AIFileUtils()
 
     def load_llms_config(self, project_root: Path) -> dict:
         config_path = project_root / "llms_config.json"
@@ -35,22 +32,6 @@ class AiResourcesPagePlugin(BasePlugin):
         s = re.sub(r"[\s_]+", "-", s)  # Replace spaces AND underscores with hyphens
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
-
-    def generate_actions_html(self, url: str, filename: str) -> str:
-        """
-        Generates the HTML for the actions column using AiFileActionsPlugin.
-        """
-        return self.actions_plugin.generate_dropdown_html(url=url, filename=filename)
-
-    def generate_global_actions_html(
-        self, url: str, filename: str, exclude=None
-    ) -> str:
-        """
-        Generates actions for global files which might differ (e.g. no View for JSONL).
-        """
-        return self.actions_plugin.generate_dropdown_html(
-            url=url, filename=filename, exclude=exclude
-        )
 
     def sanitize_table_content(self, text: str) -> str:
         """
@@ -102,7 +83,7 @@ class AiResourcesPagePlugin(BasePlugin):
         # Overview Text
         overview = f"""# AI Resources
 
-{project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}’s documentation.
+{project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
 
 ## How to Use These Files
 
@@ -121,22 +102,25 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         # 1. llms.txt (Root File)
         # Note: llms.txt usually lives at root, so path is "/llms.txt"
-        actions_llms = self.generate_global_actions_html("/llms.txt", "llms.txt")
+        actions_llms = self._file_utils.generate_dropdown_html(
+            url="/llms.txt", filename="llms.txt"
+        )
         row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
         output.append(row_llms)
 
         # 2. site-index.json
-        actions_site_index = self.generate_global_actions_html(
-            f"{public_root_stripped}/site-index.json", "site-index.json"
+        actions_site_index = self._file_utils.generate_dropdown_html(
+            url=f"{public_root_stripped}/site-index.json",
+            filename="site-index.json",
         )
         row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
         output.append(row_site_index)
 
         # 3. llms-full.jsonl
         # Typically no "View" for large JSONL
-        actions_full = self.generate_global_actions_html(
-            f"{public_root_stripped}/llms-full.jsonl",
-            "llms-full.jsonl",
+        actions_full = self._file_utils.generate_dropdown_html(
+            url=f"{public_root_stripped}/llms-full.jsonl",
+            filename="llms-full.jsonl",
             exclude=["view-markdown"],
         )
         row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
@@ -148,7 +132,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
             # Use dictionary lookup for description and name
             cat_info = categories_info.get(cat_id, {})
-            display_name = cat_info.get("name", cat_id.replace("_", " ").title())
+            display_name = cat_info.get("name", cat_id)
             description = cat_info.get("description", f"Resources for {display_name}.")
 
             # Sanitize for markdown table
@@ -158,7 +142,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
             filename = f"{slug}.md"
             url = f"{public_root_stripped}/categories/{filename}"
 
-            actions = self.generate_actions_html(url, filename)
+            actions = self._file_utils.generate_dropdown_html(
+                url=url, filename=filename
+            )
 
             row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
             output.append(row)

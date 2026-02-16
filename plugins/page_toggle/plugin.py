@@ -1,12 +1,13 @@
 from collections import defaultdict
 from html import escape
 from pathlib import Path
-from typing import List, Any
-from mkdocs.plugins import BasePlugin
-from mkdocs.structure.pages import Page
-from mkdocs.structure.files import Files
-from mkdocs.config.defaults import MkDocsConfig
+from typing import Any, List
+
 from bs4 import BeautifulSoup
+from mkdocs.config.defaults import MkDocsConfig
+from mkdocs.plugins import BasePlugin
+from mkdocs.structure.files import Files
+from mkdocs.structure.pages import Page
 
 
 class TogglePagesPlugin(BasePlugin):
@@ -17,7 +18,9 @@ class TogglePagesPlugin(BasePlugin):
     # ------------------------------------------------------------
     # Capture content and TOC from all pages in toggle groups
     # ------------------------------------------------------------
-    def on_page_content(self, html: str, page: Page, config: MkDocsConfig, files: Files) -> str:
+    def on_page_content(
+        self, html: str, page: Page, config: MkDocsConfig, files: Files
+    ) -> str:
         toggle = page.meta.get("toggle")
         if not toggle:
             return html
@@ -25,14 +28,14 @@ class TogglePagesPlugin(BasePlugin):
         # Extract toggle metadata
         group = toggle.get("group")
         is_canonical = toggle.get("canonical", False)
-        
+
         if not group:
             return html
-        
+
         variant = toggle.get("variant")
         if not variant:
             return html
-            
+
         label = toggle.get("label", variant)
 
         # Prepare and store data to be accessed by other hooks
@@ -65,7 +68,7 @@ class TogglePagesPlugin(BasePlugin):
 
                 # Use same name for all inputs in this tabbed set
                 group_name = f"{variant}{inputs[0].get('name', '__tabbed')}"
-                
+
                 # Update input IDs and names
                 for inp in inputs:
                     input_id = inp.get("id")
@@ -82,7 +85,9 @@ class TogglePagesPlugin(BasePlugin):
                     text = label_tag.text.strip()
                     label_tag.clear()
                     label_tag["for"] = f"{variant}{input_id}"
-                    a_tag = soup.new_tag("a", href=f"#{variant}{input_id}", tabindex="-1")
+                    a_tag = soup.new_tag(
+                        "a", href=f"#{variant}{input_id}", tabindex="-1"
+                    )
                     a_tag.string = text
                     label_tag.append(a_tag)
 
@@ -93,8 +98,9 @@ class TogglePagesPlugin(BasePlugin):
                 # Set indicator CSS
                 first_label = labels[0]
                 indicator_width = str(len(first_label.text.strip()) * 8) + "px"
-                tabbed["style"] = f"--md-indicator-x: 0px; --md-indicator-width: {indicator_width};"
-
+                tabbed["style"] = (
+                    f"--md-indicator-x: 0px; --md-indicator-width: {indicator_width};"
+                )
 
         html = str(soup)
 
@@ -144,9 +150,7 @@ class TogglePagesPlugin(BasePlugin):
         headers_html = []
 
         # Ensure canonical variant is first
-        ordered_variants = [canonical] + [
-            v for v in variants.keys() if v != canonical
-        ]
+        ordered_variants = [canonical] + [v for v in variants.keys() if v != canonical]
         for variant in ordered_variants:
             data = variants[variant]
             active_class = "active" if variant == canonical else ""
@@ -194,7 +198,9 @@ class TogglePagesPlugin(BasePlugin):
     # ------------------------------------------------------------
     # Render page TOC in MkDocs sidebar format
     # ------------------------------------------------------------
-    def render_toc_html(self, items: List[Any], variant: str, is_canonical: bool) -> str:
+    def render_toc_html(
+        self, items: List[Any], variant: str, is_canonical: bool
+    ) -> str:
         """
         Render page.toc into MkDocs sidebar HTML format.
         For non-canonical variants, prefix IDs with `{variant}-`.

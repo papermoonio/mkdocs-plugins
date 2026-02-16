@@ -1,6 +1,6 @@
 # AI File Actions Plugin
 
-The AI File Actions plugin provides reusable UI components and logic for AI-related file actions, such as copying content to the clipboard, downloading files, viewing them, or opening them in AI tools. It is designed to be used by other plugins (like the AI Resources Page plugin) to ensure consistent UI and behavior across the documentation site.
+The AI File Actions plugin is a thin MkDocs wrapper around the shared [`ai_file_utils`](ai-file-utils.md) library. It provides an entry point for MkDocs plugin discovery and delegates all action resolution and HTML generation to `AIFileUtils`.
 
 ## Usage
 
@@ -31,17 +31,9 @@ To add, remove, or modify dropdown items, edit `ai_file_actions.json`. No plugin
 
 ### API
 
-**`generate_dropdown_html(url: str, filename: str, exclude: list | None = None) -> str`**
+**`generate_dropdown_html(url, filename, exclude=None)`**
 
-Generates the HTML structure for the AI file actions split-button dropdown.
-
-- **Parameters**:
-    - `url` (str): The URL of the file to act upon (e.g., the path to the resolved Markdown file).
-    - `filename` (str): The filename to be used when downloading the file.
-    - `exclude` (list | None, optional): A list of action IDs to exclude from the dropdown. Defaults to `None` (all actions shown).
-- **Returns**: A string containing the HTML markup for the component.
-
-**Example — exclude the View action:**
+Delegates to [`AIFileUtils.generate_dropdown_html`](ai-file-utils.md#using-in-python-code). See the `ai_file_utils` docs for full parameter and return documentation.
 
 ```python
 plugin.generate_dropdown_html(

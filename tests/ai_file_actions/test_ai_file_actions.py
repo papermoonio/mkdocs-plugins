@@ -1,6 +1,7 @@
 import html
 
 from plugins.ai_file_actions.plugin import AiFileActionsPlugin
+from plugins.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class TestAiFileActionsPlugin:
@@ -96,9 +97,7 @@ class TestAiFileActionsPlugin:
     def test_html_escaping_for_special_urls(self):
         """URLs with special characters should be properly HTML-escaped."""
         url = '/ai/pages/test.md?foo=1&bar=2"<script>'
-        result = self.plugin.generate_dropdown_html(
-            url=url, filename="test.md"
-        )
+        result = self.plugin.generate_dropdown_html(url=url, filename="test.md")
         assert '&bar=2"<script>' not in result
         safe = html.escape(url, quote=True)
         assert f'data-url="{safe}"' in result
@@ -131,3 +130,18 @@ class TestAiFileActionsPlugin:
             url="/ai/pages/test.md", filename="test.md", exclude=[]
         )
         assert result_default == result_empty
+
+    def test_delegation_matches_ai_file_utils(self):
+        """Plugin output should match AIFileUtils output exactly."""
+        utils = AIFileUtils()
+        url = "/ai/pages/test.md"
+        filename = "test.md"
+        exclude = ["view-markdown"]
+
+        plugin_result = self.plugin.generate_dropdown_html(
+            url=url, filename=filename, exclude=exclude
+        )
+        utils_result = utils.generate_dropdown_html(
+            url=url, filename=filename, exclude=exclude
+        )
+        assert plugin_result == utils_result

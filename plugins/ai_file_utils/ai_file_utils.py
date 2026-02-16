@@ -1,15 +1,20 @@
-import json
 import copy
+import html
+import json
 import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List
+
 from mkdocs.utils import log
+
 
 class AIFileUtils:
     """
-    A utility class that provides methods for resolving AI file actions.
-    This acts as a shared library/service for plugins to resolve
-    links, clipboard content, and LLM prompts based on a defined schema.
+    A utility class for resolving AI file actions and generating
+    the HTML UI components (split-button dropdown) for those actions.
+    This acts as a shared library for plugins to resolve links,
+    clipboard content, LLM prompts, and render action HTML based
+    on a defined schema.
     """
 
     def __init__(self):
@@ -24,18 +29,27 @@ class AIFileUtils:
             if self._actions_config_path.exists():
                 text = self._actions_config_path.read_text(encoding="utf-8")
                 self._actions_schema = json.loads(text)
-                log.info(f"[ai_file_utils] Loaded actions schema from {self._actions_config_path}")
+                log.info(
+                    f"[ai_file_utils] Loaded actions schema from {self._actions_config_path}"
+                )
             else:
-                log.warning(f"[ai_file_utils] Actions schema file not found at {self._actions_config_path}")
+                log.warning(
+                    f"[ai_file_utils] Actions schema file not found at {self._actions_config_path}"
+                )
                 self._actions_schema = {"actions": []}
         except json.JSONDecodeError as e:
             log.error(f"[ai_file_utils] Failed to parse actions schema JSON: {e}")
             self._actions_schema = {"actions": []}
         except Exception as e:
-            log.error(f"[ai_file_utils] Unexpected error loading actions schema: {e}", exc_info=True)
+            log.error(
+                f"[ai_file_utils] Unexpected error loading actions schema: {e}",
+                exc_info=True,
+            )
             self._actions_schema = {"actions": []}
 
-    def resolve_actions(self, page_url: str, filename: str, content: str) -> List[Dict[str, Any]]:
+    def resolve_actions(
+        self, page_url: str, filename: str, content: str
+    ) -> List[Dict[str, Any]]:
         """
         Resolves the list of actions for a given page context.
 
@@ -55,20 +69,27 @@ class AIFileUtils:
 
         for action_def in raw_actions:
             try:
-                resolved_action = self._resolve_single_action(action_def, page_url, filename, content)
+                resolved_action = self._resolve_single_action(
+                    action_def, page_url, filename, content
+                )
                 resolved_actions.append(resolved_action)
             except Exception as e:
-                log.warning(f"[ai_file_utils] Failed to resolve action {action_def.get('id')}: {e}", exc_info=True)
+                log.warning(
+                    f"[ai_file_utils] Failed to resolve action {action_def.get('id')}: {e}",
+                    exc_info=True,
+                )
 
         return resolved_actions
 
-    def _resolve_single_action(self, action_def: Dict[str, Any], page_url: str, filename: str, content: str) -> Dict[str, Any]:
+    def _resolve_single_action(
+        self, action_def: Dict[str, Any], page_url: str, filename: str, content: str
+    ) -> Dict[str, Any]:
         """
         Resolves a single action definition by replacing placeholders.
         """
         # Create a deep copy to avoid modifying the schema if it has nested structures
         action = copy.deepcopy(action_def)
-        
+
         # 1. Resolve Prompt if a template exists
         prompt_text = ""
         if "promptTemplate" in action:
@@ -79,25 +100,25 @@ class AIFileUtils:
             prompt_replacements = {
                 "{{ content }}": content,
                 "{{ page_url }}": page_url,
-                "{{ filename }}": filename
+                "{{ filename }}": filename,
             }
             for placeholder, replacement in prompt_replacements.items():
                 if placeholder in tpl:
                     tpl = tpl.replace(placeholder, replacement)
             prompt_text = tpl
-            
+
             # Remove the template from the output as it's processed
-            action.pop("promptTemplate") 
-        
+            action.pop("promptTemplate")
+
         # 2. Prepare Context Variables
         # URL encode the prompt for use in query parameters
         encoded_prompt = urllib.parse.quote_plus(prompt_text)
-        
+
         replacements = {
             "{{ page_url }}": page_url,
             "{{ filename }}": filename,
-            "{{ content }}": content, # Be careful with large content in attributes, but for clipboard it's needed
-            "{{ prompt }}": encoded_prompt
+            "{{ content }}": content,  # Be careful with large content in attributes, but for clipboard it's needed
+            "{{ prompt }}": encoded_prompt,
         }
 
         # 3. Interpolate values into specific fields
@@ -113,3 +134,171 @@ class AIFileUtils:
                 action[field] = val
 
         return action
+
+    # ------------------------------------------------------------------
+    # HTML generation
+    # ------------------------------------------------------------------
+
+    def _render_primary_button(self, action: dict, url: str) -> str:
+        """Render the primary (left-side) button from a JSON action."""
+        safe_url = html.escape(url, quote=True)
+        label = html.escape(action.get("label", "Copy file"), quote=True)
+        icon_svg = action.get("icon", "")
+        action_id = html.escape(action.get("id", ""), quote=True)
+
+        spinner_svg = (
+            '<svg class="ai-file-actions-icon'
+            ' loading-spinner"'
+            ' xmlns="http://www.w3.org/2000/svg"'
+            ' viewBox="0 0 24 24"'
+            ' width="24" height="24">'
+            '<circle cx="12" cy="12" r="10"'
+            ' stroke="currentColor"'
+            ' stroke-width="2" fill="none"'
+            ' stroke-dasharray="31.4"'
+            ' stroke-dashoffset="0">'
+            '<animate attributeName="stroke-dashoffset"'
+            ' dur="1s" repeatCount="indefinite"'
+            ' from="0" to="62.8"/>'
+            "</circle></svg>"
+        )
+        success_svg = (
+            '<svg class="ai-file-actions-icon'
+            ' copy-success-icon"'
+            ' xmlns="http://www.w3.org/2000/svg"'
+            ' viewBox="0 0 24 24">'
+            '<path fill="currentColor"'
+            ' d="M9 16.17L4.83 12l-1.42 1.41L9'
+            ' 19 21 7l-1.41-1.41z"/>'
+            "</svg>"
+        )
+
+        loading_attr = html.escape(spinner_svg, quote=True)
+        success_attr = html.escape(success_svg, quote=True)
+
+        return (
+            '<button class="ai-file-actions-btn'
+            ' ai-file-actions-copy"'
+            f' title="{label}"'
+            f' aria-label="{label}"'
+            ' role="button"'
+            f' data-action="{action_id}"'
+            f' data-url="{safe_url}"'
+            f' data-loading-html="{loading_attr}"'
+            f' data-success-html="{success_attr}">'
+            f"{icon_svg}"
+            f'<span class="button-text">{label}</span>'
+            "</button>"
+        )
+
+    def _render_action_item(self, action: dict, url: str) -> str:
+        """Render a single dropdown item from a resolved action."""
+        action_type = action.get("type", "link")
+        action_id = action.get("id", "")
+        label = html.escape(action.get("label", ""), quote=True)
+        icon_svg = action.get("icon", "")
+        trailing_svg = action.get("trailingIcon", "")
+
+        safe_type = html.escape(action_type, quote=True)
+        safe_id = html.escape(action_id, quote=True)
+        attrs = f' data-action-type="{safe_type}"' f' data-action-id="{safe_id}"'
+
+        if action_type == "link":
+            href = action.get("href", "")
+            safe_href = html.escape(href, quote=True)
+            attrs += f' data-href="{safe_href}"'
+            if "download" in action:
+                safe_dl = html.escape(action["download"], quote=True)
+                attrs += f' data-download="{safe_dl}"'
+        elif action_type == "clipboard":
+            safe_url = html.escape(url, quote=True)
+            attrs += f' data-url="{safe_url}"'
+
+        return (
+            f'<button class="ai-file-actions-item"'
+            f"{attrs}"
+            f' role="menuitem" tabindex="-1">'
+            f"{icon_svg}"
+            f"<span>{label}</span>"
+            f"{trailing_svg}"
+            f"</button>"
+        )
+
+    def generate_dropdown_html(
+        self,
+        url: str,
+        filename: str,
+        exclude: list | None = None,
+    ) -> str:
+        """
+        Generate the HTML for the AI file actions split-button.
+
+        The action marked ``primary: true`` in the JSON renders
+        as the left-side button; all other actions render as
+        dropdown items.  The primary action is automatically
+        excluded from the dropdown.
+
+        Args:
+            url: The URL of the file to act upon.
+            filename: The filename for the download action.
+            exclude: Optional list of action IDs to exclude
+                     from the dropdown.
+
+        Returns:
+            The HTML string for the component.
+        """
+        actions = self.resolve_actions(page_url=url, filename=filename, content="")
+
+        # Separate primary action from dropdown actions
+        primary_action = None
+        dropdown_actions = []
+        exclude_set = set(exclude) if exclude else set()
+
+        for action in actions:
+            if action.get("primary"):
+                primary_action = action
+            elif action.get("id") not in exclude_set:
+                dropdown_actions.append(action)
+
+        # Primary copy button (left side of split button)
+        copy_btn = self._render_primary_button(primary_action or {}, url)
+
+        # Dropdown trigger (right side of split button)
+        chevron = (
+            '<svg xmlns="http://www.w3.org/2000/svg"'
+            ' width="24px" height="24px"'
+            ' viewBox="0 0 24 24"'
+            ' class="ai-file-actions-icon'
+            ' ai-file-actions-chevron"'
+            ' aria-hidden="true">'
+            '<path d="M7 10l5 5 5-5z"/></svg>'
+        )
+        dropdown_btn = (
+            '<button class="ai-file-actions-btn'
+            ' ai-file-actions-trigger"'
+            ' title="More options"'
+            ' type="button"'
+            ' aria-label="More options"'
+            ' aria-haspopup="true"'
+            ' aria-expanded="false"'
+            ' role="button">'
+            f"{chevron}"
+            "</button>"
+        )
+
+        # Dropdown menu items
+        menu_items = ""
+        for action in dropdown_actions:
+            menu_items += self._render_action_item(action, url)
+
+        dropdown_menu = (
+            '<div class="ai-file-actions-menu"' ' role="menu">' f"{menu_items}" "</div>"
+        )
+
+        return (
+            '<div class="ai-file-actions-container">'
+            f"{copy_btn}"
+            f"{dropdown_btn}"
+            f"{dropdown_menu}"
+            "</div>"
+        )

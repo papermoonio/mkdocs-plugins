@@ -29,6 +29,7 @@ SNIPPET_DOUBLE_RANGE_RE = re.compile(r"^(?P<path>.+?)::(?P<end>-?\d+)$")
 SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$")
 SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
+
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
     # Define value for `llms_config` in the project mkdocs.yml file
@@ -383,7 +384,9 @@ class ResolveMDPlugin(BasePlugin):
         """Apply section or line slicing to snippet content."""
         selected = content
         if section:
-            section_content = self.extract_snippet_section(selected, section, snippet_ref)
+            section_content = self.extract_snippet_section(
+                selected, section, snippet_ref
+            )
             if section_content is None:
                 return None
             selected = section_content
@@ -417,7 +420,9 @@ class ResolveMDPlugin(BasePlugin):
         return value
 
     @staticmethod
-    def extract_snippet_section(content: str, section: str, snippet_ref: str) -> str | None:
+    def extract_snippet_section(
+        content: str, section: str, snippet_ref: str
+    ) -> str | None:
         """Return the text between --8<-- [start:section] and [end:section] markers."""
         target = section.strip().lower()
         if not target:
@@ -456,7 +461,9 @@ class ResolveMDPlugin(BasePlugin):
         try:
             absolute_snippet_path.relative_to(snippet_directory_root)
         except ValueError:
-            log.warning(f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}")
+            log.warning(
+                f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}"
+            )
             return f"<!-- INVALID LOCAL SNIPPET PATH {snippet_ref} -->"
         if not absolute_snippet_path.exists():
             log.warning(f"[resolve_md] missing local snippet {snippet_ref}")
@@ -706,6 +713,7 @@ class ResolveMDPlugin(BasePlugin):
             ) from None
 
         return ai_path
+
     def reset_directory(self, output_dir: Path) -> None:
         """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -831,7 +839,11 @@ class ResolveMDPlugin(BasePlugin):
             lines.append("\n---\n")
             title = page.get("title") or page["slug"]
             lines.append(f"Page Title: {title}\n")
-            resolved_url = f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+            resolved_url = (
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
+            )
             lines.append(f"- Resolved Markdown: {resolved_url}")
             html_url = page.get("url")
             if html_url:
@@ -876,7 +888,7 @@ class ResolveMDPlugin(BasePlugin):
             cat_slug = self.slugify_category(category_id)
             out_path = categories_dir / f"{cat_slug}.md"
             is_base = category_id in base_cats
-            
+
             cat_info = categories_info.get(category_id, {})
             display_name = cat_info.get("name", category_id)
 
@@ -890,7 +902,12 @@ class ResolveMDPlugin(BasePlugin):
                     f"[resolve_md] base bundle {display_name} ({category_id}): {len(bundle_pages)} pages"
                 )
                 self.write_category_bundle(
-                    out_path, display_name, False, base_cats, bundle_pages, resolved_base
+                    out_path,
+                    display_name,
+                    False,
+                    base_cats,
+                    bundle_pages,
+                    resolved_base,
                 )
             else:
                 combined = self.union_pages([base_union, category_pages])
@@ -967,7 +984,9 @@ class ResolveMDPlugin(BasePlugin):
             }
 
             resolved_md_url = (
-                f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
             )
             entry = {
                 "id": page["slug"],
