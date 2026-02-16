@@ -9,7 +9,8 @@ Currently included:
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
 - **[Resolve Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md)**: Resolve variable and code snippet placeholders and serve resolved Markdown files directly from your site's build folder.
-- **[AI File Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-actions.md)**: Provides reusable UI components and logic for AI-related file actions, such as copying content to the clipboard, downloading files, or viewing them.
+- **[AI File Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-actions.md)**: Thin MkDocs plugin wrapper that delegates to the shared `ai_file_utils` library for AI-related file action UI components.
+- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-utils.md)** *(shared library, not a plugin)*: Resolves action definitions from JSON and generates split-button dropdown HTML for copy, download, view, and LLM tool actions.
 
 ## Installation
 

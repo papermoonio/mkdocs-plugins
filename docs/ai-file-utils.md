@@ -64,6 +64,9 @@ The core of this plugin is the **Action Model**, defined in `ai_file_actions.jso
 | `download` | `string` | (Link only) If present, triggers a file download with this filename. |
 | `clipboardContent` | `string` | (Clipboard only) The text to be copied. |
 | `promptTemplate` | `string` | (LLM only) A template used to generate the `{{ prompt }}` variable. |
+| `icon` | `string` | Inline SVG markup for the action's icon. |
+| `trailingIcon` | `string` | Inline SVG markup rendered after the label (e.g., external-link arrow). |
+| `primary` | `boolean` | If `true`, renders as the left-side button instead of a dropdown item. |
 
 ### Interpolation Variables
 

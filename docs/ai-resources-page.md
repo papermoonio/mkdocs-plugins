@@ -65,9 +65,9 @@ Key sections used by this plugin:
     *   It generates a table including:
         *   **Standard Files**: `llms.txt`, `site-index.json`, `llms-full.jsonl`.
         *   **Categories**: Iterates through `categories_order` to create rows for each category bundle, using descriptions from `categories_info`.
-3.  **Client-Side Actions**: It generates HTML for "View", "Copy", and "Download" buttons that match the CSS classes (`.llms-view`, `.llms-copy`, `.llms-dl`) expected by the site's JavaScript.
+3.  **Client-Side Actions**: Each table row includes a split-button dropdown (generated via the shared [`ai_file_utils`](ai-file-utils.md) library) with copy, view, download, and LLM tool actions.
 
 ## Notes
 
-- This plugin is designed to work in tandem with the `resolve_md` plugin (which generates the actual artifact files) and specific frontend logic (like `main.html` overrides) to handle the button actions.
+- This plugin is designed to work in tandem with the `resolve_md` plugin (which generates the actual artifact files) and the `ai_file_utils` shared library (which provides the dropdown UI). Client-side JavaScript (`ai-file-actions.js`) handles the button actions.
 - If `project.name` is missing from `llms_config.json`, the build will fail with an error to prevent incorrect branding.
