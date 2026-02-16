@@ -26,6 +26,10 @@ actions = utils.resolve_actions(
 )
 ```
 
+## Action Model
+
+The core of this plugin is the **Action Model**, defined in `ai_file_actions.json`. This JSON schema defines what actions are available and how they behave.
+
 ### Schema Fields
 
 | Field | Type | Description |
