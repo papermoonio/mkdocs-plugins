@@ -2,7 +2,7 @@
 
 The `ai_file_utils` module serves as a centralized "contract" and utility service for defining and resolving actions related to AI artifacts. It allows you to separate the *definition* of actions (like "View Markdown", "Open in ChatGPT") from the *implementation* in the UI.
 
-This is not a standalone MkDocs plugin but a shared library that other plugins (like `resolve_md`, `ai_file_actions`, and `ai_resources_page`) can import to resolve action lists and generate the split-button dropdown HTML for any documentation page.
+This is not a standalone MkDocs plugin but a shared library that lives in `lib/ai_file_utils/` (separate from `plugins/`). Other plugins (like `ai_file_actions`, `ai_page_actions`, and `ai_resources_page`) import it to resolve action lists and generate the split-button dropdown HTML for any documentation page.
 
 ## 🔹 Usage
 
@@ -15,7 +15,7 @@ Import the utility class directly in your code.
 **`resolve_actions`** takes page context and returns a list of fully resolved action objects:
 
 ```python
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 utils = AIFileUtils()
 
@@ -29,7 +29,7 @@ actions = utils.resolve_actions(
 **`generate_dropdown_html`** renders the split-button dropdown component:
 
 ```python
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 utils = AIFileUtils()
 
@@ -81,7 +81,7 @@ The module supports dynamic injection of context using `{{ variable }}` syntax.
 
 ## 🔹 Adding New Actions
 
-To add a new action (e.g., "Open in Gemini"), you modify `plugins/ai_file_utils/ai_file_actions.json`. You do not need to write new Python code.
+To add a new action (e.g., "Open in Gemini"), you modify `lib/ai_file_utils/ai_file_actions.json`. You do not need to write new Python code.
 
 ### Example: Adding a New LLM
 

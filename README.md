@@ -9,8 +9,9 @@ Currently included:
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
 - **[Resolve Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md)**: Resolve variable and code snippet placeholders and serve resolved Markdown files directly from your site's build folder.
-- **[AI File Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-actions.md)**: Thin MkDocs plugin wrapper that delegates to the shared `ai_file_utils` library for AI-related file action UI components.
-- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-utils.md)** *(shared library, not a plugin)*: Resolves action definitions from JSON and generates split-button dropdown HTML for copy, download, view, and LLM tool actions.
+- **[AI Page Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-page-actions.md)**: Injects a per-page AI actions widget next to each page's H1 heading at build time.
+- **[AI File Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-actions.md)** *(shared library)*: Convenience wrapper around `ai_file_utils` for generating AI file action dropdowns.
+- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-utils.md)** *(shared library)*: Resolves action definitions from JSON and generates split-button dropdown HTML for copy, download, view, and LLM tool actions.
 
 ## Installation
 
@@ -27,7 +28,7 @@ Enable one or more plugins in your `mkdocs.yml`:
 ```yaml
 plugins:
   - ai_resources_page
-  - ai_file_actions
+  - ai_page_actions
   - copy_md:
       source_dir: docs/.example
       target_dir: example

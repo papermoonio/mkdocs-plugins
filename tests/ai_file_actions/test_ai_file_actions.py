@@ -1,7 +1,7 @@
 import html
 
-from plugins.ai_file_actions.plugin import AiFileActionsPlugin
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from lib.ai_file_actions.plugin import AiFileActionsPlugin
+from lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class TestAiFileActionsPlugin:
