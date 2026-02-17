@@ -47,6 +47,27 @@ class AIFileUtils:
             )
             self._actions_schema = {"actions": []}
 
+    def get_page_widget_config(self) -> Dict[str, Any]:
+        """Return the ``pageWidget`` configuration from the JSON schema."""
+        if not self._actions_schema:
+            self._load_actions_schema()
+        return self._actions_schema.get("pageWidget", {})
+
+    def is_page_excluded(self, src_path: str, page_meta: Dict[str, Any]) -> bool:
+        """Check whether a page should be excluded from widget injection."""
+        config = self.get_page_widget_config()
+        exclude_pages = config.get("excludePages", [])
+        fm_key = config.get("frontMatterKey", "hide_ai_actions")
+
+        for pattern in exclude_pages:
+            if src_path == pattern or src_path.endswith(pattern):
+                return True
+
+        if page_meta.get(fm_key):
+            return True
+
+        return False
+
     def resolve_actions(
         self, page_url: str, filename: str, content: str
     ) -> List[Dict[str, Any]]:
@@ -134,6 +155,42 @@ class AIFileUtils:
                 action[field] = val
 
         return action
+
+    # ------------------------------------------------------------------
+    # URL / slug resolution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def build_slug(page_url: str) -> str:
+        """Convert a page URL to the slug used by resolve_md.
+
+        Mirrors ``resolve_md.compute_slug_and_url`` and the client-side
+        ``buildSlugFromPath`` in copy-to-llm.js.
+        """
+        route = page_url.strip("/")
+        if not route:
+            return "index"
+        return route.replace("/", "-")
+
+    @staticmethod
+    def build_toggle_slug(page_url: str, data_filename: str) -> str:
+        """Build a slug for a toggle-page variant.
+
+        For the canonical variant (empty ``data_filename``), uses the
+        base slug.  For non-canonical variants, drops the last path
+        segment and appends the variant filename.
+        """
+        route = page_url.strip("/")
+        if not data_filename:
+            return route.replace("/", "-") if route else "index"
+        segments = route.split("/")
+        base = "-".join(segments[:-1]) if len(segments) > 1 else ""
+        return f"{base}-{data_filename}" if base else data_filename
+
+    @staticmethod
+    def build_ai_page_url(slug: str) -> str:
+        """Build the ``/ai/pages/{slug}.md`` URL from a slug."""
+        return f"/ai/pages/{slug}.md"
 
     # ------------------------------------------------------------------
     # HTML generation

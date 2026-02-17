@@ -31,7 +31,7 @@ To add, remove, or modify dropdown items, edit `ai_file_actions.json`. No plugin
 
 ### API
 
-**`generate_dropdown_html(url, filename, exclude=None)`**
+**`generate_dropdown_html(url, filename, exclude=None, primary_label=None)`**
 
 Delegates to [`AIFileUtils.generate_dropdown_html`](ai-file-utils.md#using-in-python-code). See the `ai_file_utils` docs for full parameter and return documentation.
 
@@ -39,7 +39,8 @@ Delegates to [`AIFileUtils.generate_dropdown_html`](ai-file-utils.md#using-in-py
 plugin.generate_dropdown_html(
     url="/ai/llms-full.jsonl",
     filename="llms-full.jsonl",
-    exclude=["view-markdown"]
+    exclude=["view-markdown"],
+    primary_label="Copy file",  # optional label override
 )
 ```
 
