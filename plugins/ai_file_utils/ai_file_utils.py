@@ -139,10 +139,13 @@ class AIFileUtils:
     # HTML generation
     # ------------------------------------------------------------------
 
-    def _render_primary_button(self, action: dict, url: str) -> str:
+    def _render_primary_button(
+        self, action: dict, url: str, primary_label: str | None = None
+    ) -> str:
         """Render the primary (left-side) button from a JSON action."""
         safe_url = html.escape(url, quote=True)
-        label = html.escape(action.get("label", "Copy file"), quote=True)
+        raw_label = primary_label if primary_label else action.get("label", "Copy file")
+        label = html.escape(raw_label, quote=True)
         icon_svg = action.get("icon", "")
         action_id = html.escape(action.get("id", ""), quote=True)
 
@@ -243,6 +246,7 @@ class AIFileUtils:
         url: str,
         filename: str,
         exclude: list | None = None,
+        primary_label: str | None = None,
     ) -> str:
         """
         Generate the HTML for the AI file actions split-button.
@@ -257,6 +261,8 @@ class AIFileUtils:
             filename: The filename for the download action.
             exclude: Optional list of action IDs to exclude
                      from the dropdown.
+            primary_label: Optional label override for the primary
+                     button (e.g., "Copy page" vs default "Copy file").
 
         Returns:
             The HTML string for the component.
@@ -275,7 +281,9 @@ class AIFileUtils:
                 dropdown_actions.append(action)
 
         # Primary copy button (left side of split button)
-        copy_btn = self._render_primary_button(primary_action or {}, url)
+        copy_btn = self._render_primary_button(
+            primary_action or {}, url, primary_label=primary_label
+        )
 
         # Dropdown trigger (right side of split button)
         chevron = (
