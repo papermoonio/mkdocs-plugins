@@ -79,7 +79,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
     "content": {
         "docs_dir": ".",
-        "base_context_categories": ["Basics", "Reference"],
+        "base_context_categories": ["basics", "reference"],
         "categories_info": {
             "basics": {
                 "name": "Basics",
