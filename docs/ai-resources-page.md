@@ -28,8 +28,7 @@ Key sections used by this plugin:
 - **`project`**:
     - `name`: The name of your project (e.g., "Polkadot"). **Required**.
 - **`content`**:
-    - `categories_order`: A list of category names to appear in the table.
-    - `categories_info`: A dictionary where keys match `categories_order` and values contain metadata like `description`.
+    - `categories_info`: A dictionary of category metadata. Key order controls the display order in the table. Each value contains `name` and `description`.
 - **`outputs`**:
     - `public_root`: The URL path where AI artifacts are served (default: `/ai/`).
 
@@ -41,12 +40,13 @@ Key sections used by this plugin:
     "name": "My Project"
   },
   "content": {
-    "categories_order": ["Basics", "Reference"],
     "categories_info": {
-      "Basics": {
+      "basics": {
+        "name": "Basics",
         "description": "General knowledge base and overview content."
       },
-      "Reference": {
+      "reference": {
+        "name": "Reference",
         "description": "API references and glossary."
       }
     }
@@ -64,10 +64,10 @@ Key sections used by this plugin:
     *   It replaces the page content with a standard Introduction/Overview using the `project.name`.
     *   It generates a table including:
         *   **Standard Files**: `llms.txt`, `site-index.json`, `llms-full.jsonl`.
-        *   **Categories**: Iterates through `categories_order` to create rows for each category bundle, using descriptions from `categories_info`.
-3.  **Client-Side Actions**: It generates HTML for "View", "Copy", and "Download" buttons that match the CSS classes (`.llms-view`, `.llms-copy`, `.llms-dl`) expected by the site's JavaScript.
+        *   **Categories**: Iterates through `categories_info` (in key order) to create rows for each category bundle.
+3.  **Client-side actions**: Each table row includes a split-button dropdown (generated via the shared [`ai_file_utils`](ai-file-utils.md) library) with copy, view, download, and LLM tool actions.
 
 ## Notes
 
-- This plugin is designed to work in tandem with the `resolve_md` plugin (which generates the actual artifact files) and specific frontend logic (like `main.html` overrides) to handle the button actions.
+- This plugin is designed to work in tandem with the `resolve_md` plugin (which generates the actual artifact files) and the `ai_file_utils` shared library (which provides the dropdown UI). Client-side JavaScript (`ai-file-actions.js`) handles the button actions.
 - If `project.name` is missing from `llms_config.json`, the build will fail with an error to prevent incorrect branding.

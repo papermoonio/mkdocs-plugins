@@ -2,7 +2,7 @@
 
 The `ai_file_utils` module serves as a centralized "contract" and utility service for defining and resolving actions related to AI artifacts. It allows you to separate the *definition* of actions (like "View Markdown", "Open in ChatGPT") from the *implementation* in the UI.
 
-This is not a standalone MkDocs plugin but a shared library that other plugins (like `resolve_md`) can import to generate standardized action lists for any documentation page.
+This is not a standalone MkDocs plugin but a shared library that lives in `helper_lib/ai_file_utils/` (separate from `plugins/`). Other plugins (like `ai_file_actions`, `ai_page_actions`, and `ai_resources_page`) import it to resolve action lists and generate the split-button dropdown HTML for any documentation page.
 
 ## 🔹 Usage
 
@@ -10,21 +10,43 @@ Since this is a helper library, you do not need to add it to your `mkdocs.yml` p
 
 ### Using in Python Code
 
-Import the utility class directly in your code. The primary API is `resolve_actions`, which takes page context and returns a list of fully resolved action objects.
+Import the utility class directly in your code.
+
+**`resolve_actions`** takes page context and returns a list of fully resolved action objects:
 
 ```python
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
-# Instantiate
 utils = AIFileUtils()
 
-# Resolve actions for a specific page context
 actions = utils.resolve_actions(
     page_url="https://docs.example.com/ai/pages/my-page.md",
     filename="my-page.md",
     content="# My Page Content..."
 )
 ```
+
+**`generate_dropdown_html`** renders the split-button dropdown component:
+
+```python
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
+
+utils = AIFileUtils()
+
+html = utils.generate_dropdown_html(
+    url="/ai/pages/my-page.md",
+    filename="my-page.md",
+    exclude=["view-markdown"],  # optional
+)
+```
+
+**Parameters:**
+
+- `url` (str): The URL of the file to act upon.
+- `filename` (str): The filename for the download action.
+- `exclude` (list | None, optional): Action IDs to exclude from the dropdown. Defaults to `None` (all actions shown).
+
+**Returns:** An HTML string containing the split-button dropdown. The action marked `primary: true` in the JSON renders as the left-side button; all other actions render as dropdown items.
 
 ## Action Model
 
@@ -42,6 +64,9 @@ The core of this plugin is the **Action Model**, defined in `ai_file_actions.jso
 | `download` | `string` | (Link only) If present, triggers a file download with this filename. |
 | `clipboardContent` | `string` | (Clipboard only) The text to be copied. |
 | `promptTemplate` | `string` | (LLM only) A template used to generate the `{{ prompt }}` variable. |
+| `icon` | `string` | Inline SVG markup for the action's icon. |
+| `trailingIcon` | `string` | Inline SVG markup rendered after the label (e.g., external-link arrow). |
+| `primary` | `boolean` | If `true`, renders as the left-side button instead of a dropdown item. |
 
 ### Interpolation Variables
 
@@ -56,7 +81,7 @@ The module supports dynamic injection of context using `{{ variable }}` syntax.
 
 ## 🔹 Adding New Actions
 
-To add a new action (e.g., "Open in Gemini"), you modify `plugins/ai_file_utils/ai_file_actions.json`. You do not need to write new Python code.
+To add a new action (e.g., "Open in Gemini"), you modify `helper_lib/ai_file_utils/ai_file_actions.json`. You do not need to write new Python code.
 
 ### Example: Adding a New LLM
 
