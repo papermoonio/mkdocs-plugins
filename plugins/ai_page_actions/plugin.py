@@ -6,7 +6,7 @@ from mkdocs.plugins import BasePlugin
 from mkdocs.structure.pages import Page
 from mkdocs.utils import log
 
-from lib.ai_file_utils.ai_file_utils import AIFileUtils
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiPageActionsPlugin(BasePlugin):

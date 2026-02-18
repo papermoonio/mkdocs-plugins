@@ -5,7 +5,7 @@ from pathlib import Path
 from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
 
-from lib.ai_file_utils.ai_file_utils import AIFileUtils
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiResourcesPagePlugin(BasePlugin):

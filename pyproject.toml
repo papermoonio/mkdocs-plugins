@@ -40,7 +40,7 @@ profile = "black"
 line_length = 88
 
 [tool.setuptools.packages.find]
-include = ["plugins*", "lib*"]
+include = ["plugins*", "helper_lib*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.json"]
