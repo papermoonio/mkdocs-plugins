@@ -1,6 +1,6 @@
 # AI Page Actions Plugin
 
-The AI Page Actions plugin injects a per-page AI actions widget (split-button dropdown) next to each page's H1 heading at build time. It reuses the shared [`ai_file_utils`](ai-file-utils.md) library (in `lib/ai_file_utils/`) for slug resolution, URL building, action resolution, and HTML generation — the same library that powers the table widget via [`ai_file_actions`](ai-file-actions.md).
+The AI Page Actions plugin injects a per-page AI actions widget (split-button dropdown) next to each page's H1 heading at build time. It reuses the shared [`ai_file_utils`](ai-file-utils.md) library (in `helper_lib/ai_file_utils/`) for slug resolution, URL building, action resolution, and HTML generation — the same library that powers the table widget via [`ai_file_actions`](ai-file-actions.md).
 
 ## Usage
 
@@ -11,7 +11,7 @@ plugins:
   - ai_page_actions
 ```
 
-The plugin requires no configuration. Exclusion rules and action definitions are managed centrally in `lib/ai_file_utils/ai_file_actions.json` (see [AI File Utils](ai-file-utils.md)).
+The plugin requires no configuration. Exclusion rules and action definitions are managed centrally in `helper_lib/ai_file_utils/ai_file_actions.json` (see [AI File Utils](ai-file-utils.md)).
 
 ## How It Works
 

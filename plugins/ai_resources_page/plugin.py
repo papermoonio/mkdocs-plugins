@@ -61,6 +61,9 @@ class AiResourcesPagePlugin(BasePlugin):
         content_cfg = self.llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info", {})
 
+        # Get the site URL for fully-qualified prompt URLs
+        site_url = config.get("site_url", "")
+
         # Determine public root (e.g. "/ai/")
         outputs_cfg = self.llms_config.get("outputs", {})
         public_root = outputs_cfg.get("public_root", "/ai/")
@@ -102,7 +105,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # 1. llms.txt (Root File)
         # Note: llms.txt usually lives at root, so path is "/llms.txt"
         actions_llms = self._file_utils.generate_dropdown_html(
-            url="/llms.txt", filename="llms.txt"
+            url="/llms.txt", filename="llms.txt", site_url=site_url
         )
         row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
         output.append(row_llms)
@@ -111,6 +114,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         actions_site_index = self._file_utils.generate_dropdown_html(
             url=f"{public_root_stripped}/site-index.json",
             filename="site-index.json",
+            site_url=site_url,
         )
         row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
         output.append(row_site_index)
@@ -121,6 +125,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             url=f"{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
+            site_url=site_url,
         )
         row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
         output.append(row_full)
@@ -140,7 +145,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             url = f"{public_root_stripped}/categories/{filename}"
 
             actions = self._file_utils.generate_dropdown_html(
-                url=url, filename=filename
+                url=url, filename=filename, site_url=site_url
             )
 
             row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'

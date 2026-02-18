@@ -48,15 +48,21 @@ class AIFileUtils:
             self._actions_schema = {"actions": []}
 
     def resolve_actions(
-        self, page_url: str, filename: str, content: str
+        self,
+        page_url: str,
+        filename: str,
+        content: str,
+        prompt_page_url: str = "",
     ) -> List[Dict[str, Any]]:
         """
         Resolves the list of actions for a given page context.
 
         Args:
-            page_url: The absolute URL to the markdown file (ai artifact).
+            page_url: The relative URL to the markdown file (ai artifact).
             filename: The name of the file (e.g., 'page.md').
             content: The actual text content of the markdown file.
+            prompt_page_url: The fully-qualified URL for use in prompt
+                templates. Falls back to ``page_url`` if not provided.
 
         Returns:
             A list of action dictionaries with all placeholders resolved.
@@ -70,7 +76,8 @@ class AIFileUtils:
         for action_def in raw_actions:
             try:
                 resolved_action = self._resolve_single_action(
-                    action_def, page_url, filename, content
+                    action_def, page_url, filename, content,
+                    prompt_page_url=prompt_page_url or page_url,
                 )
                 resolved_actions.append(resolved_action)
             except Exception as e:
@@ -82,7 +89,12 @@ class AIFileUtils:
         return resolved_actions
 
     def _resolve_single_action(
-        self, action_def: Dict[str, Any], page_url: str, filename: str, content: str
+        self,
+        action_def: Dict[str, Any],
+        page_url: str,
+        filename: str,
+        content: str,
+        prompt_page_url: str = "",
     ) -> Dict[str, Any]:
         """
         Resolves a single action definition by replacing placeholders.
@@ -94,12 +106,11 @@ class AIFileUtils:
         prompt_text = ""
         if "promptTemplate" in action:
             tpl = action["promptTemplate"]
-            # Apply replacements to the prompt template first
-            # We construct a specific dict for prompt replacements to avoid circular dependency with "{{ prompt }}"
-            # and to handle content/url availability
+            # Prompt templates use the full URL so external services
+            # (Jina, ChatGPT, Claude) receive a complete address.
             prompt_replacements = {
                 "{{ content }}": content,
-                "{{ page_url }}": page_url,
+                "{{ page_url }}": prompt_page_url or page_url,
                 "{{ filename }}": filename,
             }
             for placeholder, replacement in prompt_replacements.items():
@@ -247,6 +258,7 @@ class AIFileUtils:
         filename: str,
         exclude: list | None = None,
         primary_label: str | None = None,
+        site_url: str = "",
     ) -> str:
         """
         Generate the HTML for the AI file actions split-button.
@@ -257,17 +269,27 @@ class AIFileUtils:
         excluded from the dropdown.
 
         Args:
-            url: The URL of the file to act upon.
+            url: The relative URL of the file to act upon.
             filename: The filename for the download action.
             exclude: Optional list of action IDs to exclude
                      from the dropdown.
             primary_label: Optional label override for the primary
                      button (e.g., "Copy page" vs default "Copy file").
+            site_url: The base site URL (e.g., "https://docs.polkadot.com/").
+                     When provided, ``page_url`` passed to prompt templates
+                     will be the fully-qualified URL.
 
         Returns:
             The HTML string for the component.
         """
-        actions = self.resolve_actions(page_url=url, filename=filename, content="")
+        # Build the full page URL for use in prompt templates
+        if site_url:
+            full_url = site_url.rstrip("/") + "/" + url.lstrip("/")
+        else:
+            full_url = url
+        actions = self.resolve_actions(
+            page_url=url, filename=filename, content="", prompt_page_url=full_url
+        )
 
         # Separate primary action from dropdown actions
         primary_action = None
