@@ -69,7 +69,7 @@ class AIFileUtils:
         return False
 
     def resolve_actions(
-        self, page_url: str, filename: str, content: str
+        self, page_url: str, filename: str, content: str, site_url: str = ""
     ) -> List[Dict[str, Any]]:
         """
         Resolves the list of actions for a given page context.
@@ -78,6 +78,8 @@ class AIFileUtils:
             page_url: The absolute URL to the markdown file (ai artifact).
             filename: The name of the file (e.g., 'page.md').
             content: The actual text content of the markdown file.
+            site_url: The site base URL (e.g., 'https://example.com').
+                      Trailing slashes are stripped automatically.
 
         Returns:
             A list of action dictionaries with all placeholders resolved.
@@ -91,7 +93,7 @@ class AIFileUtils:
         for action_def in raw_actions:
             try:
                 resolved_action = self._resolve_single_action(
-                    action_def, page_url, filename, content
+                    action_def, page_url, filename, content, site_url
                 )
                 resolved_actions.append(resolved_action)
             except Exception as e:
@@ -103,13 +105,22 @@ class AIFileUtils:
         return resolved_actions
 
     def _resolve_single_action(
-        self, action_def: Dict[str, Any], page_url: str, filename: str, content: str
+        self,
+        action_def: Dict[str, Any],
+        page_url: str,
+        filename: str,
+        content: str,
+        site_url: str = "",
     ) -> Dict[str, Any]:
         """
         Resolves a single action definition by replacing placeholders.
         """
         # Create a deep copy to avoid modifying the schema if it has nested structures
         action = copy.deepcopy(action_def)
+
+        # Strip trailing slash from site_url so {{ site_url }}{{ page_url }}
+        # produces clean URLs (page_url already starts with /).
+        clean_site_url = site_url.rstrip("/")
 
         # 1. Resolve Prompt if a template exists
         prompt_text = ""
@@ -122,6 +133,7 @@ class AIFileUtils:
                 "{{ content }}": content,
                 "{{ page_url }}": page_url,
                 "{{ filename }}": filename,
+                "{{ site_url }}": clean_site_url,
             }
             for placeholder, replacement in prompt_replacements.items():
                 if placeholder in tpl:
@@ -140,6 +152,7 @@ class AIFileUtils:
             "{{ filename }}": filename,
             "{{ content }}": content,  # Be careful with large content in attributes, but for clipboard it's needed
             "{{ prompt }}": encoded_prompt,
+            "{{ site_url }}": clean_site_url,
         }
 
         # 3. Interpolate values into specific fields
@@ -304,6 +317,7 @@ class AIFileUtils:
         filename: str,
         exclude: list | None = None,
         primary_label: str | None = None,
+        site_url: str = "",
     ) -> str:
         """
         Generate the HTML for the AI file actions split-button.
@@ -320,11 +334,14 @@ class AIFileUtils:
                      from the dropdown.
             primary_label: Optional label override for the primary
                      button (e.g., "Copy page" vs default "Copy file").
+            site_url: The site base URL (e.g., 'https://example.com').
 
         Returns:
             The HTML string for the component.
         """
-        actions = self.resolve_actions(page_url=url, filename=filename, content="")
+        actions = self.resolve_actions(
+            page_url=url, filename=filename, content="", site_url=site_url
+        )
 
         # Separate primary action from dropdown actions
         primary_action = None

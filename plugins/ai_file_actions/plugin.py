@@ -21,8 +21,9 @@ class AiFileActionsPlugin(BasePlugin):
         url: str,
         filename: str,
         exclude: list | None = None,
+        site_url: str = "",
     ) -> str:
         """Delegate to :meth:`AIFileUtils.generate_dropdown_html`."""
         return self._file_utils.generate_dropdown_html(
-            url=url, filename=filename, exclude=exclude
+            url=url, filename=filename, exclude=exclude, site_url=site_url
         )
