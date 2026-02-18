@@ -123,7 +123,7 @@ class AIFileUtils:
 
         # 2. Prepare Context Variables
         # URL encode the prompt for use in query parameters
-        encoded_prompt = urllib.parse.quote_plus(prompt_text)
+        encoded_prompt = urllib.parse.quote(prompt_text, safe="")
 
         replacements = {
             "{{ page_url }}": page_url,
