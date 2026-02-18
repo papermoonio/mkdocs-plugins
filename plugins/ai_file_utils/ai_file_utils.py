@@ -212,7 +212,13 @@ class AIFileUtils:
     def _render_primary_button(
         self, action: dict, url: str, primary_label: str | None = None
     ) -> str:
-        """Render the primary (left-side) button from a JSON action."""
+        """Render the primary (left-side) button from a JSON action.
+
+        Note: ``icon`` SVG markup from ``ai_file_actions.json`` is inserted
+        into the HTML without escaping.  This is intentional — the JSON file
+        is part of the codebase and should be treated as trusted code,
+        subject to the same review process as any other source file.
+        """
         safe_url = html.escape(url, quote=True)
         raw_label = primary_label if primary_label else action.get("label", "Copy file")
         label = html.escape(raw_label, quote=True)
@@ -270,6 +276,8 @@ class AIFileUtils:
         Link-type actions render as ``<a>`` so the browser handles
         navigation natively.  Clipboard actions render as ``<button>``
         since copying requires JavaScript.
+
+        See ``_render_primary_button`` for the SVG trust-boundary note.
         """
         action_type = action.get("type", "link")
         action_id = action.get("id", "")
