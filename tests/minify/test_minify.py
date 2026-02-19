@@ -4,6 +4,7 @@ Simple test for mkdocs-minify-plugin.
 
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 import pytest
@@ -72,9 +73,94 @@ class TestMinifyPlugin:
         assert "css/home.css" in files
         assert "css/about.css" in files
 
+    def test_scoped_css_cleanup_reference_scan(self, tmp_path):
+        """Test: href-based scan detects whether original scoped CSS is still referenced."""
+        plugin = MinifyPlugin()
+
+        site_dir = tmp_path / "site"
+        site_dir.mkdir()
+
+        # HTML references original home.css -> should NOT be deletable
+        (site_dir / "index.html").write_text(
+            "<html><head><link rel=stylesheet href=assets/stylesheets/home.css></head></html>",
+            encoding="utf8",
+        )
+        assert plugin._can_delete_original_scoped_css(site_dir, "assets/stylesheets/home.css") is False
+
+        # Replace HTML to reference minified/hashed file instead -> should be deletable
+        (site_dir / "index.html").write_text(
+            "<html><head><link rel=stylesheet href=assets/stylesheets/home.abcdef.min.css></head></html>",
+            encoding="utf8",
+        )
+        # Reset scan cache to force re-scan for this test.
+        plugin._href_scan_site_dir = None
+        plugin._href_scan_any_link_bases = set()
+        plugin._href_scan_stylesheet_bases = set()
+        assert plugin._can_delete_original_scoped_css(site_dir, "assets/stylesheets/home.css") is True
+
+
+    def test_on_post_template_rewrites_stylesheet_href_preserving_tail(self):
+        """Test: template rewrite replaces href for a stylesheet link and preserves trailing attributes."""
+        plugin = MinifyPlugin()
+        plugin.config["minify_css"] = True
+        plugin.config["cache_safe"] = True
+        plugin.config["scoped_css_templates"] = {"main.html": ["assets/stylesheets/polkadot.css"]}
+
+        # Precomputed hash for cache-safe naming
+        plugin.path_to_hash["assets/stylesheets/polkadot.css"] = "abc123"
+
+        # Note: unquoted rel/href and extra attributes after href
+        html = (
+            "<head>"
+            "<link rel=stylesheet href=assets/stylesheets/polkadot.css media=screen crossorigin>"
+            "</head>"
+        )
+
+        out = plugin.on_post_template(html, template_name="main.html", config={})
+        assert out is not None
+        # Should rewrite to root-relative hashed+min name
+        assert "href=/assets/stylesheets/polkadot.abc123.min.css" in out
+        # Should keep trailing attributes (media/crossorigin) intact
+        assert "media=screen" in out and "crossorigin" in out
+
+
+    def test_scoped_css_cleanup_deletes_only_when_unreferenced(self, tmp_path):
+        """Test: cleanup deletion is gated by href-based reference detection."""
+        plugin = MinifyPlugin()
+
+        site_dir = tmp_path / "site"
+        site_dir.mkdir()
+        assets_dir = site_dir / "assets" / "stylesheets"
+        assets_dir.mkdir(parents=True)
+
+        original_css = assets_dir / "home.css"
+        original_css.write_text(".x{color:red}", encoding="utf8")
+
+        # Case 1: still referenced -> keep
+        (site_dir / "index.html").write_text(
+            "<link rel=stylesheet href=assets/stylesheets/home.css>",
+            encoding="utf8",
+        )
+        assert plugin._can_delete_original_scoped_css(site_dir, "assets/stylesheets/home.css") is False
+
+        # Case 2: not referenced -> delete
+        (site_dir / "index.html").write_text(
+            "<link rel=stylesheet href=assets/stylesheets/home.abcdef.min.css>",
+            encoding="utf8",
+        )
+        plugin._href_scan_site_dir = None
+        plugin._href_scan_any_link_bases = set()
+        plugin._href_scan_stylesheet_bases = set()
+        assert plugin._can_delete_original_scoped_css(site_dir, "assets/stylesheets/home.css") is True
+
+        # Simulate the deletion step that on_post_build would do
+        if plugin._can_delete_original_scoped_css(site_dir, "assets/stylesheets/home.css"):
+            original_css.unlink()
+        assert original_css.exists() is False
+
     def test_integration_build(self, tmp_path):
         """Test: Complete integration with MkDocs build."""
-        # Crear estructura de sitio
+        # Create site structure
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "index.md").write_text("# Home\n\nWelcome.", encoding="utf8")
