@@ -83,7 +83,7 @@ class AiPageActionsPlugin(BasePlugin):
                         f'.toggle-btn[data-variant="{variant}"]'
                     )
                     data_filename = btn.get("data-filename", "") if btn else ""
-                    slug = self._build_toggle_slug(page.url, data_filename)
+                    slug = AIFileUtils.build_toggle_slug(page.url, data_filename)
                     self._wrap_h1(h1, slug, soup, site_url=site_url)
                     modified = True
 
@@ -91,7 +91,7 @@ class AiPageActionsPlugin(BasePlugin):
         if not toggle_containers:
             h1 = md_content.find("h1")
             if h1:
-                slug = self._build_slug(page.url)
+                slug = AIFileUtils.build_slug(page.url)
                 self._wrap_h1(h1, slug, soup, site_url=site_url)
                 modified = True
 

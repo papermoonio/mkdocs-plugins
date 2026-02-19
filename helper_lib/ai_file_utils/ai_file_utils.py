@@ -123,10 +123,6 @@ class AIFileUtils:
         # Create a deep copy to avoid modifying the schema if it has nested structures
         action = copy.deepcopy(action_def)
 
-        # Strip trailing slash from site_url so {{ site_url }}{{ page_url }}
-        # produces clean URLs (page_url already starts with /).
-        clean_site_url = site_url.rstrip("/")
-
         # 1. Resolve Prompt if a template exists
         prompt_text = ""
         if "promptTemplate" in action:
@@ -137,7 +133,6 @@ class AIFileUtils:
                 "{{ content }}": content,
                 "{{ page_url }}": prompt_page_url or page_url,
                 "{{ filename }}": filename,
-                "{{ site_url }}": clean_site_url,
             }
             for placeholder, replacement in prompt_replacements.items():
                 if placeholder in tpl:
@@ -156,7 +151,6 @@ class AIFileUtils:
             "{{ filename }}": filename,
             "{{ content }}": content,  # Be careful with large content in attributes, but for clipboard it's needed
             "{{ prompt }}": encoded_prompt,
-            "{{ site_url }}": clean_site_url,
         }
 
         # 3. Interpolate values into specific fields
