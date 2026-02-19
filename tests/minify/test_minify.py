@@ -2,11 +2,13 @@
 Simple test for mkdocs-minify-plugin.
 """
 
-import pytest
 import subprocess
 import sys
 from pathlib import Path
-from plugins.minify.plugin import MinifyPlugin, MINIFIERS
+
+import pytest
+
+from plugins.minify.plugin import MINIFIERS, MinifyPlugin
 
 
 class TestMinifyPlugin:
@@ -42,17 +44,17 @@ class TestMinifyPlugin:
     def test_asset_naming(self):
         """Test: Minified file names are correct."""
         plugin = MinifyPlugin()
-        
+
         # Without hash, without minification
-        plugin.config['minify_css'] = False
+        plugin.config["minify_css"] = False
         result = plugin._minified_asset("style.css", "css", "")
         assert result == "style.css"
-        
+
         # With minification
-        plugin.config['minify_css'] = True
+        plugin.config["minify_css"] = True
         result = plugin._minified_asset("style.css", "css", "")
         assert result == "style.min.css"
-        
+
         # With hash
         result = plugin._minified_asset("style.css", "css", "abc123")
         assert result == "style.abc123.min.css"
@@ -60,12 +62,12 @@ class TestMinifyPlugin:
     def test_scoped_css_gathering(self):
         """Test: Collection of CSS files with scope works."""
         plugin = MinifyPlugin()
-        plugin.config['scoped_css'] = {
+        plugin.config["scoped_css"] = {
             "index.md": ["css/home.css"],
-            "about.md": ["css/about.css"]
+            "about.md": ["css/about.css"],
         }
-        plugin.config['scoped_css_templates'] = {}
-        
+        plugin.config["scoped_css_templates"] = {}
+
         files = plugin._gather_scoped_css_files()
         assert "css/home.css" in files
         assert "css/about.css" in files
@@ -76,16 +78,18 @@ class TestMinifyPlugin:
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "index.md").write_text("# Home\n\nWelcome.", encoding="utf8")
-        
+
         assets = docs / "extra_assets"
         assets.mkdir()
         (assets / "css").mkdir()
         (assets / "js").mkdir()
-        
+
         # Create test files
-        (assets / "css" / "main.css").write_text(".test { color: blue; }", encoding="utf8")
+        (assets / "css" / "main.css").write_text(
+            ".test { color: blue; }", encoding="utf8"
+        )
         (assets / "js" / "main.js").write_text("console.log('test');", encoding="utf8")
-        
+
         # Configuration
         config_content = """
 site_name: Test Site
@@ -105,41 +109,51 @@ extra_css:
 extra_javascript:
   - extra_assets/js/main.js
 """
-        
+
         config_file = tmp_path / "mkdocs.yml"
         config_file.write_text(config_content, encoding="utf8")
-        
+
         site_dir = tmp_path / "site"
         site_dir.mkdir()
-        
+
         # Execute build
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "mkdocs", "build", "-q", "-f", str(config_file), "-d", str(site_dir)],
+                [
+                    sys.executable,
+                    "-m",
+                    "mkdocs",
+                    "build",
+                    "-q",
+                    "-f",
+                    str(config_file),
+                    "-d",
+                    str(site_dir),
+                ],
                 cwd=str(tmp_path),
             )
-            
+
             # Verify that the minified files were created
             assert (site_dir / "extra_assets" / "css" / "main.min.css").exists()
             assert (site_dir / "extra_assets" / "js" / "main.min.js").exists()
-            
+
             # Verify that the HTML references the minified files
             index_html = (site_dir / "index.html").read_text(encoding="utf8")
             assert "main.min.css" in index_html
             assert "main.min.js" in index_html
-            
+
         except subprocess.CalledProcessError:
             pytest.skip("MkDocs build failed in this environment")
 
     def test_error_handling(self):
         """Test: The plugin handles errors without crashing."""
         plugin = MinifyPlugin()
-        
-        # Malformed CSS 
+
+        # Malformed CSS
         bad_css = ".test { color: red; /* unclosed comment"
         result = plugin._minify_file_data_with_func(bad_css, MINIFIERS["css"])
         assert result is not None
-        
+
         # Malformed HTML
         bad_html = "<html><body><p>Unclosed paragraph"
         result = plugin._minify_html_page(bad_html)
@@ -148,7 +162,7 @@ extra_javascript:
     def test_none_inputs(self):
         """Test: The plugin handles None inputs correctly."""
         plugin = MinifyPlugin()
-        
+
         # Should handle None without crashing
         try:
             result = plugin._minify_html_page(None)

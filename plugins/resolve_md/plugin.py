@@ -29,6 +29,7 @@ SNIPPET_DOUBLE_RANGE_RE = re.compile(r"^(?P<path>.+?)::(?P<end>-?\d+)$")
 SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$")
 SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
+
 # Define plugin class
 class ResolveMDPlugin(BasePlugin):
     # Define value for `llms_config` in the project mkdocs.yml file
@@ -383,7 +384,9 @@ class ResolveMDPlugin(BasePlugin):
         """Apply section or line slicing to snippet content."""
         selected = content
         if section:
-            section_content = self.extract_snippet_section(selected, section, snippet_ref)
+            section_content = self.extract_snippet_section(
+                selected, section, snippet_ref
+            )
             if section_content is None:
                 return None
             selected = section_content
@@ -417,7 +420,9 @@ class ResolveMDPlugin(BasePlugin):
         return value
 
     @staticmethod
-    def extract_snippet_section(content: str, section: str, snippet_ref: str) -> str | None:
+    def extract_snippet_section(
+        content: str, section: str, snippet_ref: str
+    ) -> str | None:
         """Return the text between --8<-- [start:section] and [end:section] markers."""
         target = section.strip().lower()
         if not target:
@@ -456,7 +461,9 @@ class ResolveMDPlugin(BasePlugin):
         try:
             absolute_snippet_path.relative_to(snippet_directory_root)
         except ValueError:
-            log.warning(f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}")
+            log.warning(
+                f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}"
+            )
             return f"<!-- INVALID LOCAL SNIPPET PATH {snippet_ref} -->"
         if not absolute_snippet_path.exists():
             log.warning(f"[resolve_md] missing local snippet {snippet_ref}")
@@ -706,6 +713,7 @@ class ResolveMDPlugin(BasePlugin):
             ) from None
 
         return ai_path
+
     def reset_directory(self, output_dir: Path) -> None:
         """Remove existing artifacts before writing fresh files."""
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -746,7 +754,7 @@ class ResolveMDPlugin(BasePlugin):
     def slugify_category(name: str) -> str:
         s = name.strip().lower()
         s = re.sub(r"[^\w\s-]", "", s)
-        s = re.sub(r"\s+", "-", s)
+        s = re.sub(r"[\s_]+", "-", s)
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
 
@@ -831,7 +839,11 @@ class ResolveMDPlugin(BasePlugin):
             lines.append("\n---\n")
             title = page.get("title") or page["slug"]
             lines.append(f"Page Title: {title}\n")
-            resolved_url = f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+            resolved_url = (
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
+            )
             lines.append(f"- Resolved Markdown: {resolved_url}")
             html_url = page.get("url")
             if html_url:
@@ -851,8 +863,8 @@ class ResolveMDPlugin(BasePlugin):
     def build_category_bundles(self, pages: list[dict], ai_root: Path) -> None:
         """Generate per-category bundle files based on AI pages."""
         content_cfg = self.llms_config.get("content", {})
-        categories_order = content_cfg.get("categories_order") or []
-        if not categories_order:
+        categories_info = content_cfg.get("categories_info") or {}
+        if not categories_info:
             log.info("[resolve_md] no categories configured; skipping bundles")
             return
         base_cats = content_cfg.get("base_context_categories") or []
@@ -862,28 +874,38 @@ class ResolveMDPlugin(BasePlugin):
 
         resolved_base = self.build_resolved_base_url()
 
-        base_sets = [self.select_pages_for_category(cat, pages) for cat in base_cats]
+        base_sets = []
+        for cat_id in base_cats:
+            base_sets.append(self.select_pages_for_category(cat_id, pages))
         base_union = self.union_pages(base_sets) if base_sets else []
 
         log.debug(
-            f"[resolve_md] building category bundles for {len(categories_order)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
+            f"[resolve_md] building category bundles for {len(categories_info)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
         )
 
-        for category in categories_order:
-            cat_slug = self.slugify_category(category)
+        for category_id, cat_info in categories_info.items():
+            cat_slug = self.slugify_category(category_id)
             out_path = categories_dir / f"{cat_slug}.md"
-            is_base = category in base_cats
-            category_pages = self.select_pages_for_category(category, pages)
+            is_base = category_id in base_cats
+
+            display_name = cat_info.get("name", category_id)
+
+            category_pages = self.select_pages_for_category(category_id, pages)
 
             if is_base:
                 bundle_pages = sorted(
                     category_pages, key=lambda p: p.get("title", "").lower()
                 )
                 log.debug(
-                    f"[resolve_md] base bundle {category}: {len(bundle_pages)} pages"
+                    f"[resolve_md] base bundle {display_name} ({category_id}): {len(bundle_pages)} pages"
                 )
                 self.write_category_bundle(
-                    out_path, category, False, base_cats, bundle_pages, resolved_base
+                    out_path,
+                    display_name,
+                    False,
+                    base_cats,
+                    bundle_pages,
+                    resolved_base,
                 )
             else:
                 combined = self.union_pages([base_union, category_pages])
@@ -891,10 +913,10 @@ class ResolveMDPlugin(BasePlugin):
                     combined, key=lambda p: p.get("title", "").lower()
                 )
                 log.debug(
-                    f"[resolve_md] category bundle {category}: base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
+                    f"[resolve_md] category bundle {display_name} ({category_id}): base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
                 )
                 self.write_category_bundle(
-                    out_path, category, True, base_cats, bundle_pages, resolved_base
+                    out_path, display_name, True, base_cats, bundle_pages, resolved_base
                 )
 
         log.info(f"[resolve_md] category bundles written to {categories_dir}")
@@ -960,7 +982,9 @@ class ResolveMDPlugin(BasePlugin):
             }
 
             resolved_md_url = (
-                f"{resolved_base}/{page['slug']}.md" if resolved_base else f"{page['slug']}.md"
+                f"{resolved_base}/{page['slug']}.md"
+                if resolved_base
+                else f"{page['slug']}.md"
             )
             entry = {
                 "id": page["slug"],
@@ -1006,7 +1030,7 @@ class ResolveMDPlugin(BasePlugin):
         )
 
         content_cfg = self.llms_config.get("content", {})
-        category_order = content_cfg.get("categories_order", []) or []
+        categories_info = content_cfg.get("categories_info", {}) or {}
 
         docs_root = docs_dir.resolve()
         output_rel = self.llms_config.get("llms_txt_output_path", "llms.txt")
@@ -1026,7 +1050,7 @@ class ResolveMDPlugin(BasePlugin):
 
         metadata_section = self.format_llms_metadata_section(pages)
         docs_section = self.format_llms_docs_section(
-            pages, resolved_base, category_order
+            pages, resolved_base, list(categories_info.keys()), categories_info
         )
         summary_line = summary_line.strip()
 
@@ -1065,8 +1089,12 @@ class ResolveMDPlugin(BasePlugin):
 
     @staticmethod
     def format_llms_docs_section(
-        pages: list[dict], resolved_base: str, category_order: list[str]
+        pages: list[dict],
+        resolved_base: str,
+        category_order: list[str],
+        categories_info: dict | None = None,
     ) -> str:
+        categories_info = categories_info or {}
         grouped: dict[str, list[str]] = {}
         for page in pages:
             resolved_url = (
@@ -1086,13 +1114,16 @@ class ResolveMDPlugin(BasePlugin):
             "This section lists documentation pages by category. Each entry links to the resolved markdown version of the page and includes a short description.",
         ]
         seen = set()
-        for cat in category_order:
-            entries = grouped.get(cat)
+        for cat_id in category_order:
+            cat_info = categories_info.get(cat_id, {})
+            display_name = cat_info.get("name", cat_id)
+
+            entries = grouped.get(cat_id)
             if not entries:
                 continue
-            lines.append(f"\nDocs: {cat}")
+            lines.append(f"\nDocs: {display_name}")
             lines.extend(entries)
-            seen.add(cat)
+            seen.add(cat_id)
 
         remaining = sorted(cat for cat in grouped if cat not in seen)
         for cat in remaining:
