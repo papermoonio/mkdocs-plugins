@@ -6,7 +6,7 @@ from mkdocs.plugins import BasePlugin
 from mkdocs.structure.pages import Page
 from mkdocs.utils import log
 
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiPageActionsPlugin(BasePlugin):
@@ -31,9 +31,7 @@ class AiPageActionsPlugin(BasePlugin):
     # H1 wrapping
     # ------------------------------------------------------------------
 
-    def _wrap_h1(
-        self, h1: Tag, slug: str, soup: BeautifulSoup, site_url: str = ""
-    ) -> None:
+    def _wrap_h1(self, h1: Tag, slug: str, soup: BeautifulSoup, site_url: str = "") -> None:
         """Wrap an H1 element and the AI actions widget in a flex container."""
         url = AIFileUtils.build_ai_page_url(slug)
         filename = f"{slug}.md"
@@ -85,7 +83,7 @@ class AiPageActionsPlugin(BasePlugin):
                         f'.toggle-btn[data-variant="{variant}"]'
                     )
                     data_filename = btn.get("data-filename", "") if btn else ""
-                    slug = AIFileUtils.build_toggle_slug(page.url, data_filename)
+                    slug = self._build_toggle_slug(page.url, data_filename)
                     self._wrap_h1(h1, slug, soup, site_url=site_url)
                     modified = True
 
@@ -93,7 +91,7 @@ class AiPageActionsPlugin(BasePlugin):
         if not toggle_containers:
             h1 = md_content.find("h1")
             if h1:
-                slug = AIFileUtils.build_slug(page.url)
+                slug = self._build_slug(page.url)
                 self._wrap_h1(h1, slug, soup, site_url=site_url)
                 modified = True
 

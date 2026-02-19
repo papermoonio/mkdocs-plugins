@@ -65,7 +65,7 @@ Key sections used by this plugin:
     *   It generates a table including:
         *   **Standard Files**: `llms.txt`, `site-index.json`, `llms-full.jsonl`.
         *   **Categories**: Iterates through `categories_info` (in key order) to create rows for each category bundle.
-3.  **Client-Side Actions**: Each table row includes a split-button dropdown (generated via the shared [`ai_file_utils`](ai-file-utils.md) library) with copy, view, download, and LLM tool actions.
+3.  **Client-side actions**: Each table row includes a split-button dropdown (generated via the shared [`ai_file_utils`](ai-file-utils.md) library) with copy, view, download, and LLM tool actions.
 
 ## Notes
 

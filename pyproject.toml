@@ -30,7 +30,6 @@ copy_md = "plugins.copy_md.plugin:CopyMDPlugin"
 resolve_md = "plugins.resolve_md.plugin:ResolveMDPlugin"
 page_toggle = "plugins.page_toggle.plugin:TogglePagesPlugin"
 ai_resources_page = "plugins.ai_resources_page.plugin:AiResourcesPagePlugin"
-ai_file_actions = "plugins.ai_file_actions.plugin:AiFileActionsPlugin"
 ai_page_actions = "plugins.ai_page_actions.plugin:AiPageActionsPlugin"
 
 

@@ -1,6 +1,6 @@
 from mkdocs.plugins import BasePlugin
 
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiFileActionsPlugin(BasePlugin):

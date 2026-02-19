@@ -5,7 +5,7 @@ from pathlib import Path
 from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
 
-from plugins.ai_file_utils.ai_file_utils import AIFileUtils
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiResourcesPagePlugin(BasePlugin):
@@ -61,6 +61,7 @@ class AiResourcesPagePlugin(BasePlugin):
         content_cfg = self.llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info", {})
 
+        # Get the site URL for fully-qualified prompt URLs
         site_url = config.get("site_url", "")
 
         # Determine public root (e.g. "/ai/")
