@@ -48,6 +48,8 @@ html = utils.generate_dropdown_html(
 - `filename` (str): The filename for the download action.
 - `exclude` (list | None, optional): Action IDs to exclude from the dropdown. Defaults to `None` (all actions shown).
 - `primary_label` (str | None, optional): Override the primary button's label. Defaults to `None` (uses the label from JSON, e.g., "Copy file").
+- `label_replace` (dict | None, optional): String replacements to apply to dropdown item labels. For example, `{"file": "page"}` changes "View file in Markdown" to "View page in Markdown". Defaults to `None` (labels used as-is from JSON).
+
 **Returns:** An HTML string containing the split-button dropdown. The action marked `primary: true` in the JSON renders as the left-side button; all other actions render as dropdown items.
 
 ### Slug and URL Helpers

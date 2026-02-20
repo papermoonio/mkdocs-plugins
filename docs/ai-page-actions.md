@@ -22,7 +22,7 @@ For each page:
 1. Checks whether the page is excluded via `ai_file_utils.is_page_excluded()` (configured in `ai_file_actions.json` under `pageWidget`)
 2. Parses the rendered HTML with BeautifulSoup to locate the H1 heading inside `.md-content`
 3. Builds the slug and `/ai/pages/{slug}.md` URL using `AIFileUtils.build_slug()` and `AIFileUtils.build_ai_page_url()`
-4. Generates the widget HTML using `AIFileUtils.generate_dropdown_html()` with `primary_label="Copy page"`
+4. Generates the widget HTML using `AIFileUtils.generate_dropdown_html()` with `primary_label="Copy page"` and `label_replace={"file": "page"}` so dropdown items read "View page in Markdown" etc.
 5. Wraps the H1 and widget in a `<div class="h1-ai-actions-wrapper">` flex container
 
 ### Toggle Pages

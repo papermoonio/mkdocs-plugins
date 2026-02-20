@@ -324,6 +324,7 @@ class AIFileUtils:
         exclude: list | None = None,
         primary_label: str | None = None,
         site_url: str = "",
+        label_replace: dict[str, str] | None = None,
     ) -> str:
         """
         Generate the HTML for the AI file actions split-button.
@@ -343,6 +344,8 @@ class AIFileUtils:
             site_url: The base site URL (e.g., "https://docs.polkadot.com/").
                      When provided, ``page_url`` passed to prompt templates
                      will be the fully-qualified URL.
+            label_replace: Optional dict of string replacements to apply
+                     to dropdown item labels (e.g., ``{"file": "page"}``).
 
         Returns:
             The HTML string for the component.
@@ -365,6 +368,9 @@ class AIFileUtils:
             if action.get("primary"):
                 primary_action = action
             elif action.get("id") not in exclude_set:
+                if label_replace and "label" in action:
+                    for old, new in label_replace.items():
+                        action["label"] = action["label"].replace(old, new)
                 dropdown_actions.append(action)
 
         # Primary copy button (left side of split button)

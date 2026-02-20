@@ -37,7 +37,11 @@ class AiPageActionsPlugin(BasePlugin):
         filename = f"{slug}.md"
 
         widget_html = self._file_utils.generate_dropdown_html(
-            url=url, filename=filename, primary_label="Copy page", site_url=site_url
+            url=url,
+            filename=filename,
+            primary_label="Copy page",
+            site_url=site_url,
+            label_replace={"file": "page"},
         )
 
         wrapper = soup.new_tag("div")
