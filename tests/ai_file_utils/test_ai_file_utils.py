@@ -11,17 +11,14 @@ class TestAIFileUtils:
         # 1. Instantiate the utility class
         utils = AIFileUtils()
 
-        # 2. (Optional) Initialize configuration - redundant here as it loads lazily
-        # utils._load_actions_schema()
-
-        # 3. Define the context for a specific page
-        # This data usually comes from the processing loop in resolve_md
-        page_url = "https://docs.polkadot.com/ai/pages/basics.md"
+        # 2. Define the context for a specific page
+        site_url = "https://docs.polkadot.com"
+        page_url = "/ai/pages/basics.md"
         filename = "basics.md"
         content = "# Polkadot Basics\n\nPolkadot is a sharded protocol."
 
-        # 4. Call the public API: resolve_actions
-        actions = utils.resolve_actions(page_url, filename, content)
+        # 3. Call the public API: resolve_actions
+        actions = utils.resolve_actions(page_url, filename, content, site_url=site_url)
 
         # Usage Verification:
         # Check that we got a list back
@@ -30,7 +27,7 @@ class TestAIFileUtils:
 
         # Inspect the "View Markdown" action
         view_action = next(a for a in actions if a["id"] == "view-markdown")
-        assert view_action["href"] == "https://docs.polkadot.com/ai/pages/basics.md"
+        assert view_action["href"] == "/ai/pages/basics.md"
 
         # Inspect the "Download Markdown" action (check download attribute interpolation)
         download_action = next(a for a in actions if a["id"] == "download-markdown")
@@ -45,14 +42,47 @@ class TestAIFileUtils:
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         # The prompt should be encoded in the URL
         assert "chatgpt.com" in chatgpt_action["href"]
-        # Should contain encoded reference to jina.ai (part of the prompt now)
+        # Should contain encoded reference to jina.ai with full site URL
         assert "r.jina.ai" in chatgpt_action["href"]
+        assert "docs.polkadot.com" in chatgpt_action["href"]
 
         # Inspect the "Claude" action
         claude_action = next(a for a in actions if a["id"] == "open-claude")
         assert "claude.ai" in claude_action["href"]
-        # Should contain encoded page url as it's part of the prompt
+        # Should contain encoded full URL (site_url + page_url) in the prompt
         assert "docs.polkadot.com" in claude_action["href"]
+
+    def test_site_url_interpolation(self):
+        """site_url should be interpolated into prompt templates without double slashes."""
+        utils = AIFileUtils()
+
+        actions = utils.resolve_actions(
+            page_url="/ai/pages/test-page.md",
+            filename="test-page.md",
+            content="test",
+            site_url="https://docs.example.com/",  # trailing slash should be stripped
+        )
+
+        chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
+        # The encoded href should contain the clean URL without double slashes
+        # r.jina.ai/https://docs.example.com/ai/pages/test-page.md (no double slash)
+        assert "docs.example.com" in chatgpt_action["href"]
+        # Double slash between site_url and page_url should NOT appear
+        assert "docs.example.com%2F%2Fai" not in chatgpt_action["href"]
+
+    def test_site_url_defaults_to_empty(self):
+        """When site_url is omitted, prompt templates still work with just page_url."""
+        utils = AIFileUtils()
+
+        actions = utils.resolve_actions(
+            page_url="/ai/pages/test-page.md",
+            filename="test-page.md",
+            content="test",
+        )
+
+        chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
+        assert "chatgpt.com" in chatgpt_action["href"]
+        assert "r.jina.ai" in chatgpt_action["href"]
 
     def test_missing_schema_file(self, tmp_path, caplog):
         """Test behavior when schema file is missing."""

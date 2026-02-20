@@ -1,4 +1,11 @@
 {
+  "pageWidget": {
+    "excludePages": [
+      "404.html",
+      "ai-resources.md"
+    ],
+    "frontMatterKey": "hide_ai_actions"
+  },
   "actions": [
     {
       "type": "clipboard",

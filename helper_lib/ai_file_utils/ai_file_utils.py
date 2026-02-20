@@ -47,6 +47,27 @@ class AIFileUtils:
             )
             self._actions_schema = {"actions": []}
 
+    def get_page_widget_config(self) -> Dict[str, Any]:
+        """Return the ``pageWidget`` configuration from the JSON schema."""
+        if not self._actions_schema:
+            self._load_actions_schema()
+        return self._actions_schema.get("pageWidget", {})
+
+    def is_page_excluded(self, src_path: str, page_meta: Dict[str, Any]) -> bool:
+        """Check whether a page should be excluded from widget injection."""
+        config = self.get_page_widget_config()
+        exclude_pages = config.get("excludePages", [])
+        fm_key = config.get("frontMatterKey", "hide_ai_actions")
+
+        for pattern in exclude_pages:
+            if src_path == pattern or src_path.endswith(pattern):
+                return True
+
+        if page_meta.get(fm_key):
+            return True
+
+        return False
+
     def resolve_actions(
         self,
         page_url: str,
@@ -147,13 +168,55 @@ class AIFileUtils:
         return action
 
     # ------------------------------------------------------------------
+    # URL / slug resolution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def build_slug(page_url: str) -> str:
+        """Convert a page URL to the slug used by resolve_md.
+
+        Mirrors ``resolve_md.compute_slug_and_url`` and the client-side
+        ``buildSlugFromPath`` in copy-to-llm.js.
+        """
+        route = page_url.strip("/")
+        if not route:
+            return "index"
+        return route.replace("/", "-")
+
+    @staticmethod
+    def build_toggle_slug(page_url: str, data_filename: str) -> str:
+        """Build a slug for a toggle-page variant.
+
+        For the canonical variant (empty ``data_filename``), uses the
+        base slug.  For non-canonical variants, drops the last path
+        segment and appends the variant filename.
+        """
+        route = page_url.strip("/")
+        if not data_filename:
+            return route.replace("/", "-") if route else "index"
+        segments = route.split("/")
+        base = "-".join(segments[:-1]) if len(segments) > 1 else ""
+        return f"{base}-{data_filename}" if base else data_filename
+
+    @staticmethod
+    def build_ai_page_url(slug: str) -> str:
+        """Build the ``/ai/pages/{slug}.md`` URL from a slug."""
+        return f"/ai/pages/{slug}.md"
+
+    # ------------------------------------------------------------------
     # HTML generation
     # ------------------------------------------------------------------
 
     def _render_primary_button(
         self, action: dict, url: str, primary_label: str | None = None
     ) -> str:
-        """Render the primary (left-side) button from a JSON action."""
+        """Render the primary (left-side) button from a JSON action.
+
+        Note: ``icon`` SVG markup from ``ai_file_actions.json`` is inserted
+        into the HTML without escaping.  This is intentional — the JSON file
+        is part of the codebase and should be treated as trusted code,
+        subject to the same review process as any other source file.
+        """
         safe_url = html.escape(url, quote=True)
         raw_label = primary_label if primary_label else action.get("label", "Copy file")
         label = html.escape(raw_label, quote=True)
@@ -211,6 +274,8 @@ class AIFileUtils:
         Link-type actions render as ``<a>`` so the browser handles
         navigation natively.  Clipboard actions render as ``<button>``
         since copying requires JavaScript.
+
+        See ``_render_primary_button`` for the SVG trust-boundary note.
         """
         action_type = action.get("type", "link")
         action_id = action.get("id", "")
@@ -259,6 +324,7 @@ class AIFileUtils:
         exclude: list | None = None,
         primary_label: str | None = None,
         site_url: str = "",
+        label_replace: dict[str, str] | None = None,
     ) -> str:
         """
         Generate the HTML for the AI file actions split-button.
@@ -278,6 +344,8 @@ class AIFileUtils:
             site_url: The base site URL (e.g., "https://docs.polkadot.com/").
                      When provided, ``page_url`` passed to prompt templates
                      will be the fully-qualified URL.
+            label_replace: Optional dict of string replacements to apply
+                     to dropdown item labels (e.g., ``{"file": "page"}``).
 
         Returns:
             The HTML string for the component.
@@ -300,6 +368,9 @@ class AIFileUtils:
             if action.get("primary"):
                 primary_action = action
             elif action.get("id") not in exclude_set:
+                if label_replace and "label" in action:
+                    for old, new in label_replace.items():
+                        action["label"] = action["label"].replace(old, new)
                 dropdown_actions.append(action)
 
         # Primary copy button (left side of split button)
