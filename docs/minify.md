@@ -16,6 +16,7 @@ Enable the plugin in your `mkdocs.yml` with with any of the available options as
 plugins:
   - search
   - minify:
+      debug: true
       minify_html: true
       minify_js: true
       minify_css: true
@@ -39,6 +40,10 @@ plugins:
 ## 🔹 Configuration
 
 ### Basic Options
+
+- `debug`:
+  - Defaults to `False`.
+  - When `True`, the plugin emits debug messages. You must run MkDocs with `-v` or `--verbose` for them to appear (e.g. `mkdocs build -v` or `mkdocs serve -v`).
 
 - `minify_html`:
   - Defaults to `False`.
@@ -94,6 +99,10 @@ plugins:
 
 - Both `js_files` and `css_files` support the use of **globs** (e.g. `**/*.css`, `**/*.js`) for file specification.
 - Scoped CSS injection provides fine-grained control over where additional CSS is applied in your site.
+- To see only minify debug lines when the terminal is noisy, pipe and grep by the `[minify]` prefix:
+  - `mkdocs build -v 2>&1 | grep '\[minify\]'`
+  - `mkdocs serve -v 2>&1 | grep '\[minify\]'`
+  - Or save to a file first: `mkdocs build -v 2>&1 | tee build.log` then `grep '\[minify\]' build.log`
 
 ## Credits
 

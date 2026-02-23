@@ -31,7 +31,7 @@ The test suite requires:
 - mkdocs
 - mkdocs-material
 - pymdown-extensions
-- htmlmin
+- htmlmin2
 - jsmin
 - csscompressor
 - packaging
