@@ -1,4 +1,5 @@
 from typing import Optional
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, Tag
 from mkdocs.config.defaults import MkDocsConfig
@@ -33,7 +34,8 @@ class AiPageActionsPlugin(BasePlugin):
 
     def _wrap_h1(self, h1: Tag, slug: str, soup: BeautifulSoup, site_url: str = "") -> None:
         """Wrap an H1 element and the AI actions widget in a flex container."""
-        url = AIFileUtils.build_ai_page_url(slug)
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        url = f"{base_path}/ai/pages/{slug}.md"
         filename = f"{slug}.md"
 
         widget_html = self._file_utils.generate_dropdown_html(
