@@ -1,6 +1,7 @@
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
@@ -64,6 +65,9 @@ class AiResourcesPagePlugin(BasePlugin):
         # Get the site URL for fully-qualified prompt URLs
         site_url = config.get("site_url", "")
 
+        # Extract base path for sites deployed under a subpath (e.g., /docs/)
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+
         # Determine public root (e.g. "/ai/")
         outputs_cfg = self.llms_config.get("outputs", {})
         public_root = outputs_cfg.get("public_root", "/ai/")
@@ -105,14 +109,14 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # 1. llms.txt (Root File)
         # Note: llms.txt usually lives at root, so path is "/llms.txt"
         actions_llms = self._file_utils.generate_dropdown_html(
-            url="/llms.txt", filename="llms.txt", site_url=site_url
+            url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
         )
         row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
         output.append(row_llms)
 
         # 2. site-index.json
         actions_site_index = self._file_utils.generate_dropdown_html(
-            url=f"{public_root_stripped}/site-index.json",
+            url=f"{base_path}{public_root_stripped}/site-index.json",
             filename="site-index.json",
             site_url=site_url,
         )
@@ -122,7 +126,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # 3. llms-full.jsonl
         # Typically no "View" for large JSONL
         actions_full = self._file_utils.generate_dropdown_html(
-            url=f"{public_root_stripped}/llms-full.jsonl",
+            url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
             site_url=site_url,
@@ -142,7 +146,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             description = self.sanitize_table_content(description)
 
             filename = f"{slug}.md"
-            url = f"{public_root_stripped}/categories/{filename}"
+            url = f"{base_path}{public_root_stripped}/categories/{filename}"
 
             actions = self._file_utils.generate_dropdown_html(
                 url=url, filename=filename, site_url=site_url
