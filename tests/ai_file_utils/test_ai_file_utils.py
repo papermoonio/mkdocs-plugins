@@ -17,8 +17,9 @@ class TestAIFileUtils:
         filename = "basics.md"
         content = "# Polkadot Basics\n\nPolkadot is a sharded protocol."
 
-        # 3. Call the public API: resolve_actions
-        actions = utils.resolve_actions(page_url, filename, content, site_url=site_url)
+        # 3. Build the fully-qualified prompt URL and call the public API
+        prompt_page_url = site_url.rstrip("/") + "/" + page_url.lstrip("/")
+        actions = utils.resolve_actions(page_url, filename, content, prompt_page_url=prompt_page_url)
 
         # Usage Verification:
         # Check that we got a list back
@@ -52,15 +53,19 @@ class TestAIFileUtils:
         # Should contain encoded full URL (site_url + page_url) in the prompt
         assert "docs.polkadot.com" in claude_action["href"]
 
-    def test_site_url_interpolation(self):
-        """site_url should be interpolated into prompt templates without double slashes."""
+    def test_prompt_page_url_interpolation(self):
+        """prompt_page_url should be interpolated into prompt templates without double slashes."""
         utils = AIFileUtils()
 
+        site_url = "https://docs.example.com/"
+        page_url = "/ai/pages/test-page.md"
+        prompt_page_url = site_url.rstrip("/") + "/" + page_url.lstrip("/")
+
         actions = utils.resolve_actions(
-            page_url="/ai/pages/test-page.md",
+            page_url=page_url,
             filename="test-page.md",
             content="test",
-            site_url="https://docs.example.com/",  # trailing slash should be stripped
+            prompt_page_url=prompt_page_url,
         )
 
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")

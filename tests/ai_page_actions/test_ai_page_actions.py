@@ -2,36 +2,37 @@ from unittest.mock import MagicMock
 
 from bs4 import BeautifulSoup
 
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 from plugins.ai_page_actions.plugin import AiPageActionsPlugin
 
 
 class TestBuildSlug:
-    """Tests for the static _build_slug helper."""
+    """Tests for the static build_slug helper on AIFileUtils."""
 
     def test_simple_path(self):
-        assert AiPageActionsPlugin._build_slug("develop/toolkit/") == "develop-toolkit"
+        assert AIFileUtils.build_slug("develop/toolkit/") == "develop-toolkit"
 
     def test_root_path(self):
-        assert AiPageActionsPlugin._build_slug("/") == "index"
+        assert AIFileUtils.build_slug("/") == "index"
 
     def test_empty_string(self):
-        assert AiPageActionsPlugin._build_slug("") == "index"
+        assert AIFileUtils.build_slug("") == "index"
 
     def test_deep_path(self):
-        assert AiPageActionsPlugin._build_slug("a/b/c/d/") == "a-b-c-d"
+        assert AIFileUtils.build_slug("a/b/c/d/") == "a-b-c-d"
 
 
 class TestBuildToggleSlug:
-    """Tests for the static _build_toggle_slug helper."""
+    """Tests for the static build_toggle_slug helper on AIFileUtils."""
 
     def test_canonical_variant(self):
-        assert AiPageActionsPlugin._build_toggle_slug("develop/toolkit/", "") == "develop-toolkit"
+        assert AIFileUtils.build_toggle_slug("develop/toolkit/", "") == "develop-toolkit"
 
     def test_non_canonical_variant(self):
-        assert AiPageActionsPlugin._build_toggle_slug("develop/toolkit/", "python") == "develop-python"
+        assert AIFileUtils.build_toggle_slug("develop/toolkit/", "python") == "develop-python"
 
     def test_single_segment_variant(self):
-        assert AiPageActionsPlugin._build_toggle_slug("toolkit/", "rust") == "rust"
+        assert AIFileUtils.build_toggle_slug("toolkit/", "rust") == "rust"
 
 
 class TestWrapH1SubpathHandling:
