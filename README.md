@@ -13,8 +13,8 @@ Currently included:
 
 Helper utilities and libraries: 
 
-- **[AI File Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-actions.md)** *(shared library)*: Convenience wrapper around `ai_file_utils` for generating AI file action dropdowns.
-- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-file-utils.md)** *(shared library)*: Resolves action definitions from JSON and generates split-button dropdown HTML for copy, download, view, and LLM tool actions.
+- **[AI File Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/helper_library/ai-file-actions.md)** *(shared library)*: Convenience wrapper around `ai_file_utils` for generating AI file action dropdowns.
+- **[AI File Utils](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/helper_library/ai-file-utils.md)** *(shared library)*: Resolves action definitions from JSON and generates split-button dropdown HTML for copy, download, view, and LLM tool actions.
 
 ## Installation
 
