@@ -2,7 +2,8 @@
   "pageWidget": {
     "excludePages": [
       "404.html",
-      "ai-resources.md"
+      "ai-resources.md",
+      "index.md"
     ],
     "frontMatterKey": "hide_ai_actions"
   },
