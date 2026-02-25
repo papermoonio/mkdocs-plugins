@@ -91,9 +91,9 @@ We welcome:
     Run formatting and linting manually if needed:
 
     ```bash
-    black plugins/
-    isort plugins/
-    flake8 plugins/
+    black plugins/ helper_lib/
+    isort plugins/ helper_lib/
+    flake8 plugins/ helper_lib/
     ```
 
 4. Submit a pull request with a clear title and description.

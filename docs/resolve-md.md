@@ -43,8 +43,8 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
     <ul>
       <li>"docs_dir": allows you to specify a custom directory for docs</li>
       <li>"base_context_categories": an array of categories to include in base context</li>
-      <li>"categories_order": an array of category names in preferred order</li>
-      <li>"exclusions": "skip_basenames" and "skip_paths" arrays to exclude files and paths from processing</li>
+      <li>"categories_info": a dictionary of category metadata; key order controls display order</li>
+      <li>"exclusions": "skip_basenames" and "skip_paths" arrays to exclude files and paths from processing. Dot-directories (directories starting with <code>.</code>) are always excluded automatically</li>
     </ul>
   </details>
   <details>
@@ -79,18 +79,17 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
     "content": {
         "docs_dir": ".",
-        "base_context_categories": ["Basics", "Reference"],
-        "categories_order": [
-            "Basics",
-            "Smart Contracts",
-            "Parachains",
-            "dApps",
-            "Networks",
-            "Polkadot Protocol",
-            "Infrastructure",
-            "Tooling",
-            "Reference"
-        ],
+        "base_context_categories": ["basics", "reference"],
+        "categories_info": {
+            "basics": {
+                "name": "Basics",
+                "description": "General knowledge base and overview content."
+            },
+            "reference": {
+                "name": "Reference",
+                "description": "API references and glossary."
+            }
+        },
         "exclusions": {
             "skip_basenames": [
                 "README.md",
@@ -102,7 +101,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
                 "terms-of-use.md",
                 "privacy-policy.md"
             ],
-            "skip_paths": [".snippets", ".github", ".venv", "venv"]
+            "skip_paths": ["venv"]
         }
     },
 
