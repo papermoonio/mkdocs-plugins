@@ -1,4 +1,6 @@
-from typing import Optional
+import json
+from pathlib import Path
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, Tag
@@ -19,6 +21,11 @@ class AiPageActionsPlugin(BasePlugin):
     generation.  This plugin only handles *where* to inject — all
     the *what* lives in the shared utility.
 
+    Page exclusions are driven by ``llms_config.json`` (the same
+    ``skip_basenames`` and ``skip_paths`` that ``resolve_md`` uses)
+    so the widget is never rendered for pages that have no AI
+    artifact files.  Dot-directories are always excluded.
+
     Runs in the ``on_post_page`` hook so it operates on fully rendered
     HTML *after* all content hooks (including ``page_toggle``) have
     finished.
@@ -27,6 +34,40 @@ class AiPageActionsPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self._file_utils = AIFileUtils()
+        self._skip_basenames: List[str] = []
+        self._skip_paths: List[str] = []
+        self._config_loaded = False
+
+    # ------------------------------------------------------------------
+    # Config
+    # ------------------------------------------------------------------
+
+    def _ensure_config_loaded(self, config: MkDocsConfig) -> None:
+        """Load exclusion rules from llms_config.json (once per build)."""
+        if self._config_loaded:
+            return
+        config_file_path = Path(config["config_file_path"]).resolve()
+        project_root = config_file_path.parent
+        llms_config = self._load_llms_config(project_root)
+
+        exclusions = llms_config.get("content", {}).get("exclusions", {})
+        self._skip_basenames = exclusions.get("skip_basenames", [])
+        self._skip_paths = exclusions.get("skip_paths", [])
+        self._config_loaded = True
+
+    @staticmethod
+    def _load_llms_config(project_root: Path) -> dict:
+        """Load llms_config.json from the project root."""
+        config_path = project_root / "llms_config.json"
+        if not config_path.exists():
+            log.warning(f"[ai_page_actions] llms_config.json not found at {config_path}")
+            return {}
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            log.warning(f"[ai_page_actions] Failed to load llms_config.json: {e}")
+            return {}
 
     # ------------------------------------------------------------------
     # H1 wrapping
@@ -60,8 +101,16 @@ class AiPageActionsPlugin(BasePlugin):
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
     ) -> Optional[str]:
-        # Skip excluded pages (configured in ai_file_actions.json)
-        if self._file_utils.is_page_excluded(page.file.src_path, page.meta):
+        # Load exclusion config on first page (same hook where config is reliable)
+        self._ensure_config_loaded(config)
+
+        # Skip excluded pages (driven by llms_config.json + dot-dirs + front matter)
+        if self._file_utils.is_page_excluded(
+            page.file.src_path,
+            page.meta,
+            skip_basenames=self._skip_basenames,
+            skip_paths=self._skip_paths,
+        ):
             return output
 
         site_url = config.get("site_url", "")

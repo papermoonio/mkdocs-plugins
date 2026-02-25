@@ -53,16 +53,43 @@ class AIFileUtils:
             self._load_actions_schema()
         return self._actions_schema.get("pageWidget", {})
 
-    def is_page_excluded(self, src_path: str, page_meta: Dict[str, Any]) -> bool:
-        """Check whether a page should be excluded from widget injection."""
+    def is_page_excluded(
+        self,
+        src_path: str,
+        page_meta: Dict[str, Any],
+        skip_basenames: List[str] = None,
+        skip_paths: List[str] = None,
+    ) -> bool:
+        """Check whether a page should be excluded from widget injection.
+
+        Exclusion sources (checked in order):
+        1. Dot-directories — any path component starting with ``.``
+        2. ``skip_basenames`` — exact filename match
+        3. ``skip_paths`` — substring match against the source path
+        4. Front-matter key ``hide_ai_actions`` (configurable via JSON schema)
+        """
+        if skip_basenames is None:
+            skip_basenames = []
+        if skip_paths is None:
+            skip_paths = []
+
+        parts = Path(src_path).parts
+        # Skip pages inside dot-directories
+        if any(part.startswith(".") for part in parts):
+            return True
+
+        # Skip pages whose filename matches a skip_basenames entry
+        filename = parts[-1] if parts else ""
+        if filename in skip_basenames:
+            return True
+
+        # Skip pages whose path contains a skip_paths substring
+        if any(x in src_path for x in skip_paths):
+            return True
+
+        # Skip pages that opt out via front-matter
         config = self.get_page_widget_config()
-        exclude_pages = config.get("excludePages", [])
         fm_key = config.get("frontMatterKey", "hide_ai_actions")
-
-        for pattern in exclude_pages:
-            if src_path == pattern or src_path.endswith(pattern):
-                return True
-
         if page_meta.get(fm_key):
             return True
 

@@ -70,20 +70,31 @@ url = AIFileUtils.build_ai_page_url("develop-toolkit")
 
 ### Page Exclusion
 
-The `is_page_excluded` method checks whether a page should be excluded from widget injection, based on the `pageWidget` configuration in `ai_file_actions.json`.
+The `is_page_excluded` method checks whether a page should be excluded from widget injection. It accepts the page's source path, front matter metadata, and optional skip lists from `llms_config.json`:
 
 ```python
-excluded = utils.is_page_excluded(page.file.src_path, page.meta)
+excluded = utils.is_page_excluded(
+    page.file.src_path,
+    page.meta,
+    skip_basenames=["README.md", "LICENSE.md"],
+    skip_paths=["venv", "node_modules"],
+)
 ```
+
+Exclusions are checked in order:
+
+1. **Dot-directories** — any path component starting with `.` (always applied)
+2. **`skip_basenames`** — exact filename match
+3. **`skip_paths`** — substring match against the source path
+4. **Front matter** — the key defined in `pageWidget.frontMatterKey` (default: `hide_ai_actions`)
 
 ## Page Widget Configuration
 
-The `pageWidget` section of `ai_file_actions.json` controls which pages are excluded from per-page widget injection.
+The `pageWidget` section of `ai_file_actions.json` controls front-matter-based exclusion:
 
 ```json
 {
   "pageWidget": {
-    "excludePages": ["404.html", "ai-resources.md"],
     "frontMatterKey": "hide_ai_actions"
   }
 }
@@ -91,8 +102,9 @@ The `pageWidget` section of `ai_file_actions.json` controls which pages are excl
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `excludePages` | `list[str]` | Page source paths (exact match or suffix match) to exclude from widget injection. |
 | `frontMatterKey` | `string` | Front matter key that, when truthy, excludes a page from widget injection. |
+
+Path-based exclusions (`skip_basenames` and `skip_paths`) are defined in `llms_config.json` under `content.exclusions` and passed in by the calling plugin (e.g., `ai_page_actions`).
 
 ## Action Model
 

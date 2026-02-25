@@ -35,6 +35,69 @@ class TestBuildToggleSlug:
         assert AIFileUtils.build_toggle_slug("toolkit/", "rust") == "rust"
 
 
+class TestIsPageExcluded:
+    """Tests for the config-driven page exclusion logic."""
+
+    def setup_method(self):
+        self.utils = AIFileUtils()
+
+    def test_dot_directory_excluded(self):
+        """Pages inside dot-directories are always excluded."""
+        assert self.utils.is_page_excluded(".snippets/nav.md", {}) is True
+
+    def test_nested_dot_directory_excluded(self):
+        """Pages nested under a dot-directory are excluded."""
+        assert self.utils.is_page_excluded("docs/.hidden/page.md", {}) is True
+
+    def test_skip_basenames_match(self):
+        """Pages whose filename matches a skip_basenames entry are excluded."""
+        assert self.utils.is_page_excluded(
+            "develop/README.md", {}, skip_basenames=["README.md"]
+        ) is True
+
+    def test_skip_basenames_no_match(self):
+        """Pages whose filename doesn't match skip_basenames are not excluded."""
+        assert self.utils.is_page_excluded(
+            "develop/guide.md", {}, skip_basenames=["README.md"]
+        ) is False
+
+    def test_skip_paths_substring_match(self):
+        """Pages whose path contains a skip_paths entry are excluded."""
+        assert self.utils.is_page_excluded(
+            "node_modules/pkg/README.md", {}, skip_paths=["node_modules"]
+        ) is True
+
+    def test_skip_paths_no_match(self):
+        """Pages whose path doesn't contain any skip_paths entry are not excluded."""
+        assert self.utils.is_page_excluded(
+            "develop/guide.md", {}, skip_paths=["node_modules"]
+        ) is False
+
+    def test_front_matter_hide(self):
+        """Pages with hide_ai_actions front matter are excluded."""
+        assert self.utils.is_page_excluded(
+            "develop/guide.md", {"hide_ai_actions": True}
+        ) is True
+
+    def test_front_matter_not_set(self):
+        """Pages without hide_ai_actions front matter are not excluded."""
+        assert self.utils.is_page_excluded("develop/guide.md", {}) is False
+
+    def test_normal_page_not_excluded(self):
+        """A normal page with no matching rules is not excluded."""
+        assert self.utils.is_page_excluded(
+            "develop/guide.md",
+            {},
+            skip_basenames=["README.md"],
+            skip_paths=[".snippets"],
+        ) is False
+
+    def test_defaults_with_no_skip_lists(self):
+        """When no skip lists are provided, only dot-dirs and front matter apply."""
+        assert self.utils.is_page_excluded("develop/guide.md", {}) is False
+        assert self.utils.is_page_excluded(".hidden/page.md", {}) is True
+
+
 class TestWrapH1SubpathHandling:
     """Tests that _wrap_h1 correctly prefixes the URL with the site subpath."""
 
