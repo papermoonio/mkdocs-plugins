@@ -31,6 +31,7 @@ resolve_md = "plugins.resolve_md.plugin:ResolveMDPlugin"
 page_toggle = "plugins.page_toggle.plugin:TogglePagesPlugin"
 ai_resources_page = "plugins.ai_resources_page.plugin:AiResourcesPagePlugin"
 ai_page_actions = "plugins.ai_page_actions.plugin:AiPageActionsPlugin"
+agent_tasks = "plugins.agent_tasks.plugin:AgentTasksPlugin"
 
 
 # Configuration for development tools
