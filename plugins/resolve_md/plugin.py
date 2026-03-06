@@ -174,7 +174,7 @@ class ResolveMDPlugin(BasePlugin):
     # File discovery and filtering per skip names/paths in llms_config.json
     @staticmethod
     def get_all_markdown_files(docs_dir, skip_basenames, skip_paths):
-        """Collect *.md|*.mdx, skipping dot-directories, manual skip_paths, and skip_basenames.
+        """Collect *.md|*.mdx, skipping dot-files, dot-directories, manual skip_paths, and skip_basenames.
 
         The root index.md (homepage) is always excluded. To skip all
         index.md files site-wide, add ``index.md`` to ``skip_basenames``
@@ -190,6 +190,9 @@ class ResolveMDPlugin(BasePlugin):
                 continue
             for file in files:
                 if not file.endswith((".md", ".mdx")):
+                    continue
+                # Always skip hidden (dot) files
+                if file.startswith("."):
                     continue
                 if file in skip_basenames:
                     continue
