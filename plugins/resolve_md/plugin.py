@@ -174,7 +174,13 @@ class ResolveMDPlugin(BasePlugin):
     # File discovery and filtering per skip names/paths in llms_config.json
     @staticmethod
     def get_all_markdown_files(docs_dir, skip_basenames, skip_paths):
-        """Collect *.md|*.mdx, skipping dot-directories, manual skip_paths, and skip_basenames."""
+        """Collect *.md|*.mdx, skipping dot-directories, manual skip_paths, and skip_basenames.
+
+        The root index.md (homepage) is always excluded. To skip all
+        index.md files site-wide, add ``index.md`` to ``skip_basenames``
+        in ``llms_config.json``.
+        """
+        docs_dir_norm = os.path.normpath(str(docs_dir))
         results = []
         for root, dirs, files in os.walk(docs_dir):
             # Always skip hidden (dot) directories
@@ -183,8 +189,14 @@ class ResolveMDPlugin(BasePlugin):
             if any(x in root for x in skip_paths):
                 continue
             for file in files:
-                if file.endswith((".md", ".mdx")) and file not in skip_basenames:
-                    results.append(os.path.join(root, file))
+                if not file.endswith((".md", ".mdx")):
+                    continue
+                if file in skip_basenames:
+                    continue
+                # Always skip the root index.md (homepage)
+                if file == "index.md" and os.path.normpath(root) == docs_dir_norm:
+                    continue
+                results.append(os.path.join(root, file))
         return sorted(results)
 
     # Loaders for: llms_config.json, yaml files, and Mkdocs docs_dir

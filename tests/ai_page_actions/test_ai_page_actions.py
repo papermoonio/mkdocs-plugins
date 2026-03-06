@@ -98,6 +98,39 @@ class TestIsPageExcluded:
         assert self.utils.is_page_excluded(".hidden/page.md", {}) is True
 
 
+class TestHomepageSkip:
+    """Tests that the homepage (root index.md) is always skipped."""
+
+    def setup_method(self):
+        self.plugin = AiPageActionsPlugin()
+        self.plugin._config_loaded = True
+
+    def _make_page(self, is_homepage=False, src_path="guide.md"):
+        page = MagicMock()
+        page.is_homepage = is_homepage
+        page.file.src_path = src_path
+        page.meta = {}
+        return page
+
+    def _make_config(self):
+        return {"site_url": "https://example.com/"}
+
+    def test_homepage_returns_output_unchanged(self):
+        """The homepage should be skipped, returning the output as-is."""
+        page = self._make_page(is_homepage=True, src_path="index.md")
+        output = "<h1>Home</h1>"
+        result = self.plugin.on_post_page(output, page=page, config=self._make_config())
+        assert result == output
+
+    def test_non_homepage_is_not_skipped(self):
+        """A regular page should not be skipped by the homepage check."""
+        page = self._make_page(is_homepage=False, src_path="guide.md")
+        output = '<div class="md-content"><h1>Guide</h1><p>Content</p></div>'
+        result = self.plugin.on_post_page(output, page=page, config=self._make_config())
+        # The page should be processed (widget injected), so output changes
+        assert result != output
+
+
 class TestWrapH1SubpathHandling:
     """Tests that _wrap_h1 correctly prefixes the URL with the site subpath."""
 
