@@ -896,8 +896,9 @@ class ResolveMDPlugin(BasePlugin):
             "word_count": total_words,
             "token_estimate": total_tokens,
             "page_count": len(pages),
-            "build_timestamp": build_timestamp,
         }
+        if build_timestamp:
+            fm_obj["build_timestamp"] = build_timestamp
 
         # Build body content first so we can hash it for the front matter
         body_lines: list[str] = []
@@ -1105,11 +1106,12 @@ class ResolveMDPlugin(BasePlugin):
         # Wrap entries in a top-level object with build metadata
         index_content = json.dumps(site_index_entries, ensure_ascii=False, indent=2)
         site_index_obj = {
-            "build_timestamp": build_timestamp,
             "version_hash": self.sha256_text(index_content),
             "page_count": len(site_index_entries),
             "pages": site_index_entries,
         }
+        if build_timestamp:
+            site_index_obj["build_timestamp"] = build_timestamp
 
         index_path.write_text(
             json.dumps(site_index_obj, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -1197,16 +1199,16 @@ class ResolveMDPlugin(BasePlugin):
         version_hash = "sha256:" + hashlib.sha256(
             all_content.encode("utf-8")
         ).hexdigest()
-        return "\n".join(
-            [
-                "## Metadata",
-                f"- Documentation pages: {len(pages)}",
-                f"- Categories: {len(distinct_categories)}",
-                f"- Build Timestamp: {build_timestamp}",
-                f"- Version Hash: {version_hash}",
-                "",
-            ]
-        )
+        lines = [
+            "## Metadata",
+            f"- Documentation pages: {len(pages)}",
+            f"- Categories: {len(distinct_categories)}",
+        ]
+        if build_timestamp:
+            lines.append(f"- Build Timestamp: {build_timestamp}")
+        lines.append(f"- Version Hash: {version_hash}")
+        lines.append("")
+        return "\n".join(lines)
 
     @staticmethod
     def format_llms_docs_section(
