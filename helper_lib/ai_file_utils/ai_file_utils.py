@@ -155,7 +155,7 @@ class AIFileUtils:
         if "promptTemplate" in action:
             tpl = action["promptTemplate"]
             # Prompt templates use the full URL so external services
-            # (Jina, ChatGPT, Claude) receive a complete address.
+            # (ChatGPT, Claude) receive a complete address.
             prompt_replacements = {
                 "{{ content }}": content,
                 "{{ page_url }}": prompt_page_url or page_url,
