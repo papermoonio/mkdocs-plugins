@@ -190,14 +190,15 @@ class ResolveMDPlugin(BasePlugin):
         """
         try:
             result = subprocess.run(
-                ["git", "log", "-1", "--format=%cI", "--", file_path],
+                ["git", "log", "-1", "--format=%cI", "--", os.path.basename(file_path)],
                 capture_output=True,
                 text=True,
                 timeout=10,
+                cwd=os.path.dirname(file_path) or ".",
             )
             ts = result.stdout.strip()
             if ts:
-                return ts
+                return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
         except (subprocess.SubprocessError, OSError):
             pass
         # Fallback: filesystem modification time
