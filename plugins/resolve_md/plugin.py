@@ -951,8 +951,8 @@ class ResolveMDPlugin(BasePlugin):
             outline, sections = self.extract_outline_and_sections(
                 body, max_depth=max_depth
             )
-            preview = self.extract_preview(body, max_chars=preview_chars) or page.get(
-                "description", ""
+            preview = page.get("description", "") or self.extract_preview(
+                body, max_chars=preview_chars
             )
             total_section_tokens = 0
             for sec in sections:
