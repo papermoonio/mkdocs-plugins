@@ -91,6 +91,19 @@ class ResolveMDPlugin(BasePlugin):
 
         build_timestamp = datetime.now(timezone.utc).isoformat()
 
+        # One-time check: are we inside a git repo?
+        try:
+            _check = subprocess.run(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=str(docs_dir),
+            )
+            has_git = _check.returncode == 0
+        except (subprocess.SubprocessError, OSError):
+            has_git = False
+
         processed = 0
 
         ai_pages: list[dict] = []
@@ -129,7 +142,7 @@ class ResolveMDPlugin(BasePlugin):
             word_count = self.word_count(cleaned_body)
             token_estimate = self.estimate_tokens(cleaned_body)
             version_hash = self.sha256_text(cleaned_body)
-            last_updated = self.get_git_last_updated(md_path)
+            last_updated = self.get_git_last_updated(md_path, has_git)
 
             # Output resolved Markdown file to AI artifacts directory
             header = dict(reduced_fm)
@@ -182,12 +195,18 @@ class ResolveMDPlugin(BasePlugin):
     # ----- Helper functions -------
 
     @staticmethod
-    def get_git_last_updated(file_path: str) -> str:
+    def get_git_last_updated(file_path: str, has_git: bool = True) -> str:
         """Return the ISO-8601 UTC timestamp of the last git commit that touched *file_path*.
 
         Falls back to the file's filesystem mtime when git history is
         unavailable (e.g. outside a repo, or a file not yet committed).
+
+        When *has_git* is False the git subprocess is skipped entirely,
+        avoiding repeated spawn-and-fail overhead in non-git environments.
         """
+        if not has_git:
+            mtime = os.path.getmtime(file_path)
+            return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
         try:
             result = subprocess.run(
                 ["git", "log", "-1", "--format=%cI", "--", os.path.basename(file_path)],
