@@ -138,7 +138,7 @@ class ResolveMDPlugin(BasePlugin):
             rel_path = Path(md_path).relative_to(docs_dir)
             rel_no_ext = str(rel_path.with_suffix(""))
             slug, url = self.compute_slug_and_url(rel_no_ext, docs_base_url)
-            # Calculate word count and estimated token count
+            # Calculate word count, token estimate, version hash, and last-updated timestamp
             word_count = self.word_count(cleaned_body)
             token_estimate = self.estimate_tokens(cleaned_body)
             version_hash = self.sha256_text(cleaned_body)
@@ -255,7 +255,7 @@ class ResolveMDPlugin(BasePlugin):
                 results.append(os.path.join(root, file))
         return sorted(results)
 
-    # Loaders for: llms_config.json, yaml files, and Mkdocs docs_dir
+    # Loaders for llms_config.json and yaml files
 
     def load_llms_config(self, project_root: Path) -> dict:
         """Load llms_config.json from the repo root."""
@@ -821,8 +821,7 @@ class ResolveMDPlugin(BasePlugin):
             fh.write(content)
         log.debug(f"[resolve_md] wrote {out_path}")
 
-    # Replaces copy_md plugin actions
-    # Category file creation helper functions
+    # Category and slug helper functions
     @staticmethod
     def slugify_category(name: str) -> str:
         s = name.strip().lower()
@@ -1196,9 +1195,7 @@ class ResolveMDPlugin(BasePlugin):
             cat for page in pages for cat in (page.get("categories") or [])
         }
         all_content = "".join(p.get("body", "") for p in pages)
-        version_hash = "sha256:" + hashlib.sha256(
-            all_content.encode("utf-8")
-        ).hexdigest()
+        version_hash = ResolveMDPlugin.sha256_text(all_content)
         lines = [
             "## Metadata",
             f"- Documentation pages: {len(pages)}",
