@@ -35,6 +35,21 @@ class TestGetAllMarkdownFiles:
             assert "nav.md" not in basenames
             assert "CONTRIBUTING.md" not in basenames
 
+    def test_skips_dot_files(self):
+        """Dot-files are always excluded without being in skip_basenames."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._create_tree(tmp, {
+                "guide.md": "",
+                ".hidden.md": "",
+                "subdir": {".secret.md": "", "page.md": ""},
+            })
+            results = ResolveMDPlugin.get_all_markdown_files(tmp, [], [])
+            basenames = [os.path.basename(f) for f in results]
+            assert "guide.md" in basenames
+            assert "page.md" in basenames
+            assert ".hidden.md" not in basenames
+            assert ".secret.md" not in basenames
+
     def test_skips_nested_dot_directories(self):
         """Dot-directories nested under normal dirs are also excluded."""
         with tempfile.TemporaryDirectory() as tmp:
