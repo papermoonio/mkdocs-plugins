@@ -3,6 +3,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -87,6 +89,21 @@ class ResolveMDPlugin(BasePlugin):
 
         log.info(f"[resolve_md] found {len(markdown_files)} markdown files")
 
+        build_timestamp = datetime.now(timezone.utc).isoformat()
+
+        # One-time check: are we inside a git repo?
+        try:
+            _check = subprocess.run(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=str(docs_dir),
+            )
+            has_git = _check.returncode == 0
+        except (subprocess.SubprocessError, OSError):
+            has_git = False
+
         processed = 0
 
         ai_pages: list[dict] = []
@@ -121,15 +138,19 @@ class ResolveMDPlugin(BasePlugin):
             rel_path = Path(md_path).relative_to(docs_dir)
             rel_no_ext = str(rel_path.with_suffix(""))
             slug, url = self.compute_slug_and_url(rel_no_ext, docs_base_url)
-            # Calculate word count and estimated token count
+            # Calculate word count, token estimate, version hash, and last-updated timestamp
             word_count = self.word_count(cleaned_body)
             token_estimate = self.estimate_tokens(cleaned_body)
+            version_hash = self.sha256_text(cleaned_body)
+            last_updated = self.get_git_last_updated(md_path, has_git)
 
             # Output resolved Markdown file to AI artifacts directory
             header = dict(reduced_fm)
             header["url"] = url
             header["word_count"] = word_count
             header["token_estimate"] = token_estimate
+            header["version_hash"] = version_hash
+            header["last_updated"] = last_updated
             self.write_ai_page(ai_pages_dir, slug, header, cleaned_body)
             processed += 1
             # Creates list used later for category file creation
@@ -149,6 +170,8 @@ class ResolveMDPlugin(BasePlugin):
                     "url": url,
                     "word_count": word_count,
                     "token_estimate": token_estimate,
+                    "version_hash": version_hash,
+                    "last_updated": last_updated,
                     "body": cleaned_body,
                 }
             )
@@ -163,18 +186,54 @@ class ResolveMDPlugin(BasePlugin):
             )
 
         # Build category bundles based on current AI pages
-        self.build_category_bundles(ai_pages, ai_root)
+        self.build_category_bundles(ai_pages, ai_root, build_timestamp)
         # Build site index + llms JSONL artifacts
-        self.build_site_index(ai_pages, ai_root)
+        self.build_site_index(ai_pages, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
-        self.build_llms_txt(ai_pages, site_dir)
+        self.build_llms_txt(ai_pages, site_dir, build_timestamp)
 
     # ----- Helper functions -------
+
+    @staticmethod
+    def get_git_last_updated(file_path: str, has_git: bool = True) -> str:
+        """Return the ISO-8601 UTC timestamp of the last git commit that touched *file_path*.
+
+        Falls back to the file's filesystem mtime when git history is
+        unavailable (e.g. outside a repo, or a file not yet committed).
+
+        When *has_git* is False the git subprocess is skipped entirely,
+        avoiding repeated spawn-and-fail overhead in non-git environments.
+        """
+        if not has_git:
+            mtime = os.path.getmtime(file_path)
+            return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+        try:
+            result = subprocess.run(
+                ["git", "log", "-1", "--format=%cI", "--", os.path.basename(file_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=os.path.dirname(file_path) or ".",
+            )
+            ts = result.stdout.strip()
+            if ts:
+                return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
+        except (subprocess.SubprocessError, OSError):
+            pass
+        # Fallback: filesystem modification time
+        mtime = os.path.getmtime(file_path)
+        return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
     # File discovery and filtering per skip names/paths in llms_config.json
     @staticmethod
     def get_all_markdown_files(docs_dir, skip_basenames, skip_paths):
-        """Collect *.md|*.mdx, skipping dot-directories, manual skip_paths, and skip_basenames."""
+        """Collect *.md|*.mdx, skipping dot-files, dot-directories, manual skip_paths, and skip_basenames.
+
+        The root index.md (homepage) is always excluded. To skip all
+        index.md files site-wide, add ``index.md`` to ``skip_basenames``
+        in ``llms_config.json``.
+        """
+        docs_dir_norm = os.path.normpath(str(docs_dir))
         results = []
         for root, dirs, files in os.walk(docs_dir):
             # Always skip hidden (dot) directories
@@ -183,11 +242,20 @@ class ResolveMDPlugin(BasePlugin):
             if any(x in root for x in skip_paths):
                 continue
             for file in files:
-                if file.endswith((".md", ".mdx")) and file not in skip_basenames:
-                    results.append(os.path.join(root, file))
+                if not file.endswith((".md", ".mdx")):
+                    continue
+                # Always skip hidden (dot) files
+                if file.startswith("."):
+                    continue
+                if file in skip_basenames:
+                    continue
+                # Always skip the root index.md (homepage)
+                if file == "index.md" and os.path.normpath(root) == docs_dir_norm:
+                    continue
+                results.append(os.path.join(root, file))
         return sorted(results)
 
-    # Loaders for: llms_config.json, yaml files, and Mkdocs docs_dir
+    # Loaders for llms_config.json and yaml files
 
     def load_llms_config(self, project_root: Path) -> dict:
         """Load llms_config.json from the repo root."""
@@ -738,6 +806,8 @@ class ResolveMDPlugin(BasePlugin):
             "url",
             "word_count",
             "token_estimate",
+            "version_hash",
+            "last_updated",
         ):
             val = header.get(key)
             if val not in (None, "", []):
@@ -751,8 +821,7 @@ class ResolveMDPlugin(BasePlugin):
             fh.write(content)
         log.debug(f"[resolve_md] wrote {out_path}")
 
-    # Replaces copy_md plugin actions
-    # Category file creation helper functions
+    # Category and slug helper functions
     @staticmethod
     def slugify_category(name: str) -> str:
         s = name.strip().lower()
@@ -812,6 +881,7 @@ class ResolveMDPlugin(BasePlugin):
         base_categories: list[str],
         pages: list[dict],
         resolved_base: str,
+        build_timestamp: str = "",
     ) -> None:
         """Concatenate pages into a single Markdown bundle."""
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -826,44 +896,56 @@ class ResolveMDPlugin(BasePlugin):
             "token_estimate": total_tokens,
             "page_count": len(pages),
         }
-        fm_yaml = yaml.safe_dump(
-            fm_obj, sort_keys=False, allow_unicode=True, width=4096
-        ).strip()
+        if build_timestamp:
+            fm_obj["build_timestamp"] = build_timestamp
 
-        lines: list[str] = [f"---\n{fm_yaml}\n---\n"]
-        lines.append(f"# Begin New Bundle: {category}")
+        # Build body content first so we can hash it for the front matter
+        body_lines: list[str] = []
+        body_lines.append(f"# Begin New Bundle: {category}")
         if includes_base and base_categories:
-            lines.append(
+            body_lines.append(
                 f"Includes shared base categories: {', '.join(base_categories)}"
             )
-        lines.append("")
+        body_lines.append("")
 
         for page in pages:
-            lines.append("\n---\n")
+            body_lines.append("\n---\n")
             title = page.get("title") or page["slug"]
-            lines.append(f"Page Title: {title}\n")
+            body_lines.append(f"Page Title: {title}\n")
             resolved_url = (
                 f"{resolved_base}/{page['slug']}.md"
                 if resolved_base
                 else f"{page['slug']}.md"
             )
-            lines.append(f"- Resolved Markdown: {resolved_url}")
+            body_lines.append(f"- Resolved Markdown: {resolved_url}")
             html_url = page.get("url")
             if html_url:
-                lines.append(f"- Canonical (HTML): {html_url}")
+                body_lines.append(f"- Canonical (HTML): {html_url}")
             description = page.get("description")
             if description:
-                lines.append(f"- Summary: {description}")
-            lines.append(
+                body_lines.append(f"- Summary: {description}")
+            body_lines.append(
                 f"- Word Count: {page.get('word_count', 0)}; Token Estimate: {page.get('token_estimate', 0)}"
             )
-            lines.append("")
-            lines.append(page.get("body", "").strip())
-            lines.append("")
+            body_lines.append(f"- Last Updated: {page.get('last_updated', '')}")
+            body_lines.append(f"- Version Hash: {page.get('version_hash', '')}")
+            body_lines.append("")
+            body_lines.append(page.get("body", "").strip())
+            body_lines.append("")
 
-        out_path.write_text("\n".join(lines), encoding="utf-8")
+        bundle_body = "\n".join(body_lines)
+        fm_obj["version_hash"] = self.sha256_text(bundle_body)
 
-    def build_category_bundles(self, pages: list[dict], ai_root: Path) -> None:
+        fm_yaml = yaml.safe_dump(
+            fm_obj, sort_keys=False, allow_unicode=True, width=4096
+        ).strip()
+
+        content = f"---\n{fm_yaml}\n---\n\n{bundle_body}"
+        out_path.write_text(content, encoding="utf-8")
+
+    def build_category_bundles(
+        self, pages: list[dict], ai_root: Path, build_timestamp: str = ""
+    ) -> None:
         """Generate per-category bundle files based on AI pages."""
         content_cfg = self.llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info") or {}
@@ -909,6 +991,7 @@ class ResolveMDPlugin(BasePlugin):
                     base_cats,
                     bundle_pages,
                     resolved_base,
+                    build_timestamp,
                 )
             else:
                 combined = self.union_pages([base_union, category_pages])
@@ -919,13 +1002,21 @@ class ResolveMDPlugin(BasePlugin):
                     f"[resolve_md] category bundle {display_name} ({category_id}): base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
                 )
                 self.write_category_bundle(
-                    out_path, display_name, True, base_cats, bundle_pages, resolved_base
+                    out_path,
+                    display_name,
+                    True,
+                    base_cats,
+                    bundle_pages,
+                    resolved_base,
+                    build_timestamp,
                 )
 
         log.info(f"[resolve_md] category bundles written to {categories_dir}")
 
     # Create full-site content related AI artifact files
-    def build_site_index(self, pages: list[dict], ai_root: Path) -> None:
+    def build_site_index(
+        self, pages: list[dict], ai_root: Path, build_timestamp: str = ""
+    ) -> None:
         """Generate site-index.json and llms_full.jsonl from AI pages."""
         if not pages:
             return
@@ -943,7 +1034,7 @@ class ResolveMDPlugin(BasePlugin):
         llms_path.parent.mkdir(parents=True, exist_ok=True)
 
         resolved_base = self.build_resolved_base_url()
-        site_index: list[dict] = []
+        site_index_entries: list[dict] = []
         jsonl_lines: list[str] = []
 
         for page in pages:
@@ -954,6 +1045,9 @@ class ResolveMDPlugin(BasePlugin):
             preview = page.get("description", "") or self.extract_preview(
                 body, max_chars=preview_chars
             )
+            page_version_hash = page.get("version_hash", self.sha256_text(body))
+            page_last_updated = page.get("last_updated", "")
+
             total_section_tokens = 0
             for sec in sections:
                 sec_tokens = self.estimate_tokens(sec["text"])
@@ -971,6 +1065,8 @@ class ResolveMDPlugin(BasePlugin):
                             "end_char": sec["end_char"],
                             "estimated_token_count": sec_tokens,
                             "token_estimator": token_estimator,
+                            "page_version_hash": page_version_hash,
+                            "last_updated": page_last_updated,
                             "text": sec["text"],
                         },
                         ensure_ascii=False,
@@ -999,14 +1095,25 @@ class ResolveMDPlugin(BasePlugin):
                 "preview": preview,
                 "outline": outline,
                 "stats": stats,
-                "hash": self.sha256_text(body),
+                "version_hash": page_version_hash,
+                "last_updated": page_last_updated,
                 "token_estimator": token_estimator,
             }
             entry["raw_md_url"] = resolved_md_url
-            site_index.append(entry)
+            site_index_entries.append(entry)
+
+        # Wrap entries in a top-level object with build metadata
+        index_content = json.dumps(site_index_entries, ensure_ascii=False, indent=2)
+        site_index_obj = {
+            "version_hash": self.sha256_text(index_content),
+            "page_count": len(site_index_entries),
+            "pages": site_index_entries,
+        }
+        if build_timestamp:
+            site_index_obj["build_timestamp"] = build_timestamp
 
         index_path.write_text(
-            json.dumps(site_index, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(site_index_obj, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
         with llms_path.open("w", encoding="utf-8") as fh:
@@ -1014,13 +1121,15 @@ class ResolveMDPlugin(BasePlugin):
                 fh.write(line + "\n")
 
         log.info(
-            f"[resolve_md] site index written to {index_path} (pages={len(site_index)})"
+            f"[resolve_md] site index written to {index_path} (pages={len(site_index_entries)})"
         )
         log.info(
             f"[resolve_md] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
         )
 
-    def build_llms_txt(self, pages: list[dict], docs_dir: Path) -> None:
+    def build_llms_txt(
+        self, pages: list[dict], docs_dir: Path, build_timestamp: str = ""
+    ) -> None:
         """Generate llms.txt listing resolved markdown links grouped by category."""
         if not pages:
             return
@@ -1051,7 +1160,9 @@ class ResolveMDPlugin(BasePlugin):
             ) from exc
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        metadata_section = self.format_llms_metadata_section(pages)
+        metadata_section = self.format_llms_metadata_section(
+            pages, build_timestamp
+        )
         docs_section = self.format_llms_docs_section(
             pages, resolved_base, list(categories_info.keys()), categories_info
         )
@@ -1070,25 +1181,31 @@ class ResolveMDPlugin(BasePlugin):
             docs_section,
         ]
 
-        out_path.write_text(
-            "\n".join(line for line in content_lines if line is not None),
-            encoding="utf-8",
+        llms_txt_content = "\n".join(
+            line for line in content_lines if line is not None
         )
+        out_path.write_text(llms_txt_content, encoding="utf-8")
         log.info(f"[resolve_md] llms.txt written to {out_path}")
 
     @staticmethod
-    def format_llms_metadata_section(pages: list[dict]) -> str:
+    def format_llms_metadata_section(
+        pages: list[dict], build_timestamp: str = ""
+    ) -> str:
         distinct_categories = {
             cat for page in pages for cat in (page.get("categories") or [])
         }
-        return "\n".join(
-            [
-                "## Metadata",
-                f"- Documentation pages: {len(pages)}",
-                f"- Categories: {len(distinct_categories)}",
-                "",
-            ]
-        )
+        all_content = "".join(p.get("body", "") for p in pages)
+        version_hash = ResolveMDPlugin.sha256_text(all_content)
+        lines = [
+            "## Metadata",
+            f"- Documentation pages: {len(pages)}",
+            f"- Categories: {len(distinct_categories)}",
+        ]
+        if build_timestamp:
+            lines.append(f"- Build Timestamp: {build_timestamp}")
+        lines.append(f"- Version Hash: {version_hash}")
+        lines.append("")
+        return "\n".join(lines)
 
     @staticmethod
     def format_llms_docs_section(

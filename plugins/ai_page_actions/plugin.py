@@ -104,6 +104,10 @@ class AiPageActionsPlugin(BasePlugin):
         # Load exclusion config on first page (same hook where config is reliable)
         self._ensure_config_loaded(config)
 
+        # Always skip the homepage (root index.md)
+        if page.is_homepage:
+            return output
+
         # Skip excluded pages (driven by llms_config.json + dot-dirs + front matter)
         if self._file_utils.is_page_excluded(
             page.file.src_path,

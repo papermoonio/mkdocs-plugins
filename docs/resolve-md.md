@@ -44,7 +44,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
       <li>"docs_dir": allows you to specify a custom directory for docs</li>
       <li>"base_context_categories": an array of categories to include in base context</li>
       <li>"categories_info": a dictionary of category metadata; key order controls display order</li>
-      <li>"exclusions": "skip_basenames" and "skip_paths" arrays to exclude files and paths from processing. Dot-directories (directories starting with <code>.</code>) are always excluded automatically</li>
+      <li>"exclusions": "skip_basenames" and "skip_paths" arrays to exclude files and paths from processing. Dot-directories and dot-files (names starting with <code>.</code>) are always excluded automatically</li>
     </ul>
   </details>
   <details>
