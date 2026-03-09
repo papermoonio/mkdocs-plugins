@@ -9,6 +9,7 @@ Currently included:
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
 - **[Resolve Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md)**: Resolve variable and code snippet placeholders and serve resolved Markdown files directly from your site's build folder.
+- **[Agent Tasks](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/agent-tasks.md)**: Generate structured, agent-ready task files from a JSON configuration.
 - **[AI Page Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-page-actions.md)**: Injects a per-page AI actions widget next to each page's H1 heading at build time.
 
 Helper utilities and libraries: 
@@ -30,6 +31,8 @@ Enable one or more plugins in your `mkdocs.yml`:
 
 ```yaml
 plugins:
+  - agent_tasks:
+      agent_tasks_config: agent_tasks_config.json
   - ai_resources_page
   - ai_page_actions
   - copy_md:
