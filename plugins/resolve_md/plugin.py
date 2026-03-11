@@ -217,6 +217,9 @@ class ResolveMDPlugin(BasePlugin):
             )
             ts = result.stdout.strip()
             if ts:
+                # Python 3.10 fromisoformat() doesn't accept 'Z'; normalize to +00:00
+                if ts.endswith("Z"):
+                    ts = ts[:-1] + "+00:00"
                 return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
         except (subprocess.SubprocessError, OSError):
             pass
