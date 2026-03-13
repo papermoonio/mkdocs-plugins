@@ -29,7 +29,13 @@ class AiResourcesPagePlugin(BasePlugin):
             return {}
         try:
             with open(token_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+            if not isinstance(data, dict):
+                log.warning(
+                    "[ai_resources_page] Token counts file is not a JSON object; ignoring"
+                )
+                return {}
+            return {k: v for k, v in data.items() if isinstance(v, int)}
         except Exception as e:
             log.warning(f"[ai_resources_page] Failed to load token counts: {e}")
             return {}

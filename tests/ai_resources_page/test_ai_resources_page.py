@@ -182,6 +182,29 @@ class TestTokenCountPostBuild:
         assert "~52K tokens" in result
         assert "<!-- token-estimate:" not in result
 
+    def test_ignores_malformed_manifest(self, tmp_path):
+        """A manifest that isn't a JSON object should not break the build."""
+        plugin = AiResourcesPagePlugin()
+        site_dir = self._build_html(tmp_path)
+
+        # Write a JSON array instead of an object
+        (tmp_path / "ai-resources-token-count.json").write_text(
+            "[1, 2, 3]", encoding="utf-8"
+        )
+
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        config = {
+            "config_file_path": str(mkdocs_yml),
+            "site_dir": str(site_dir),
+        }
+
+        plugin.on_post_build(config)
+
+        result = (site_dir / "ai-resources" / "index.html").read_text()
+        assert "<!-- token-estimate:" not in result
+        assert "tokens" not in result
+
     def test_removes_placeholders_when_no_manifest(self, tmp_path):
         """Placeholders are cleaned up even when no manifest exists."""
         plugin = AiResourcesPagePlugin()
