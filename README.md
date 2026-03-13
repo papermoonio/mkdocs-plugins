@@ -30,7 +30,9 @@ Enable one or more plugins in your `mkdocs.yml`:
 
 ```yaml
 plugins:
-  - ai_resources_page
+  - resolve_md:
+      llms_config: example_config.json
+  - ai_resources_page  # must be listed after resolve_md
   - ai_page_actions
   - copy_md:
       source_dir: docs/.example
@@ -40,8 +42,6 @@ plugins:
       minify_css: true
       minify_js: true
   - page_toggle
-  - resolve_md:
-      llms_config: example_config.json
 ```
 ## License
 

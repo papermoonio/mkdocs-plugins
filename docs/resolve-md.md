@@ -115,6 +115,40 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
   }
   ```
 
+## 🔹 Token Estimate Manifests
+
+After generating all artifact files, the plugin writes two token estimate manifests:
+
+1. **`ai-resources-token-count.json`** — Written to your project root (next to `llms_config.json`). A simple map of output filenames to their estimated token counts. Used by the `ai_resources_page` plugin to display token estimates in the AI Resources table.
+
+    ```json
+    {
+      "llms.txt": 5200,
+      "site-index.json": 128000,
+      "llms-full.jsonl": 1500000,
+      "categories/basics.md": 52000
+    }
+    ```
+
+2. **`token-estimates.json`** — Written to the AI output directory (e.g., `site/ai/`). A comprehensive manifest that includes per-file and per-page token estimates, intended for use by MCP tools or other programmatic consumers.
+
+    ```json
+    {
+      "build_timestamp": "2026-03-13T...",
+      "token_estimator": "heuristic-v1",
+      "files": {
+        "llms.txt": { "token_estimate": 5200 },
+        "site-index.json": { "token_estimate": 128000 }
+      },
+      "pages": {
+        "getting-started/installation": { "token_estimate": 1200, "word_count": 850 },
+        "reference/api": { "token_estimate": 4500, "word_count": 3100 }
+      }
+    }
+    ```
+
+Token estimates use Unicode word-and-punctuation tokenization (`heuristic-v1`), which counts each word and punctuation character as a separate token. This tends to slightly overestimate compared to BPE-based tokenizers like `tiktoken`.
+
 ## 🔹 Notes
 
 - The plugin will overwrite the target directory on each build to avoid stale files.

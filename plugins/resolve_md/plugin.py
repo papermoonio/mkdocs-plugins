@@ -191,6 +191,10 @@ class ResolveMDPlugin(BasePlugin):
         self.build_site_index(ai_pages, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir, build_timestamp)
+        # Build token estimate manifests for the AI Resources page and MCP tools
+        self.build_token_manifests(
+            ai_pages, ai_root, project_root, site_dir, build_timestamp
+        )
 
     # ----- Helper functions -------
 
@@ -1254,6 +1258,100 @@ class ResolveMDPlugin(BasePlugin):
             lines.extend(grouped[cat])
 
         return "\n".join(lines)
+
+    def build_token_manifests(
+        self,
+        pages: list[dict],
+        ai_root: Path,
+        project_root: Path,
+        site_dir: Path,
+        build_timestamp: str = "",
+    ) -> None:
+        """Generate token estimate manifests for AI Resources page and MCP tools.
+
+        Produces two files:
+        1. ai-resources-token-count.json — next to llms_config.json (project root).
+           Maps output filenames to token estimates for use by ai_resources_page plugin.
+        2. token-estimates.json — in the ai_root (/ai/) output directory.
+           Comprehensive manifest with per-file and per-page token estimates.
+        """
+        if not pages:
+            return
+
+        outputs_cfg = self.llms_config.get("outputs", {})
+        files_cfg = outputs_cfg.get("files", {})
+        site_index_name = files_cfg.get("site_index", "site-index.json")
+        llms_full_name = files_cfg.get("llms_full", "llms-full.jsonl")
+        content_cfg = self.llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info") or {}
+
+        token_estimator = "heuristic-v1"
+
+        # Compute per-file token estimates for the AI Resources page outputs
+        file_tokens: dict[str, int] = {}
+
+        # llms.txt — read the generated file to get an accurate count
+        llms_txt_rel = self.llms_config.get("llms_txt_output_path", "llms.txt")
+        llms_txt_path = Path(llms_txt_rel)
+        if not llms_txt_path.is_absolute():
+            llms_txt_path = (site_dir.resolve() / llms_txt_path).resolve()
+        if llms_txt_path.exists():
+            llms_txt_content = llms_txt_path.read_text(encoding="utf-8")
+            file_tokens["llms.txt"] = self.estimate_tokens(llms_txt_content)
+
+        # site-index.json
+        site_index_path = ai_root / site_index_name
+        if site_index_path.exists():
+            file_tokens[site_index_name] = self.estimate_tokens(
+                site_index_path.read_text(encoding="utf-8")
+            )
+
+        # llms-full.jsonl
+        llms_full_path = ai_root / llms_full_name
+        if llms_full_path.exists():
+            file_tokens[llms_full_name] = self.estimate_tokens(
+                llms_full_path.read_text(encoding="utf-8")
+            )
+
+        # Category bundles
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            filename = f"{slug}.md"
+            cat_path = ai_root / "categories" / filename
+            if cat_path.exists():
+                file_tokens[f"categories/{filename}"] = self.estimate_tokens(
+                    cat_path.read_text(encoding="utf-8")
+                )
+
+        # 1. Write ai-resources-token-count.json to project root
+        resources_manifest = file_tokens
+        resources_path = project_root / "ai-resources-token-count.json"
+        resources_path.write_text(
+            json.dumps(resources_manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        log.info(f"[resolve_md] AI resources token counts written to {resources_path}")
+
+        # 2. Write token-estimates.json to ai_root (/ai/ output directory)
+        page_tokens: dict[str, dict] = {}
+        for page in pages:
+            page_tokens[page["slug"]] = {
+                "token_estimate": page.get("token_estimate", 0),
+                "word_count": page.get("word_count", 0),
+            }
+
+        full_manifest = {
+            "build_timestamp": build_timestamp,
+            "token_estimator": token_estimator,
+            "files": {k: {"token_estimate": v} for k, v in file_tokens.items()},
+            "pages": page_tokens,
+        }
+        manifest_path = ai_root / "token-estimates.json"
+        manifest_path.write_text(
+            json.dumps(full_manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        log.info(f"[resolve_md] token estimates manifest written to {manifest_path}")
 
     def get_resolved_pages_relpath(self) -> str:
         """Return the site-relative path where resolved markdown files are published."""
