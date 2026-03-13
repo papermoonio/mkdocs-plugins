@@ -10,10 +10,40 @@ from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 class AiResourcesPagePlugin(BasePlugin):
+    # Placeholder prefix used in on_page_markdown, replaced in on_post_build
+    _TOKEN_PLACEHOLDER_PREFIX = "<!-- token-estimate:"
+    _TOKEN_PLACEHOLDER_SUFFIX = " -->"
+
     def __init__(self):
         super().__init__()
         self.llms_config = {}
         self._file_utils = AIFileUtils()
+
+    def load_token_counts(self, project_root: Path) -> dict:
+        """Load token estimates from ai-resources-token-count.json."""
+        token_path = project_root / "ai-resources-token-count.json"
+        if not token_path.exists():
+            log.debug(
+                f"[ai_resources_page] Token counts not found at {token_path}"
+            )
+            return {}
+        try:
+            with open(token_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            log.warning(f"[ai_resources_page] Failed to load token counts: {e}")
+            return {}
+
+    @staticmethod
+    def format_token_count(count: int) -> str:
+        """Format a token count into a human-readable abbreviated string."""
+        if count >= 1_000_000:
+            value = count / 1_000_000
+            return f"~{value:.1f}M tokens" if value % 1 else f"~{int(value)}M tokens"
+        if count >= 1_000:
+            value = count / 1_000
+            return f"~{value:.1f}K tokens" if value % 1 else f"~{int(value)}K tokens"
+        return f"~{count} tokens"
 
     def load_llms_config(self, project_root: Path) -> dict:
         config_path = project_root / "llms_config.json"
@@ -46,6 +76,19 @@ class AiResourcesPagePlugin(BasePlugin):
         # Replace newlines with space to keep it in one cell
         text = text.replace("\n", " ").replace("\r", "")
         return text
+
+    def _build_file_cell(self, filename: str, file_key: str) -> str:
+        """Build the File column cell with filename and a token estimate placeholder.
+
+        The placeholder is an HTML comment that survives Markdown-to-HTML conversion.
+        It gets replaced with real values in on_post_build once resolve_md has
+        written the token manifest.
+        """
+        code = f'<code style="white-space: nowrap;">{filename}</code>'
+        placeholder = (
+            f"{self._TOKEN_PLACEHOLDER_PREFIX}{file_key}{self._TOKEN_PLACEHOLDER_SUFFIX}"
+        )
+        return f"{code}{placeholder}"
 
     def on_page_markdown(self, markdown, page, config, files):
         # Target only the AI Resources page
@@ -97,6 +140,7 @@ class AiResourcesPagePlugin(BasePlugin):
 - **Lightweight context**: Use `site-index.json` for smaller context windows or when you only need targeted retrieval.
 - **Full content**: Use `llms-full.jsonl` for large-context models or preparing data for RAG pipelines.
 - **Focused bundles**: Use category files (e.g., `basics.md`, `reference.md`) to limit content to a specific theme or task for more focused responses.
+- **Token estimates**: Each file includes an approximate token count based on Unicode word-and-punctuation tokenization. These estimates trend slightly higher than BPE-based tokenizer counts (e.g., `tiktoken`). For precise budgeting, run the file through your model's tokenizer.
 
 These AI-ready files do not include any persona or system prompts. They are purely informational and can be used without conflicting with your existing agent or tool prompting.
 
@@ -111,7 +155,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
         actions_llms = self._file_utils.generate_dropdown_html(
             url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
         )
-        row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
+        file_cell_llms = self._build_file_cell("llms.txt", "llms.txt")
+        row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | {file_cell_llms} | {actions_llms} |'
         output.append(row_llms)
 
         # 2. site-index.json
@@ -120,7 +165,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
             filename="site-index.json",
             site_url=site_url,
         )
-        row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
+        file_cell_si = self._build_file_cell("site-index.json", "site-index.json")
+        row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | {file_cell_si} | {actions_site_index} |'
         output.append(row_site_index)
 
         # 3. llms-full.jsonl
@@ -131,7 +177,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
             exclude=["view-markdown"],
             site_url=site_url,
         )
-        row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
+        file_cell_full = self._build_file_cell("llms-full.jsonl", "llms-full.jsonl")
+        row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | {file_cell_full} | {actions_full} |'
         output.append(row_full)
 
         # 4. Categories (key order in categories_info controls display order)
@@ -152,7 +199,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 url=url, filename=filename, site_url=site_url
             )
 
-            row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
+            file_cell = self._build_file_cell(filename, f"categories/{filename}")
+            row = f'| {display_name} | {description} | {file_cell} | {actions} |'
             output.append(row)
 
         # Add Note
@@ -163,3 +211,56 @@ These AI-ready files do not include any persona or system prompts. They are pure
         output.append(note)
 
         return "\n".join(output)
+
+    def on_post_build(self, config):
+        """Replace token estimate placeholders with real values.
+
+        This runs after resolve_md's on_post_build has written the token
+        manifest, so the data is guaranteed to be fresh.
+        """
+        config_file_path = Path(config["config_file_path"]).resolve()
+        project_root = config_file_path.parent
+        token_counts = self.load_token_counts(project_root)
+        if not token_counts:
+            log.debug(
+                "[ai_resources_page] No token counts available; "
+                "placeholders will be removed"
+            )
+
+        site_dir = Path(config["site_dir"]).resolve()
+        # Find the built ai-resources page HTML
+        ai_resources_html = site_dir / "ai-resources" / "index.html"
+        if not ai_resources_html.exists():
+            log.debug(
+                f"[ai_resources_page] Built page not found at {ai_resources_html}"
+            )
+            return
+
+        html = ai_resources_html.read_text(encoding="utf-8")
+        original_html = html
+
+        # Replace each placeholder with a styled token count span (or remove it)
+        for file_key, count in token_counts.items():
+            placeholder = (
+                f"{self._TOKEN_PLACEHOLDER_PREFIX}{file_key}"
+                f"{self._TOKEN_PLACEHOLDER_SUFFIX}"
+            )
+            label = self.format_token_count(count)
+            replacement = (
+                f'<br><span style="font-size: 0.8em; opacity: 0.7;">'
+                f"{label}</span>"
+            )
+            html = html.replace(placeholder, replacement)
+
+        # Remove any remaining placeholders that had no matching token count
+        html = re.sub(
+            r"<!-- token-estimate:[^>]+-->",
+            "",
+            html,
+        )
+
+        if html != original_html:
+            ai_resources_html.write_text(html, encoding="utf-8")
+            log.info(
+                "[ai_resources_page] Injected token estimates into ai-resources page"
+            )

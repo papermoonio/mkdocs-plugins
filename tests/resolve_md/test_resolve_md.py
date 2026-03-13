@@ -284,6 +284,112 @@ class TestBuildSiteIndex:
             assert section["last_updated"] == "2025-03-01T12:00:00+00:00"
 
 
+class TestBuildTokenManifests:
+    """Tests for the token estimate manifest generation."""
+
+    def _make_pages(self):
+        return [
+            {
+                "slug": "getting-started",
+                "title": "Getting Started",
+                "description": "Intro page",
+                "categories": ["basics"],
+                "url": "https://example.com/getting-started/",
+                "word_count": 200,
+                "token_estimate": 300,
+                "version_hash": "sha256:aaa",
+                "last_updated": "2025-01-10T08:00:00+00:00",
+                "body": "# Getting Started\n\nWelcome to the docs.",
+            },
+            {
+                "slug": "api-reference",
+                "title": "API Reference",
+                "description": "API docs",
+                "categories": ["reference"],
+                "url": "https://example.com/api/",
+                "word_count": 500,
+                "token_estimate": 750,
+                "version_hash": "sha256:bbb",
+                "last_updated": "2025-02-01T12:00:00+00:00",
+                "body": "# API Reference\n\nEndpoints and methods.",
+            },
+        ]
+
+    def test_resources_manifest_written_to_project_root(self):
+        plugin = ResolveMDPlugin()
+        plugin.llms_config = {
+            "outputs": {"files": {}},
+            "content": {
+                "categories_info": {
+                    "basics": {"name": "Basics"},
+                }
+            },
+        }
+        pages = self._make_pages()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp) / "ai"
+            ai_root.mkdir()
+            project_root = Path(tmp) / "project"
+            project_root.mkdir()
+            site_dir = Path(tmp) / "site"
+            site_dir.mkdir()
+
+            # Write prerequisite files that the method reads
+            cat_dir = ai_root / "categories"
+            cat_dir.mkdir()
+            (cat_dir / "basics.md").write_text("# Basics bundle content")
+            (ai_root / "site-index.json").write_text('{"pages": []}')
+            (ai_root / "llms-full.jsonl").write_text('{"section": "data"}\n')
+            (site_dir / "llms.txt").write_text("# Project\n> url")
+
+            plugin.build_token_manifests(
+                pages, ai_root, project_root, site_dir, "2025-06-01T00:00:00+00:00"
+            )
+
+            # Check ai-resources-token-count.json
+            resources_path = project_root / "ai-resources-token-count.json"
+            assert resources_path.exists()
+            resources = json.loads(resources_path.read_text())
+            assert "llms.txt" in resources
+            assert "site-index.json" in resources
+            assert "llms-full.jsonl" in resources
+            assert "categories/basics.md" in resources
+            assert all(isinstance(v, int) for v in resources.values())
+
+    def test_full_manifest_written_to_ai_root(self):
+        plugin = ResolveMDPlugin()
+        plugin.llms_config = {
+            "outputs": {"files": {}},
+            "content": {"categories_info": {}},
+        }
+        pages = self._make_pages()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp) / "ai"
+            ai_root.mkdir()
+            project_root = Path(tmp) / "project"
+            project_root.mkdir()
+            site_dir = Path(tmp) / "site"
+            site_dir.mkdir()
+
+            (ai_root / "site-index.json").write_text('{"pages": []}')
+            (ai_root / "llms-full.jsonl").write_text('{"section": "data"}\n')
+            (site_dir / "llms.txt").write_text("# Project")
+
+            plugin.build_token_manifests(
+                pages, ai_root, project_root, site_dir, "2025-06-01T00:00:00+00:00"
+            )
+
+            manifest_path = ai_root / "token-estimates.json"
+            assert manifest_path.exists()
+            manifest = json.loads(manifest_path.read_text())
+            assert manifest["build_timestamp"] == "2025-06-01T00:00:00+00:00"
+            assert manifest["token_estimator"] == "heuristic-v1"
+            assert "files" in manifest
+            assert "pages" in manifest
+            assert manifest["pages"]["getting-started"]["token_estimate"] == 300
+            assert manifest["pages"]["api-reference"]["word_count"] == 500
+
+
 class TestFormatLlmsMetadataSection:
     """Tests that llms.txt metadata includes build_timestamp and version_hash."""
 
