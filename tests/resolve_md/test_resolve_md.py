@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -147,6 +148,13 @@ class TestGetGitLastUpdated:
         ts = ResolveMDPlugin.get_git_last_updated(__file__)
         assert ts, "Expected a non-empty timestamp"
         assert "T" in ts, "Expected ISO-8601 format with a T separator"
+
+    def test_handles_z_suffix_on_python310(self):
+        """Timestamps ending with 'Z' are normalised so Python 3.10 can parse them."""
+        mock_result = type("R", (), {"stdout": "2026-03-09T14:16:33Z", "returncode": 0})()
+        with patch("plugins.resolve_md.plugin.subprocess.run", return_value=mock_result):
+            ts = ResolveMDPlugin.get_git_last_updated(__file__)
+        assert ts == "2026-03-09T14:16:33+00:00"
 
     def test_falls_back_for_untracked_file(self):
         """An untracked temp file falls back to filesystem mtime."""
