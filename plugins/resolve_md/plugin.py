@@ -261,8 +261,8 @@ class ResolveMDPlugin(BasePlugin):
             if not line:
                 current_ts = ""
                 continue
-            # Timestamp lines contain '+' or 'Z' (timezone), file paths don't.
-            if current_ts == "" and ("+" in line or line.endswith("Z") or "T" in line):
+            # Timestamp lines match ISO-8601 format from --pretty=format:%cI.
+            if current_ts == "" and re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", line):
                 current_ts = line
             elif current_ts:
                 # This is a file path — only record the first (most recent) ts.
@@ -693,7 +693,7 @@ class ResolveMDPlugin(BasePlugin):
                 _MAX_SNIPPET_BYTES = 10 * 1024 * 1024  # 10 MB
                 with urllib_request.urlopen(url, timeout=10) as response:
                     content_length = response.headers.get("Content-Length")
-                    if content_length and int(content_length) > _MAX_SNIPPET_BYTES:
+                    if content_length and content_length.isdigit() and int(content_length) > _MAX_SNIPPET_BYTES:
                         log.warning(
                             f"[resolve_md] remote snippet too large ({content_length} bytes): {snippet_ref}"
                         )
