@@ -9,6 +9,10 @@ from mkdocs.config.defaults import MkDocsConfig
 from bs4 import BeautifulSoup
 
 
+_TOGGLE_PLACEHOLDER_PREFIX = "<!-- TOGGLE_PLACEHOLDER:"
+_TOGGLE_PLACEHOLDER_SUFFIX = " -->"
+
+
 class TogglePagesPlugin(BasePlugin):
     def __init__(self):
         # group -> { canonical: str, variants: {variant_name: {page, label, html, toc_html}} }
@@ -60,12 +64,15 @@ class TogglePagesPlugin(BasePlugin):
             for tabbed in soup.select(".tabbed-set"):
                 labels = tabbed.select(".tabbed-labels label")
                 inputs = tabbed.select("input[type='radio']")
-                if not inputs:
+                if not inputs or not labels:
                     continue
+
+                # Build a lookup of input IDs for validation against labels.
+                input_ids = {inp.get("id") for inp in inputs if inp.get("id")}
 
                 # Use same name for all inputs in this tabbed set
                 group_name = f"{variant}{inputs[0].get('name', '__tabbed')}"
-                
+
                 # Update input IDs and names
                 for inp in inputs:
                     input_id = inp.get("id")
@@ -79,6 +86,8 @@ class TogglePagesPlugin(BasePlugin):
                     if label_tag.find("a"):
                         continue
                     input_id = label_tag.get("for")
+                    if input_id not in input_ids:
+                        continue
                     text = label_tag.text.strip()
                     label_tag.clear()
                     label_tag["for"] = f"{variant}{input_id}"
@@ -108,7 +117,9 @@ class TogglePagesPlugin(BasePlugin):
 
         if is_canonical:
             group_data["canonical"] = variant
-            return self.render_toggle_page(group)
+            # Return a placeholder — final render is deferred to on_post_build
+            # so that all variants are guaranteed to be collected first.
+            return f"{_TOGGLE_PLACEHOLDER_PREFIX}{group}{_TOGGLE_PLACEHOLDER_SUFFIX}"
 
         # Non-canonical variants render nothing
         return ""
@@ -117,17 +128,32 @@ class TogglePagesPlugin(BasePlugin):
     # Remove variant output files after build
     # ------------------------------------------------------------
     def on_post_build(self, config: MkDocsConfig) -> None:
-        site_dir = Path(config["site_dir"])
+        for group, group_data in self.toggle_groups.items():
+            canonical_variant = group_data["canonical"]
+            if not canonical_variant:
+                continue
 
-        for group_data in self.toggle_groups.values():
+            # Render the final combined HTML now that all variants are collected.
+            rendered_html = self.render_toggle_page(group)
+
+            # Replace the placeholder in the canonical page's output file.
+            canonical_page = group_data["variants"][canonical_variant]["page"]
+            canonical_path = Path(canonical_page.file.abs_dest_path)
+            if canonical_path.exists():
+                full_html = canonical_path.read_text(encoding="utf-8")
+                placeholder = f"{_TOGGLE_PLACEHOLDER_PREFIX}{group}{_TOGGLE_PLACEHOLDER_SUFFIX}"
+                if placeholder in full_html:
+                    full_html = full_html.replace(placeholder, rendered_html)
+                    canonical_path.write_text(full_html, encoding="utf-8")
+
+            # Remove non-canonical variant output files.
             for variant, data in group_data["variants"].items():
                 page = data["page"]
                 toggle = page.meta.get("toggle", {})
                 if toggle.get("canonical"):
                     continue
 
-                # MkDocs output path
-                output_path = site_dir / page.url / "index.html"
+                output_path = Path(page.file.abs_dest_path)
                 if output_path.exists():
                     output_path.unlink()
 
@@ -156,29 +182,34 @@ class TogglePagesPlugin(BasePlugin):
                 else f"{data['page'].url.rstrip('/').split('/')[-1]}"
             )
 
+            esc_variant = escape(variant, quote=True)
+            esc_label = escape(data["label"], quote=True)
+            esc_filename = escape(data_filename, quote=True)
+
             # Header
             headers_html.append(
-                f'<span data-variant="{variant}">{data["h1_html"] or ""}</span>'
+                f'<span data-variant="{esc_variant}">{data["h1_html"] or ""}</span>'
             )
 
             # Buttons
             buttons_html.append(
-                f'<button class="toggle-btn {active_class}" data-variant="{variant}"'
-                f' data-canonical="{str(variant == canonical).lower()}" data-filename="{data_filename}">{data["label"]}</button>'
+                f'<button class="toggle-btn {active_class}" data-variant="{esc_variant}"'
+                f' data-canonical="{str(variant == canonical).lower()}" data-filename="{esc_filename}">{esc_label}</button>'
             )
 
             # Content panels
             toc_html_attr = escape(data["toc_html"], quote=True)
             content_html.append(
                 f'<div class="toggle-panel {active_class}" '
-                f'data-variant="{escape(variant)}" '
+                f'data-variant="{esc_variant}" '
                 f'data-toc-html="{toc_html_attr}">'
                 f'{data["html"]}'
                 f"</div>"
             )
 
+        esc_group = escape(group, quote=True)
         return f"""
-<div class="toggle-container" data-toggle-group="{group}">
+<div class="toggle-container" data-toggle-group="{esc_group}">
   <div class="toggle-header">
    {''.join(headers_html)}
     <div class="toggle-buttons">
