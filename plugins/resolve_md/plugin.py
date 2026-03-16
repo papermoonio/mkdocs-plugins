@@ -1,13 +1,16 @@
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from urllib.parse import urlparse
 
 import yaml
 from mkdocs.config.config_options import Type
@@ -40,7 +43,9 @@ class ResolveMDPlugin(BasePlugin):
     def __init__(self):
         super().__init__()
         self.allow_remote_snippets = True
+        self.allowed_domains = []
         self.docs_base_url = "/"
+        self._remote_snippet_cache: dict[str, str | None] = {}
 
     # Process will start after site build is complete
     def on_post_build(self, config):
@@ -50,6 +55,7 @@ class ResolveMDPlugin(BasePlugin):
         self.llms_config = self.load_llms_config(project_root)
         snippet_cfg = self.llms_config.get("snippets", {})
         self.allow_remote_snippets = snippet_cfg.get("allow_remote", True)
+        self.allowed_domains = snippet_cfg.get("allowed_domains", [])
 
         # Resolve docs_dir from MkDocs config (already parsed/resolved by MkDocs)
         docs_dir = Path(config["docs_dir"]).resolve()
@@ -104,6 +110,14 @@ class ResolveMDPlugin(BasePlugin):
         except (subprocess.SubprocessError, OSError):
             has_git = False
 
+        # Batch-fetch git timestamps in a single subprocess call.
+        if has_git:
+            git_timestamps = self.batch_git_last_updated(
+                markdown_files, str(docs_dir)
+            )
+        else:
+            git_timestamps = {}
+
         processed = 0
 
         ai_pages: list[dict] = []
@@ -142,7 +156,9 @@ class ResolveMDPlugin(BasePlugin):
             word_count = self.word_count(cleaned_body)
             token_estimate = self.estimate_tokens(cleaned_body)
             version_hash = self.sha256_text(cleaned_body)
-            last_updated = self.get_git_last_updated(md_path, has_git)
+            last_updated = git_timestamps.get(md_path)
+            if not last_updated:
+                last_updated = self.get_git_last_updated(md_path, has_git)
 
             # Output resolved Markdown file to AI artifacts directory
             header = dict(reduced_fm)
@@ -195,6 +211,77 @@ class ResolveMDPlugin(BasePlugin):
     # ----- Helper functions -------
 
     @staticmethod
+    def _parse_git_timestamp(ts: str) -> str:
+        """Normalize a git ISO-8601 timestamp to UTC isoformat."""
+        if ts.endswith("Z"):
+            ts = ts[:-1] + "+00:00"
+        return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def batch_git_last_updated(file_paths: list[str], repo_dir: str) -> dict[str, str]:
+        """Retrieve the last-commit timestamp for many files in a single git call.
+
+        Returns a dict mapping each absolute file path to its ISO-8601 UTC
+        timestamp.  Files not found in git history are omitted from the result.
+        """
+        if not file_paths:
+            return {}
+
+        # Build relative paths from the repo root for the git query.
+        abs_repo = os.path.abspath(repo_dir)
+        rel_paths = []
+        abs_by_rel: dict[str, str] = {}
+        for fp in file_paths:
+            rel = os.path.relpath(fp, abs_repo)
+            rel_paths.append(rel)
+            abs_by_rel[rel] = fp
+
+        try:
+            result = subprocess.run(
+                [
+                    "git", "log", "--pretty=format:%cI", "--name-only",
+                    "--diff-filter=ACMR", "--", *rel_paths,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=abs_repo,
+            )
+            if result.returncode != 0:
+                return {}
+        except (subprocess.SubprocessError, OSError):
+            return {}
+
+        # Parse output: alternating lines of timestamp then changed file names,
+        # separated by blank lines between commits.
+        timestamps: dict[str, str] = {}
+        current_ts = ""
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                current_ts = ""
+                continue
+            # Timestamp lines contain '+' or 'Z' (timezone), file paths don't.
+            if current_ts == "" and ("+" in line or line.endswith("Z") or "T" in line):
+                current_ts = line
+            elif current_ts:
+                # This is a file path — only record the first (most recent) ts.
+                norm = line.replace("\\", "/")
+                if norm not in timestamps:
+                    timestamps[norm] = current_ts
+
+        # Map back to absolute paths.
+        result_map: dict[str, str] = {}
+        for rel, ts in timestamps.items():
+            abs_path = abs_by_rel.get(rel)
+            if abs_path:
+                try:
+                    result_map[abs_path] = ResolveMDPlugin._parse_git_timestamp(ts)
+                except (ValueError, OSError):
+                    pass
+        return result_map
+
+    @staticmethod
     def get_git_last_updated(file_path: str, has_git: bool = True) -> str:
         """Return the ISO-8601 UTC timestamp of the last git commit that touched *file_path*.
 
@@ -217,10 +304,7 @@ class ResolveMDPlugin(BasePlugin):
             )
             ts = result.stdout.strip()
             if ts:
-                # Python 3.10 fromisoformat() doesn't accept 'Z'; normalize to +00:00
-                if ts.endswith("Z"):
-                    ts = ts[:-1] + "+00:00"
-                return datetime.fromisoformat(ts).astimezone(timezone.utc).isoformat()
+                return ResolveMDPlugin._parse_git_timestamp(ts)
         except (subprocess.SubprocessError, OSError):
             pass
         # Fallback: filesystem modification time
@@ -551,6 +635,39 @@ class ResolveMDPlugin(BasePlugin):
             return f"<!-- MISSING SNIPPET SECTION {snippet_ref} -->"
         return self.strip_snippet_section_markers(snippet_content)
 
+    def _validate_url(self, url: str) -> str | None:
+        """Validate a URL against SSRF attacks.
+
+        Returns an error message if the URL is blocked, or None if it is safe.
+        """
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+
+        if not hostname:
+            return "missing hostname"
+
+        if parsed.scheme not in ("http", "https"):
+            return f"disallowed scheme: {parsed.scheme}"
+
+        if self.allowed_domains:
+            if not any(
+                hostname == domain or hostname.endswith(f".{domain}")
+                for domain in self.allowed_domains
+            ):
+                return f"hostname {hostname} not in allowed_domains"
+
+        try:
+            resolved_ips = socket.getaddrinfo(hostname, None)
+        except socket.gaierror:
+            return f"cannot resolve hostname: {hostname}"
+
+        for _family, _type, _proto, _canonname, sockaddr in resolved_ips:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local:
+                return f"hostname {hostname} resolves to blocked address {ip}"
+
+        return None
+
     def fetch_remote_snippet(self, snippet_ref: str) -> str:
         """Retrieve remote snippet via HTTP unless remote fetching is disabled."""
         if not self.allow_remote_snippets:
@@ -560,14 +677,43 @@ class ResolveMDPlugin(BasePlugin):
             log.warning(f"[resolve_md] invalid remote snippet ref {snippet_ref}")
             return f"<!-- INVALID REMOTE SNIPPET {snippet_ref} -->"
 
-        try:
-            with urllib_request.urlopen(url, timeout=10) as response:
-                snippet_content = response.read().decode("utf-8")
-        except (urllib_error.URLError, urllib_error.HTTPError) as exc:
+        block_reason = self._validate_url(url)
+        if block_reason:
             log.warning(
-                f"[resolve_md] error fetching remote snippet {snippet_ref}: {exc}"
+                f"[resolve_md] blocked remote snippet {snippet_ref}: {block_reason}"
             )
-            return f"<!-- ERROR FETCHING REMOTE SNIPPET {snippet_ref} -->"
+            return f"<!-- BLOCKED REMOTE SNIPPET {snippet_ref} -->"
+
+        if url in self._remote_snippet_cache:
+            snippet_content = self._remote_snippet_cache[url]
+            if snippet_content is None:
+                return f"<!-- ERROR FETCHING REMOTE SNIPPET {snippet_ref} -->"
+        else:
+            try:
+                _MAX_SNIPPET_BYTES = 10 * 1024 * 1024  # 10 MB
+                with urllib_request.urlopen(url, timeout=10) as response:
+                    content_length = response.headers.get("Content-Length")
+                    if content_length and int(content_length) > _MAX_SNIPPET_BYTES:
+                        log.warning(
+                            f"[resolve_md] remote snippet too large ({content_length} bytes): {snippet_ref}"
+                        )
+                        self._remote_snippet_cache[url] = None
+                        return f"<!-- REMOTE SNIPPET TOO LARGE {snippet_ref} -->"
+                    raw = response.read(_MAX_SNIPPET_BYTES + 1)
+                    if len(raw) > _MAX_SNIPPET_BYTES:
+                        log.warning(
+                            f"[resolve_md] remote snippet exceeded {_MAX_SNIPPET_BYTES} bytes: {snippet_ref}"
+                        )
+                        self._remote_snippet_cache[url] = None
+                        return f"<!-- REMOTE SNIPPET TOO LARGE {snippet_ref} -->"
+                    snippet_content = raw.decode("utf-8")
+                self._remote_snippet_cache[url] = snippet_content
+            except (urllib_error.URLError, urllib_error.HTTPError) as exc:
+                log.warning(
+                    f"[resolve_md] error fetching remote snippet {snippet_ref}: {exc}"
+                )
+                self._remote_snippet_cache[url] = None
+                return f"<!-- ERROR FETCHING REMOTE SNIPPET {snippet_ref} -->"
 
         snippet_content = self.apply_snippet_selectors(
             snippet_content, line_start, line_end, section, snippet_ref
@@ -607,8 +753,18 @@ class ResolveMDPlugin(BasePlugin):
             snippet_ref = match.group(1)
             return fetch_snippet(snippet_ref)
 
+        max_depth = 100
         previous = None
+        iterations = 0
         while previous != markdown:
+            iterations += 1
+            if iterations > max_depth:
+                log.warning(
+                    "[resolve_md] snippet expansion exceeded %d iterations — "
+                    "possible circular reference, stopping expansion",
+                    max_depth,
+                )
+                break
             previous = markdown
             markdown = SNIPPET_LINE_REGEX.sub(replace_line_match, markdown)
             markdown = SNIPPET_TOKEN_REGEX.sub(replace_inline_match, markdown)
