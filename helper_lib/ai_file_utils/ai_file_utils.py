@@ -217,21 +217,12 @@ class AIFileUtils:
         For the canonical variant (empty ``data_filename``), uses the
         base slug.  For non-canonical variants, drops the last path
         segment (the page name) and appends the variant filename.
-
-        Directory index URLs (ending with ``/``) keep the full route
-        as the base since the URL has no explicit page name to drop.
         """
         route = page_url.strip("/")
         if not data_filename:
             return route.replace("/", "-") if route else "index"
-        # Directory index URLs end with "/" — the route is purely directory
-        # segments, so use it as-is for the base.
-        is_dir_index = page_url.rstrip(" ").endswith("/")
-        if is_dir_index:
-            base = route.replace("/", "-") if route else ""
-        else:
-            segments = route.split("/")
-            base = "-".join(segments[:-1]) if len(segments) > 1 else ""
+        segments = route.split("/")
+        base = "-".join(segments[:-1]) if len(segments) > 1 else ""
         return f"{base}-{data_filename}" if base else data_filename
 
     @staticmethod
