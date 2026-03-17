@@ -9,10 +9,6 @@ from mkdocs.config.defaults import MkDocsConfig
 from bs4 import BeautifulSoup
 
 
-_TOGGLE_PLACEHOLDER_PREFIX = "<!-- TOGGLE_PLACEHOLDER:"
-_TOGGLE_PLACEHOLDER_SUFFIX = " -->"
-
-
 class TogglePagesPlugin(BasePlugin):
     def __init__(self):
         # group -> { canonical: str, variants: {variant_name: {page, label, html, toc_html}} }
@@ -29,14 +25,14 @@ class TogglePagesPlugin(BasePlugin):
         # Extract toggle metadata
         group = toggle.get("group")
         is_canonical = toggle.get("canonical", False)
-        
+
         if not group:
             return html
-        
+
         variant = toggle.get("variant")
         if not variant:
             return html
-            
+
         label = toggle.get("label", variant)
 
         # Prepare and store data to be accessed by other hooks
@@ -117,15 +113,17 @@ class TogglePagesPlugin(BasePlugin):
 
         if is_canonical:
             group_data["canonical"] = variant
-            # Return a placeholder — final render is deferred to on_post_build
-            # so that all variants are guaranteed to be collected first.
-            return f"{_TOGGLE_PLACEHOLDER_PREFIX}{group}{_TOGGLE_PLACEHOLDER_SUFFIX}"
+            # Render immediately with whatever variants are available.
+            # If variants processed later were missed, on_post_build will
+            # re-render with the complete set.
+            group_data["rendered_variants"] = set(group_data["variants"].keys())
+            return self.render_toggle_page(group)
 
         # Non-canonical variants render nothing
         return ""
 
     # ------------------------------------------------------------
-    # Remove variant output files after build
+    # Fix up any toggle groups that had late variants, then clean up
     # ------------------------------------------------------------
     def on_post_build(self, config: MkDocsConfig) -> None:
         for group, group_data in self.toggle_groups.items():
@@ -133,17 +131,37 @@ class TogglePagesPlugin(BasePlugin):
             if not canonical_variant:
                 continue
 
-            # Render the final combined HTML now that all variants are collected.
-            rendered_html = self.render_toggle_page(group)
+            # Check if any variants were processed after the canonical page
+            rendered = group_data.get("rendered_variants", set())
+            all_variants = set(group_data["variants"].keys())
+            missing = all_variants - rendered
 
-            # Replace the placeholder in the canonical page's output file.
-            canonical_page = group_data["variants"][canonical_variant]["page"]
-            canonical_path = Path(canonical_page.file.abs_dest_path)
-            if canonical_path.exists():
-                full_html = canonical_path.read_text(encoding="utf-8")
-                placeholder = f"{_TOGGLE_PLACEHOLDER_PREFIX}{group}{_TOGGLE_PLACEHOLDER_SUFFIX}"
-                if placeholder in full_html:
-                    full_html = full_html.replace(placeholder, rendered_html)
+            if missing:
+                # Re-render with all variants and update the output file.
+                rendered_html = self.render_toggle_page(group)
+                canonical_page = group_data["variants"][canonical_variant]["page"]
+                canonical_path = Path(canonical_page.file.abs_dest_path)
+                if canonical_path.exists():
+                    full_html = canonical_path.read_text(encoding="utf-8")
+                    soup = BeautifulSoup(full_html, "html.parser")
+                    esc_group = escape(group, quote=True)
+                    container = soup.select_one(
+                        f'.toggle-container[data-toggle-group="{esc_group}"]'
+                    )
+                    if container:
+                        new_container = BeautifulSoup(rendered_html, "html.parser")
+                        container.replace_with(new_container)
+                        full_html = str(soup)
+
+                    # Re-inject AI page action widgets for the updated toggle
+                    ai_plugin = config.get("plugins", {}).get("ai_page_actions")
+                    if ai_plugin and hasattr(ai_plugin, "on_post_page"):
+                        updated = ai_plugin.on_post_page(
+                            full_html, page=canonical_page, config=config
+                        )
+                        if updated:
+                            full_html = updated
+
                     canonical_path.write_text(full_html, encoding="utf-8")
 
             # Remove non-canonical variant output files.
