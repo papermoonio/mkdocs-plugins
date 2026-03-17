@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 import os
 from typing import Callable, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse
 import fnmatch
 import re
 import logging
@@ -85,20 +86,14 @@ class MinifyPlugin(BasePlugin):
         ('debug', c.Type(bool, default=False)),
     )
 
-    # Cache of content hashes per original relative path, used to generate cache-safe names.
-    path_to_hash: Dict[str, str] = {}
-    """
-    The file hash is stored once per normalized path (no leading '/').
-    """
-
-    # Cache of file contents for later write-out in on_post_build when cache_safe is enabled.
-    path_to_data: Dict[str, str] = {}
-    """
-    The file data is stored once per normalized path (no leading '/').
-    """
-
     def __init__(self):
         super().__init__()
+        # Cache of content hashes per original relative path, used to generate cache-safe names.
+        # Stored once per normalized path (no leading '/').
+        self.path_to_hash: Dict[str, str] = {}
+        # Cache of file contents for later write-out in on_post_build when cache_safe is enabled.
+        # Stored once per normalized path (no leading '/').
+        self.path_to_data: Dict[str, str] = {}
         # Per-build tracking: template_name -> base -> replaced_count
         # Used to decide whether the post_build templates scan needs to run as a true fallback.
         self._tpl_rewrite_replaced: Dict[str, Dict[str, int]] = {}
@@ -219,16 +214,15 @@ class MinifyPlugin(BasePlugin):
         site_dir = Path(config['site_dir'])
         self._dbg("[minify] site_dir=%s", site_dir.as_posix())
 
-        # Expand simple one-segment globs like "assets/*.css" relative to site_dir.
+        # Expand glob patterns (e.g. "assets/*.css", "assets/js/main*.js") relative to site_dir.
         file_paths2: List[Path] = []
         for fp in file_paths:
-            if "*" in fp:
-                glob_parts = fp.split("*", maxsplit=1)
-                glob_dir = site_dir / Path(glob_parts[0].lstrip('/'))
-                for glob_file in glob_dir.glob(f"*{glob_parts[1]}"):
+            normalized = fp.lstrip('/')
+            if "*" in normalized or "?" in normalized or "[" in normalized:
+                for glob_file in site_dir.glob(normalized):
                     file_paths2.append(glob_file)
             else:
-                file_paths2.append(site_dir / fp.lstrip('/'))
+                file_paths2.append(site_dir / normalized)
 
         self._dbg("[minify] expanded targets (pre-dedupe) count=%d", len(file_paths2))
         # Remove duplicates to avoid double-processing.
@@ -294,10 +288,20 @@ class MinifyPlugin(BasePlugin):
         if not isinstance(files_to_minify, list):
             files_to_minify = [files_to_minify]
 
-        norm_targets = {
+        norm_targets = [
             (p if isinstance(p, str) else str(p)).lstrip('/')
             for p in (files_to_minify if isinstance(files_to_minify, list) else [files_to_minify])
-        }
+        ]
+
+        def _matches_target(path: str) -> bool:
+            """Check if path matches any target, supporting glob patterns."""
+            for target in norm_targets:
+                if "*" in target or "?" in target or "[" in target:
+                    if fnmatch.fnmatch(path, target):
+                        return True
+                elif path == target:
+                    return True
+            return False
 
         for i, extra_item in enumerate(config[extra]):
             raw = str(extra_item)
@@ -305,7 +309,7 @@ class MinifyPlugin(BasePlugin):
             norm = raw.lstrip('/')
             self._dbg("[extra_config] candidate extra[%d]=%s (norm=%s)", i, raw, norm)
 
-            if norm not in norm_targets:
+            if not _matches_target(norm):
                 continue
 
             file_hash: str = ""
@@ -313,6 +317,7 @@ class MinifyPlugin(BasePlugin):
             if self.config.get("cache_safe", False):
                 docs_file_path: str = f"{config['docs_dir']}/{norm}".replace("\\", "/")
                 theme = config.theme
+                found = False
 
                 # Since MkDocs 1.5.0, theme.custom_dir is available for direct access
                 if not hasattr(theme, "custom_dir"):
@@ -322,11 +327,28 @@ class MinifyPlugin(BasePlugin):
                         temp_path: str = f"{custom_dir}/{norm}".replace("\\", "/")
                         if custom_dir and os.path.exists(temp_path):
                             docs_file_path = temp_path
+                            found = True
                             break
                 elif theme.custom_dir:
                     temp_path: str = f"{theme.custom_dir}/{norm}".replace("\\", "/")
                     if os.path.exists(temp_path):
                         docs_file_path = temp_path
+                        found = True
+
+                # Fallback: search theme package directories (e.g. pip-installed themes)
+                if not found and not os.path.exists(docs_file_path):
+                    for theme_dir in getattr(theme, "dirs", []):
+                        temp_path = f"{theme_dir}/{norm}".replace("\\", "/")
+                        if os.path.exists(temp_path):
+                            docs_file_path = temp_path
+                            found = True
+                            break
+
+                if not found and not os.path.exists(docs_file_path):
+                    logger.warning(
+                        "[minify] cache_safe asset not found on disk: %s", norm
+                    )
+                    continue
 
                 with open(docs_file_path, encoding="utf8") as f:
                     file_data: str = f.read()
@@ -688,8 +710,14 @@ class MinifyPlugin(BasePlugin):
                             self._dbg("[post_build] will inject link base=%s into %s", base, rel_html)
                         html = new_html
                         if replaced == 0:
-                            href = f"/{final_rel.lstrip('/')}" if rel_prefix == '' else f"{rel_prefix}{final_rel}"
-                            links_to_inject.append(f'<link rel="stylesheet" href="{href}">')
+                            # Check if the minified filename is already present
+                            # (e.g. on_post_page already replaced the original link).
+                            final_base = os.path.basename(final_rel)
+                            if final_base in html:
+                                self._dbg("[post_build] already minified base=%s in %s; skipping inject", final_base, rel_html)
+                            else:
+                                href = f"/{final_rel.lstrip('/')}" if rel_prefix == '' else f"{rel_prefix}{final_rel}"
+                                links_to_inject.append(f'<link rel="stylesheet" href="{href}">')
 
                     if links_to_inject:
                         insert_pos = html.lower().rfind('</head>')
@@ -876,13 +904,17 @@ class MinifyPlugin(BasePlugin):
             self._dbg("[post_template] no scoped_css_templates match for %s", template_name)
             return output_content
 
+        # Extract the site base path for subpath-hosted sites (e.g. "/docs/").
+        site_url = config.get("site_url", "")
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+
         links_to_inject: List[str] = []
         for rel_css in matched_css:
             base = os.path.basename(rel_css)
             file_hash = self.path_to_hash.get(rel_css, "")
             final_rel = self._minified_asset(rel_css, "css", file_hash)  # e.g. assets/.../home.<hash>.min.css
             if file_hash == "":
-                self._dbg_hash_missing(rel_css, final_rel)   
+                self._dbg_hash_missing(rel_css, final_rel)
             self._dbg("[post_template] processing CSS %s -> %s", rel_css, final_rel)
             # Strict: require rel=stylesheet (quoted or unquoted)
             strict_pat = re.compile(
@@ -896,13 +928,11 @@ class MinifyPlugin(BasePlugin):
                 re.IGNORECASE,
             )
 
-            def _sub_href(m: re.Match) -> str:
-                orig_href = m.group(3)
+            def _sub_href(m: re.Match, _base_path=base_path, _final_rel=final_rel) -> str:
                 quote = m.group(2) or ''
                 tail_quote = m.group(4) or ''
                 tail_rest = m.group(5)
-                # For templates, write root-relative path
-                new_href = "/" + final_rel.lstrip("/")
+                new_href = f"{_base_path}/{_final_rel.lstrip('/')}"
                 return f"{m.group(1)}{quote}{new_href}{tail_quote}{tail_rest}"
 
             found_in_html = base in output_content
@@ -924,7 +954,8 @@ class MinifyPlugin(BasePlugin):
                     line = self._extract_line_with(output_content, base)
                     if line:
                         self._dbg("[post_template] sample line for base=%s: %s", base, line)
-                links_to_inject.append(f'<link rel="stylesheet" href="/{final_rel.lstrip("/")}">')
+                href = f"{base_path}/{final_rel.lstrip('/')}"
+                links_to_inject.append(f'<link rel="stylesheet" href="{href}">')
 
         if links_to_inject:
             insert_pos = output_content.lower().rfind("</head>")

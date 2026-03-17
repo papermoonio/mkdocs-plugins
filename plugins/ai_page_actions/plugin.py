@@ -4,6 +4,7 @@ from typing import List, Optional
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, Tag
+from mkdocs.config.config_options import Type
 from mkdocs.config.defaults import MkDocsConfig
 from mkdocs.plugins import BasePlugin
 from mkdocs.structure.pages import Page
@@ -21,7 +22,7 @@ class AiPageActionsPlugin(BasePlugin):
     generation.  This plugin only handles *where* to inject — all
     the *what* lives in the shared utility.
 
-    Page exclusions are driven by ``llms_config.json`` (the same
+    Page exclusions are driven by the LLM config file (the same
     ``skip_basenames`` and ``skip_paths`` that ``resolve_md`` uses)
     so the widget is never rendered for pages that have no AI
     artifact files.  Dot-directories are always excluded.
@@ -31,11 +32,16 @@ class AiPageActionsPlugin(BasePlugin):
     finished.
     """
 
+    config_scheme = (
+        ("llms_config", Type(str, default="llms_config.json")),
+    )
+
     def __init__(self):
         super().__init__()
         self._file_utils = AIFileUtils()
         self._skip_basenames: List[str] = []
         self._skip_paths: List[str] = []
+        self._public_root: str = "/ai/"
         self._config_loaded = False
 
     # ------------------------------------------------------------------
@@ -53,20 +59,21 @@ class AiPageActionsPlugin(BasePlugin):
         exclusions = llms_config.get("content", {}).get("exclusions", {})
         self._skip_basenames = exclusions.get("skip_basenames", [])
         self._skip_paths = exclusions.get("skip_paths", [])
+        self._public_root = llms_config.get("outputs", {}).get("public_root", "/ai/")
         self._config_loaded = True
 
-    @staticmethod
-    def _load_llms_config(project_root: Path) -> dict:
-        """Load llms_config.json from the project root."""
-        config_path = project_root / "llms_config.json"
+    def _load_llms_config(self, project_root: Path) -> dict:
+        """Load the LLM config file from the configured path."""
+        config_filename = self.config.get("llms_config", "llms_config.json")
+        config_path = (project_root / config_filename).resolve()
         if not config_path.exists():
-            log.warning(f"[ai_page_actions] llms_config.json not found at {config_path}")
+            log.warning(f"[ai_page_actions] LLM config not found at {config_path}")
             return {}
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            log.warning(f"[ai_page_actions] Failed to load llms_config.json: {e}")
+            log.warning(f"[ai_page_actions] Failed to load LLM config: {e}")
             return {}
 
     # ------------------------------------------------------------------
@@ -76,7 +83,8 @@ class AiPageActionsPlugin(BasePlugin):
     def _wrap_h1(self, h1: Tag, slug: str, soup: BeautifulSoup, site_url: str = "") -> None:
         """Wrap an H1 element and the AI actions widget in a flex container."""
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
-        url = f"{base_path}/ai/pages/{slug}.md"
+        public_root = self._public_root.strip("/")
+        url = f"{base_path}/{public_root}/pages/{slug}.md"
         filename = f"{slug}.md"
 
         widget_html = self._file_utils.generate_dropdown_html(

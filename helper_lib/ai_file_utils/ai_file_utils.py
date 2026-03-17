@@ -216,7 +216,7 @@ class AIFileUtils:
 
         For the canonical variant (empty ``data_filename``), uses the
         base slug.  For non-canonical variants, drops the last path
-        segment and appends the variant filename.
+        segment (the page name) and appends the variant filename.
         """
         route = page_url.strip("/")
         if not data_filename:
@@ -352,6 +352,7 @@ class AIFileUtils:
         primary_label: str | None = None,
         site_url: str = "",
         label_replace: dict[str, str] | None = None,
+        content: str = "",
     ) -> str:
         """
         Generate the HTML for the AI file actions split-button.
@@ -373,17 +374,20 @@ class AIFileUtils:
                      will be the fully-qualified URL.
             label_replace: Optional dict of string replacements to apply
                      to dropdown item labels (e.g., ``{"file": "page"}``).
+            content: Optional page content for prompt template interpolation.
 
         Returns:
             The HTML string for the component.
         """
-        # Build the full page URL for use in prompt templates
+        # Build the full page URL for use in prompt templates.
+        # Use urljoin so that absolute paths (starting with /) correctly
+        # replace the base path instead of duplicating it.
         if site_url:
-            full_url = site_url.rstrip("/") + "/" + url.lstrip("/")
+            full_url = urllib.parse.urljoin(site_url, url)
         else:
             full_url = url
         actions = self.resolve_actions(
-            page_url=url, filename=filename, content="", prompt_page_url=full_url
+            page_url=url, filename=filename, content=content, prompt_page_url=full_url
         )
 
         # Separate primary action from dropdown actions
