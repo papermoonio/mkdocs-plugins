@@ -208,7 +208,9 @@ class ResolveMDPlugin(BasePlugin):
         # Build category bundles based on current AI pages
         self.build_category_bundles(ai_pages, ai_root, build_timestamp)
         # Build site index + llms JSONL artifacts
-        self.build_site_index(ai_pages, ai_root, build_timestamp)
+        enriched = self.build_site_index(ai_pages, ai_root, build_timestamp)
+        # Build per-category lightweight index files
+        self.build_category_light(enriched, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir, build_timestamp)
 
@@ -1010,7 +1012,7 @@ class ResolveMDPlugin(BasePlugin):
 
     @staticmethod
     def select_pages_for_category(category: str, pages: list[dict]) -> list[dict]:
-        cat_lower = category.lower()
+        cat_slug = ResolveMDPlugin.slugify_category(category)
         selected = []
         for page in pages:
             cats = page.get("categories") or []
@@ -1018,7 +1020,7 @@ class ResolveMDPlugin(BasePlugin):
                 cats_iter = [cats]
             else:
                 cats_iter = cats
-            if any(str(c).lower() == cat_lower for c in cats_iter):
+            if any(ResolveMDPlugin.slugify_category(str(c)) == cat_slug for c in cats_iter):
                 selected.append(page)
         return selected
 
@@ -1169,10 +1171,10 @@ class ResolveMDPlugin(BasePlugin):
     # Create full-site content related AI artifact files
     def build_site_index(
         self, pages: list[dict], ai_root: Path, build_timestamp: str = ""
-    ) -> None:
+    ) -> list[dict]:
         """Generate site-index.json and llms_full.jsonl from AI pages."""
         if not pages:
-            return
+            return []
         outputs = self.llms_config.get("outputs", {})
         files_cfg = outputs.get("files", {})
         site_index_name = files_cfg.get("site_index", "site-index.json")
@@ -1274,6 +1276,75 @@ class ResolveMDPlugin(BasePlugin):
         log.info(
             f"[resolve_md] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
         )
+        return site_index_entries
+
+    def build_category_light(
+        self, enriched: list[dict], ai_root: Path, build_timestamp: str = ""
+    ) -> None:
+        """Generate per-category lightweight index files (<slug>-light.md)."""
+        if not enriched:
+            return
+        content_cfg = self.llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info") or {}
+        if not categories_info:
+            log.info("[resolve_md] no categories configured; skipping light files")
+            return
+
+        categories_dir = ai_root / "categories"
+        categories_dir.mkdir(parents=True, exist_ok=True)
+
+        for category_id, cat_info in categories_info.items():
+            cat_slug = self.slugify_category(category_id)
+            display_name = cat_info.get("name", category_id)
+            description = cat_info.get("description", "")
+
+            cat_pages = sorted(
+                self.select_pages_for_category(category_id, enriched),
+                key=lambda p: (p.get("title") or "").lower(),
+            )
+
+            blocks: list[str] = []
+            for page in cat_pages:
+                lines: list[str] = []
+                title = page.get("title") or page.get("id", "")
+                lines.append(f"## {title}")
+                md_url = page.get("resolved_md_url", "")
+                if md_url:
+                    lines.append(md_url)
+                preview = page.get("preview", "")
+                if preview:
+                    lines.append("")
+                    lines.append(preview)
+                outline = page.get("outline", [])
+                if outline:
+                    lines.append("")
+                    lines.append("### Sections")
+                    for heading in outline:
+                        lines.append(f"- {heading['title']} `#{heading['anchor']}`")
+                blocks.append("\n".join(lines))
+
+            body = "\n\n---\n\n".join(blocks)
+            fm_obj = {
+                "category": display_name,
+                "description": description,
+                "page_count": len(cat_pages),
+                "token_estimate": self.estimate_tokens(body),
+            }
+            if build_timestamp:
+                fm_obj["updated"] = build_timestamp
+
+            fm_yaml = yaml.safe_dump(
+                fm_obj, sort_keys=False, allow_unicode=True, width=4096
+            ).strip()
+            content = f"---\n{fm_yaml}\n---\n\n{body}\n"
+
+            out_path = categories_dir / f"{cat_slug}-light.md"
+            out_path.write_text(content, encoding="utf-8")
+            log.debug(
+                f"[resolve_md] light file {out_path.name}: {len(cat_pages)} pages"
+            )
+
+        log.info(f"[resolve_md] category light files written to {categories_dir}")
 
     def build_llms_txt(
         self, pages: list[dict], docs_dir: Path, build_timestamp: str = ""
