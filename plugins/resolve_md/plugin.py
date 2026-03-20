@@ -166,7 +166,10 @@ class ResolveMDPlugin(BasePlugin):
             header["token_estimate"] = token_estimate
             header["version_hash"] = version_hash
             header["last_updated"] = last_updated
-            self.write_ai_page(site_dir / rel_path, header, cleaned_body)
+            route = rel_no_ext.replace(os.sep, "/")
+            if route.endswith("/index"):
+                route = route[: -len("/index")]
+            self.write_ai_page(site_dir / (route + ".md"), header, cleaned_body)
             processed += 1
             # Creates list used later for category file creation
             cats = reduced_fm.get("categories") or []
