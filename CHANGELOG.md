@@ -72,7 +72,7 @@ updated: 2026-03-17T14:36:50Z
 
 ```markdown
 ## Smart Contract Overview
-https://docs.example.org/smart-contracts/overview/
+https://docs.example.org/smart-contracts/overview.md
 
 An introduction to smart contracts, how they work, and when to use them...
 
