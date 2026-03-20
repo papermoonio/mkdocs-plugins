@@ -132,6 +132,12 @@ class AiPageActionsPlugin(BasePlugin):
         modified = False
 
         # --- Toggle pages ---
+        # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
+        # so the derived .md path always matches what resolve_md writes.
+        route = page.url.strip("/")
+        if route.endswith(".html"):
+            route = route[: -len(".html")]
+
         toggle_containers = md_content.select(".toggle-container")
         if toggle_containers:
             for container in toggle_containers:
@@ -147,7 +153,6 @@ class AiPageActionsPlugin(BasePlugin):
                         f'.toggle-btn[data-variant="{variant}"]'
                     )
                     data_filename = btn.get("data-filename", "") if btn else ""
-                    route = page.url.strip("/")
                     if data_filename:
                         segments = route.split("/")
                         md_path = "/".join(segments[:-1] + [f"{data_filename}.md"])
@@ -160,7 +165,7 @@ class AiPageActionsPlugin(BasePlugin):
         if not toggle_containers:
             h1 = md_content.find("h1")
             if h1:
-                md_path = f"{page.url.strip('/')}.md"
+                md_path = f"{route}.md"
                 self._wrap_h1(h1, md_path, soup, site_url=site_url)
                 modified = True
 
