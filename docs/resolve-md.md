@@ -115,7 +115,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
 
 ## 🔹 Outputs
 
-Every build writes the following artifacts under `public_root` (e.g., `site/ai/`):
+Every build writes the following artifacts under public_root (e.g., `site/ai/`), except `llms.txt` which is written to the site root:
 
 | File                         | Description                                                                             |
 |------------------------------|-----------------------------------------------------------------------------------------|
