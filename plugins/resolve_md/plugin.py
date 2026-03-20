@@ -79,7 +79,9 @@ class ResolveMDPlugin(BasePlugin):
         self.docs_base_url = docs_base_url
 
         # Determine AI artifacts root (categories, index, llms files)
-        ai_root = self.get_ai_output_dir(site_dir).parent
+        outputs_cfg = self.llms_config.get("outputs", {})
+        public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
+        ai_root = site_dir / public_root
         ai_root.mkdir(parents=True, exist_ok=True)
         log.info(f"[resolve_md] writing resolved pages alongside HTML in {site_dir}")
 
