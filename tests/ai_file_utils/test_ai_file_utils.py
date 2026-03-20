@@ -72,7 +72,7 @@ class TestAIFileUtils:
         # https://docs.example.com/directory/page.md (no double slash)
         assert "docs.example.com" in chatgpt_action["href"]
         # Double slash between site_url and page_url should NOT appear
-        assert "docs.example.com%2F%2Fai" not in chatgpt_action["href"]
+        assert "docs.example.com%2F%2Fdirectory" not in chatgpt_action["href"]
 
     def test_site_url_defaults_to_empty(self):
         """When site_url is omitted, prompt templates still work with just page_url."""
