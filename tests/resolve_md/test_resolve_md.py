@@ -184,8 +184,9 @@ class TestWriteAiPage:
                 "version_hash": "sha256:abc123",
                 "last_updated": "2025-01-15T10:00:00+00:00",
             }
-            plugin.write_ai_page(pages_dir, "test-page", header, "# Hello\n\nWorld.")
-            content = (pages_dir / "test-page.md").read_text()
+            out_path = pages_dir / "test-page.md"
+            plugin.write_ai_page(out_path, header, "# Hello\n\nWorld.")
+            content = out_path.read_text()
             fm_match = content.split("---")[1]
             fm = yaml.safe_load(fm_match)
             assert fm["version_hash"] == "sha256:abc123"
@@ -215,7 +216,7 @@ class TestWriteCategoryBundle:
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "bundle.md"
             plugin.write_category_bundle(
-                out_path, "Test", False, [], self._make_pages(), "",
+                out_path, "Test", False, [], self._make_pages(),
                 build_timestamp="2025-06-01T00:00:00+00:00",
             )
             content = out_path.read_text()

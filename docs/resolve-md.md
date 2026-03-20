@@ -12,7 +12,7 @@ plugins:
       llms_config: llms_config.json
 ```
 
-The plugin reads its settings from the `llms_config.json` file, resolves every placeholder (variables and snippets), and writes the resolved artifacts directly into your build output directory (`site_dir`) under the path specified by `repository.ai_artifacts_path` (defaulting to `ai/pages` for individual page files and `ai/categories` for category bundle files). If you set a custom `site_dir` in `mkdocs.yml`, the resolved files—and their accompanying category bundles, indexes, and `llms.txt`—will simply appear under that directory’s configured AI path.
+The plugin reads its settings from the `llms_config.json` file, resolves every placeholder (variables and snippets), and writes the resolved markdown files directly into your build output directory (`site_dir`) at the same path as their corresponding HTML pages (e.g., `directory/page.md` alongside `directory/page/index.html`). Category bundles, indexes, and `llms.txt` are written under the AI artifacts root (defaulting to `ai/`).
 
 ## 🔹 Configuration
 
@@ -50,8 +50,8 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
   <details>
     <summary>"outputs":</summary>
     <ul>
-      <li>"public_root": output directory for AI artifacts</li>
-      <li>"files": defines full-site file name and sub-directory for AI pages</li>
+      <li>"public_root": output directory for AI artifacts (category bundles, indexes, llms.txt)</li>
+      <li>"files": defines filenames for the full-site JSONL index</li>
     </ul>
   </details>
 
@@ -73,8 +73,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
         "org": "polkadot-developers",
         "repo": "polkadot-docs",
         "default_branch": "master",
-        "docs_path": ".",
-        "ai_artifacts_path": "ai/pages"
+        "docs_path": "."
     },
 
     "content": {
@@ -108,8 +107,7 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
     "outputs": {
         "public_root": "/ai/",
         "files": {
-            "llms_full": "llms-full.jsonl",
-            "pages_dir": "pages"
+            "llms_full": "llms-full.jsonl"
         }
     }
   }

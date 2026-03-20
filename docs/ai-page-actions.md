@@ -1,6 +1,6 @@
 # AI Page Actions Plugin
 
-The AI Page Actions plugin injects a per-page AI actions widget (split-button dropdown) next to each page's H1 heading at build time. It reuses the shared [`ai_file_utils`](helper_library/ai-file-utils.md) library (in `helper_lib/ai_file_utils/`) for slug resolution, URL building, action resolution, and HTML generation — the same library that powers the table widget via [`ai_file_actions`](helper_library/ai-file-actions.md).
+The AI Page Actions plugin injects a per-page AI actions widget (split-button dropdown) next to each page's H1 heading at build time. It reuses the shared [`ai_file_utils`](helper_library/ai-file-utils.md) library (in `helper_lib/ai_file_utils/`) for action resolution and HTML generation — the same library that powers the table widget via [`ai_file_actions`](helper_library/ai-file-actions.md).
 
 ## Usage
 
@@ -21,13 +21,13 @@ For each page:
 
 1. Checks whether the page is excluded via `ai_file_utils.is_page_excluded()` (driven by `llms_config.json` exclusions, dot-directories, and front matter)
 2. Parses the rendered HTML with BeautifulSoup to locate the H1 heading inside `.md-content`
-3. Builds the slug and URL (e.g., `/ai/pages/{slug}.md`). For sites deployed under a subpath (e.g., `site_url: https://example.com/docs/`), the path prefix is extracted and prepended automatically (e.g., `/docs/ai/pages/{slug}.md`)
+3. Builds the URL for the resolved markdown file, which lives at the same path as the HTML page with a `.md` extension (e.g., `smart-contracts/overview/` → `/smart-contracts/overview.md`). For sites deployed under a subpath (e.g., `site_url: https://example.com/docs/`), the path prefix is extracted and prepended automatically (e.g., `/docs/smart-contracts/overview.md`)
 4. Generates the widget HTML using `AIFileUtils.generate_dropdown_html()` with `primary_label="Copy page"` and `label_replace={"file": "page"}` so dropdown items read "View page in Markdown" etc.
 5. Wraps the H1 and widget in a `<div class="h1-ai-actions-wrapper">` flex container
 
 ### Toggle Pages
 
-For pages using the `page_toggle` plugin, the widget handles each variant independently. It finds H1s inside `.toggle-header > span[data-variant]` elements and reads the `data-filename` attribute from the corresponding toggle button to build variant-specific slugs via `AIFileUtils.build_toggle_slug()`.
+For pages using the `page_toggle` plugin, the widget handles each variant independently. It finds H1s inside `.toggle-header > span[data-variant]` elements and reads the `data-filename` attribute from the corresponding toggle button to build the variant's markdown URL (e.g., the variant filename appended to the page's directory path).
 
 ## Page Exclusions
 
