@@ -113,6 +113,18 @@ The plugin reads its settings from the `llms_config.json` file, resolves every p
   }
   ```
 
+## 🔹 Outputs
+
+Every build writes the following artifacts under `public_root` (e.g., `site/ai/`):
+
+| File                         | Description                                                                             |
+|------------------------------|-----------------------------------------------------------------------------------------|
+| `site-index.json`            | Full page index with title, URL, preview, outline, stats, and versioning for every page |
+| `llms-full.jsonl`            | One JSON line per heading section, suitable for chunked retrieval                       |
+| `llms.txt`                   | Plain-text listing of resolved Markdown URLs grouped by category                        |
+| `categories/<slug>.md`       | Full-content bundle per category — all page bodies concatenated                         |
+| `categories/<slug>-light.md` | Lightweight index per category — title, resolved Markdown URL, preview, and section headings for each tagged page |
+
 ## 🔹 Notes
 
 - The plugin will overwrite the target directory on each build to avoid stale files.

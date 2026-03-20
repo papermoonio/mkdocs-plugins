@@ -43,3 +43,43 @@ The following static methods have been removed from `AIFileUtils`:
 
 **Impact:**
 - Any code that calls these methods will raise `AttributeError` and must be updated. Replace calls with direct path construction from the page URL (e.g., `page.url.strip("/") + ".md"`).
+
+### Bug Fixes
+
+#### `resolve_md` — Category matching now slug-normalized
+
+`select_pages_for_category` previously used a plain case-insensitive string comparison, causing multi-word categories to silently produce empty bundles and light files when the `categories_info` key format (e.g., `smart-contracts`) differed from the page front-matter value (e.g., `smart contracts`). Both sides are now normalized through `slugify_category` before comparison, so hyphens, spaces, and underscores are treated as equivalent.
+
+### New Features
+
+#### Category light files
+
+Each `categories/<slug>-light.md` is a compact navigational index for a category. It contains only the pages explicitly tagged with that category (no base-category union) and is intended as a fast discovery reference for humans and LLMs alike.
+
+**Front matter** — aggregated from the category's page set:
+
+```yaml
+---
+category: Smart Contracts
+description: Guides and references for writing, deploying, and auditing smart contracts.
+page_count: 12
+token_estimate: 3800
+updated: 2026-03-17T14:36:50Z
+---
+```
+
+**Per-page entry** — one block per page, separated by `---`:
+
+```markdown
+## Smart Contract Overview
+https://docs.example.org/smart-contracts/overview/
+
+An introduction to smart contracts, how they work, and when to use them...
+
+### Sections
+- What Is a Smart Contract `#what-is-a-smart-contract`
+- Lifecycle of a Contract `#lifecycle-of-a-contract`
+- Security Considerations `#security-considerations`
+```
+
+The `### Sections` block is omitted for pages that have no outline headings.

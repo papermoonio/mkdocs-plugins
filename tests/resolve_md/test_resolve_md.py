@@ -293,6 +293,143 @@ class TestBuildSiteIndex:
             assert section["last_updated"] == "2025-03-01T12:00:00+00:00"
 
 
+class TestBuildCategoryLight:
+    """Tests for build_category_light light index file generation."""
+
+    def _make_enriched(self):
+        return [
+            {
+                "id": "smart-contract-overview",
+                "title": "Smart Contract Overview",
+                "categories": ["smart-contracts"],
+                "html_url": "https://example.com/smart-contracts/overview/",
+                "resolved_md_url": "https://example.com/smart-contracts/overview.md",
+                "preview": "An introduction to smart contracts and how they work.",
+                "outline": [
+                    {"depth": 2, "title": "What Is a Smart Contract", "anchor": "what-is-a-smart-contract"},
+                    {"depth": 2, "title": "Lifecycle of a Contract", "anchor": "lifecycle-of-a-contract"},
+                ],
+                "stats": {"token_estimate": 300},
+            },
+            {
+                "id": "deploy-a-contract",
+                "title": "Deploy a Contract",
+                "categories": ["smart-contracts"],
+                "html_url": "https://example.com/smart-contracts/deploy/",
+                "resolved_md_url": "https://example.com/smart-contracts/deploy.md",
+                "preview": "Covers the steps to deploy a smart contract.",
+                "outline": [],
+                "stats": {"token_estimate": 200},
+            },
+            {
+                "id": "getting-started",
+                "title": "Getting Started",
+                "categories": ["basics"],
+                "html_url": "https://example.com/basics/getting-started/",
+                "resolved_md_url": "https://example.com/basics/getting-started.md",
+                "preview": "An introduction to the platform.",
+                "outline": [
+                    {"depth": 2, "title": "Overview", "anchor": "overview"},
+                ],
+                "stats": {"token_estimate": 100},
+            },
+        ]
+
+    def _make_plugin(self):
+        plugin = ResolveMDPlugin()
+        plugin.llms_config = {
+            "content": {
+                "categories_info": {
+                    "smart-contracts": {
+                        "name": "Smart Contracts",
+                        "description": "Guides for writing and deploying smart contracts.",
+                    },
+                    "basics": {
+                        "name": "Basics",
+                        "description": "Foundational content.",
+                    },
+                }
+            }
+        }
+        return plugin
+
+    def test_creates_light_file_per_category(self):
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root, "2026-03-19T00:00:00+00:00")
+            assert (ai_root / "categories" / "smart-contracts-light.md").exists()
+            assert (ai_root / "categories" / "basics-light.md").exists()
+
+    def test_front_matter_fields(self):
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root, "2026-03-19T00:00:00+00:00")
+            content = (ai_root / "categories" / "smart-contracts-light.md").read_text()
+            fm = yaml.safe_load(content.split("---")[1])
+            assert fm["category"] == "Smart Contracts"
+            assert fm["description"] == "Guides for writing and deploying smart contracts."
+            assert fm["page_count"] == 2
+            assert fm["token_estimate"] > 0
+            assert fm["updated"] == "2026-03-19T00:00:00+00:00"
+
+    def test_page_block_contains_title_url_preview(self):
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root)
+            content = (ai_root / "categories" / "smart-contracts-light.md").read_text()
+            assert "## Smart Contract Overview" in content
+            assert "https://example.com/smart-contracts/overview.md" in content
+            assert "An introduction to smart contracts and how they work." in content
+
+    def test_sections_block_present_when_outline_exists(self):
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root)
+            content = (ai_root / "categories" / "smart-contracts-light.md").read_text()
+            assert "### Sections" in content
+            assert "- What Is a Smart Contract `#what-is-a-smart-contract`" in content
+            assert "- Lifecycle of a Contract `#lifecycle-of-a-contract`" in content
+
+    def test_sections_block_omitted_when_no_outline(self):
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root)
+            content = (ai_root / "categories" / "smart-contracts-light.md").read_text()
+            # "Deploy a Contract" has no outline — its block should have no ### Sections
+            deploy_block = content.split("## Deploy a Contract")[1].split("---")[0]
+            assert "### Sections" not in deploy_block
+
+    def test_only_tagged_pages_included(self):
+        """Pages not tagged with a category must not appear in its light file."""
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root)
+            smart_contracts = (ai_root / "categories" / "smart-contracts-light.md").read_text()
+            assert "Getting Started" not in smart_contracts
+            basics = (ai_root / "categories" / "basics-light.md").read_text()
+            assert "Smart Contract Overview" not in basics
+
+    def test_empty_enriched_does_not_raise(self):
+        plugin = self._make_plugin()
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin.build_category_light([], Path(tmp), "2026-03-19T00:00:00+00:00")
+            assert not (Path(tmp) / "categories").exists()
+
+    def test_no_categories_config_skips_gracefully(self):
+        plugin = ResolveMDPlugin()
+        plugin.llms_config = {"content": {}}
+        with tempfile.TemporaryDirectory() as tmp:
+            ai_root = Path(tmp)
+            plugin.build_category_light(self._make_enriched(), ai_root)
+            assert not (ai_root / "categories").exists()
+
+
 class TestFormatLlmsMetadataSection:
     """Tests that llms.txt metadata includes build_timestamp and version_hash."""
 
