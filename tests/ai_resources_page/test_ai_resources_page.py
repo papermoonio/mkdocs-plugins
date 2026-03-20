@@ -48,6 +48,7 @@ class TestAiResourcesPageSubpath:
         assert "/ai/site-index.json" in result
         assert "/ai/llms-full.jsonl" in result
         assert "/ai/categories/basics.md" in result
+        assert "/ai/categories/basics-light.md" in result
         assert "/llms.txt" in result
         # Should NOT have a double path like /docs/ai/
         assert '"/docs/' not in result
@@ -64,6 +65,7 @@ class TestAiResourcesPageSubpath:
         assert "/docs/ai/site-index.json" in result
         assert "/docs/ai/llms-full.jsonl" in result
         assert "/docs/ai/categories/basics.md" in result
+        assert "/docs/ai/categories/basics-light.md" in result
         assert "/docs/llms.txt" in result
 
     def test_empty_site_url(self, tmp_path):
@@ -77,4 +79,5 @@ class TestAiResourcesPageSubpath:
 
         assert "/ai/site-index.json" in result
         assert "/ai/categories/basics.md" in result
+        assert "/ai/categories/basics-light.md" in result
         assert "/llms.txt" in result

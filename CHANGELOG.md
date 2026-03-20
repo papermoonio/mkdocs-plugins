@@ -83,3 +83,7 @@ An introduction to smart contracts, how they work, and when to use them...
 ```
 
 The `### Sections` block is omitted for pages that have no outline headings.
+
+#### `ai_resources_page` — Category light files added to AI resources table
+
+Each category now has two rows in the AI resources table — the full bundle (`<slug>.md`) followed by its lightweight index (`<slug>-light.md`).

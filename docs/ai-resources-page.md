@@ -1,6 +1,6 @@
 # AI Resources Page Plugin
 
-The AI Resources Page plugin automates the generation of an "AI Resources" page for your documentation site. It processes a configuration file (`llms_config.json`) to dynamically build an overview section and a table of resources (global files and category bundles) optimized for LLMs.
+The AI Resources Page plugin automates the generation of an "AI Resources" page for your documentation site. It processes a configuration file (`llms_config.json`) to dynamically build an overview section and a table of resources (global files, category bundles, and category light files) optimized for LLMs.
 
 ## Installation
 
@@ -64,7 +64,7 @@ Key sections used by this plugin:
     *   It replaces the page content with a standard Introduction/Overview using the `project.name`.
     *   It generates a table including:
         *   **Standard Files**: `llms.txt`, `site-index.json`, `llms-full.jsonl`.
-        *   **Categories**: Iterates through `categories_info` (in key order) to create rows for each category bundle.
+        *   **Categories**: Iterates through `categories_info` (in key order) to create two rows per category — the full bundle (`<slug>.md`) and the lightweight index (`<slug>-light.md`).
 3.  **Client-side actions**: Each table row includes a split-button dropdown (generated via the shared [`ai_file_utils`](helper_library/ai-file-utils.md) library) with copy, view, download, and LLM tool actions. For sites deployed under a subpath (e.g., `site_url: https://example.com/docs/`), the path prefix is extracted from `site_url` and prepended to all artifact URLs automatically.
 
 ## Notes

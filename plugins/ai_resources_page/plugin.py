@@ -152,8 +152,18 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 url=url, filename=filename, site_url=site_url
             )
 
-            row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
+            row = f'| {display_name} (Full) | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
             output.append(row)
+
+            light_filename = f"{slug}-light.md"
+            light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
+
+            light_actions = self._file_utils.generate_dropdown_html(
+                url=light_url, filename=light_filename, site_url=site_url
+            )
+
+            light_row = f'| {display_name} (Light) | Lightweight index with page titles, URLs, previews, and section headings. | <code style="white-space: nowrap;">{light_filename}</code> | {light_actions} |'
+            output.append(light_row)
 
         # Add Note
         note = """
