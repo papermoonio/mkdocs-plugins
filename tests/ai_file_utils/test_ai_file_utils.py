@@ -13,8 +13,8 @@ class TestAIFileUtils:
 
         # 2. Define the context for a specific page
         site_url = "https://docs.polkadot.com"
-        page_url = "/ai/pages/basics.md"
-        filename = "basics.md"
+        page_url = "/directory/page.md"
+        filename = "page.md"
         content = "# Polkadot Basics\n\nPolkadot is a sharded protocol."
 
         # 3. Build the fully-qualified prompt URL and call the public API
@@ -28,11 +28,11 @@ class TestAIFileUtils:
 
         # Inspect the "View Markdown" action
         view_action = next(a for a in actions if a["id"] == "view-markdown")
-        assert view_action["href"] == "/ai/pages/basics.md"
+        assert view_action["href"] == "/directory/page.md"
 
         # Inspect the "Download Markdown" action (check download attribute interpolation)
         download_action = next(a for a in actions if a["id"] == "download-markdown")
-        assert download_action["download"] == "basics.md"
+        assert download_action["download"] == "page.md"
 
         # Inspect the "Copy Markdown" (primary) action
         copy_action = next(a for a in actions if a["id"] == "copy-markdown")
@@ -57,7 +57,7 @@ class TestAIFileUtils:
         utils = AIFileUtils()
 
         site_url = "https://docs.example.com/"
-        page_url = "/ai/pages/test-page.md"
+        page_url = "/directory/page.md"
         prompt_page_url = site_url.rstrip("/") + "/" + page_url.lstrip("/")
 
         actions = utils.resolve_actions(
@@ -69,7 +69,7 @@ class TestAIFileUtils:
 
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         # The encoded href should contain the clean URL without double slashes
-        # https://docs.example.com/ai/pages/test-page.md (no double slash)
+        # https://docs.example.com/directory/page.md (no double slash)
         assert "docs.example.com" in chatgpt_action["href"]
         # Double slash between site_url and page_url should NOT appear
         assert "docs.example.com%2F%2Fai" not in chatgpt_action["href"]
@@ -79,7 +79,7 @@ class TestAIFileUtils:
         utils = AIFileUtils()
 
         actions = utils.resolve_actions(
-            page_url="/ai/pages/test-page.md",
+            page_url="/directory/page.md",
             filename="test-page.md",
             content="test",
         )
@@ -134,7 +134,7 @@ class TestAIFileUtils:
             ]
         }
 
-        actions = utils.resolve_actions("http://example.com", "test.md", "content")
+        actions = utils.resolve_actions("http://example.com", "page.md", "content")
 
         # We should get the good action
         assert len(actions) == 1
@@ -153,7 +153,7 @@ class TestAIFileUtilsDropdownHtml:
     def test_all_dropdown_actions_render_by_default(self):
         """All 4 non-primary action IDs should appear in the dropdown."""
         result = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md", filename="test.md"
+            url="/directory/page.md", filename="page.md"
         )
         expected_ids = [
             "view-markdown",
@@ -167,14 +167,14 @@ class TestAIFileUtilsDropdownHtml:
     def test_primary_action_not_in_dropdown(self):
         """The primary action should NOT appear as a dropdown item."""
         result = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md", filename="test.md"
+            url="/directory/page.md", filename="page.md"
         )
         assert 'data-action-id="copy-markdown"' not in result
 
     def test_primary_button_driven_by_json(self):
         """The primary button should use label and icon from the JSON."""
         result = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md", filename="test.md"
+            url="/directory/page.md", filename="page.md"
         )
         assert 'data-action="copy-markdown"' in result
         assert 'class="ai-file-actions-btn ai-file-actions-copy"' in result
@@ -184,8 +184,8 @@ class TestAIFileUtilsDropdownHtml:
     def test_exclude_filters_actions(self):
         """Excluded action IDs should not appear in the output."""
         result = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md",
-            filename="test.md",
+            url="/directory/page.md",
+            filename="page.md",
             exclude=["view-markdown", "open-claude"],
         )
         assert 'data-action-id="view-markdown"' not in result
@@ -196,8 +196,8 @@ class TestAIFileUtilsDropdownHtml:
     def test_primary_button_always_present(self):
         """The primary button should appear regardless of exclude list."""
         result = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md",
-            filename="test.md",
+            url="/directory/page.md",
+            filename="page.md",
             exclude=[
                 "view-markdown",
                 "download-markdown",
@@ -211,7 +211,7 @@ class TestAIFileUtilsDropdownHtml:
     def test_container_structure(self):
         """The output should have the correct container structure."""
         result = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md", filename="test.md"
+            url="/directory/page.md", filename="page.md"
         )
         assert 'class="ai-file-actions-container"' in result
         assert 'class="ai-file-actions-btn ai-file-actions-trigger"' in result
@@ -219,8 +219,8 @@ class TestAIFileUtilsDropdownHtml:
 
     def test_html_escaping_for_special_urls(self):
         """URLs with special characters should be properly HTML-escaped."""
-        url = '/ai/pages/test.md?foo=1&bar=2"<script>'
-        result = self.utils.generate_dropdown_html(url=url, filename="test.md")
+        url = '/directory/page.md?foo=1&bar=2"<script>'
+        result = self.utils.generate_dropdown_html(url=url, filename="page.md")
         assert '&bar=2"<script>' not in result
         safe = html.escape(url, quote=True)
         # Primary button still uses data-url
@@ -231,9 +231,9 @@ class TestAIFileUtilsDropdownHtml:
     def test_exclude_none_same_as_no_exclude(self):
         """Passing exclude=None should show all actions."""
         result_default = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md", filename="test.md"
+            url="/directory/page.md", filename="page.md"
         )
         result_none = self.utils.generate_dropdown_html(
-            url="/ai/pages/test.md", filename="test.md", exclude=None
+            url="/directory/page.md", filename="page.md", exclude=None
         )
         assert result_default == result_none

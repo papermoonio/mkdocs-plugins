@@ -229,7 +229,7 @@ class TestWriteCategoryBundle:
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "bundle.md"
             plugin.write_category_bundle(
-                out_path, "Test", False, [], self._make_pages(), "",
+                out_path, "Test", False, [], self._make_pages(),
             )
             content = out_path.read_text()
             assert "- Last Updated: 2025-01-10T08:00:00+00:00" in content

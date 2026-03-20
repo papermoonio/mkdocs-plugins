@@ -21,7 +21,7 @@ utils = AIFileUtils()
 
 actions = utils.resolve_actions(
     page_url="/directory/page.md",
-    filename="my-page.md",
+    filename="page.md",
     content="# My Page Content...",
     prompt_page_url="https://docs.example.com/directory/page.md",  # optional
 )
@@ -36,7 +36,7 @@ utils = AIFileUtils()
 
 html = utils.generate_dropdown_html(
     url="/directory/page.md",
-    filename="my-page.md",
+    filename="page.md",
     exclude=["view-markdown"],  # optional
     primary_label="Copy page",  # optional
 )
