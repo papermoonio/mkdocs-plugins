@@ -43,8 +43,7 @@ class TestAIFileUtils:
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         # The prompt should be encoded in the URL
         assert "chatgpt.com" in chatgpt_action["href"]
-        # Should contain encoded reference to jina.ai with full site URL
-        assert "r.jina.ai" in chatgpt_action["href"]
+        # Should contain encoded full URL (site_url + page_url) in the prompt
         assert "docs.polkadot.com" in chatgpt_action["href"]
 
         # Inspect the "Claude" action
@@ -70,7 +69,7 @@ class TestAIFileUtils:
 
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         # The encoded href should contain the clean URL without double slashes
-        # r.jina.ai/https://docs.example.com/ai/pages/test-page.md (no double slash)
+        # https://docs.example.com/ai/pages/test-page.md (no double slash)
         assert "docs.example.com" in chatgpt_action["href"]
         # Double slash between site_url and page_url should NOT appear
         assert "docs.example.com%2F%2Fai" not in chatgpt_action["href"]
@@ -87,7 +86,6 @@ class TestAIFileUtils:
 
         chatgpt_action = next(a for a in actions if a["id"] == "open-chat-gpt")
         assert "chatgpt.com" in chatgpt_action["href"]
-        assert "r.jina.ai" in chatgpt_action["href"]
 
     def test_missing_schema_file(self, tmp_path, caplog):
         """Test behavior when schema file is missing."""
