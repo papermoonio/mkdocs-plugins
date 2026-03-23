@@ -161,10 +161,9 @@ class AgentTasksPlugin(BasePlugin):
                     )
                     lines.append(f"**Reference file:** [`{ref_file}`]({raw_url})")
                     lines.append("")
-                    lines.append(
-                        f"Fetch this file for use in your project."
-                        f"See the Reference Code Index below for a description of what this file does."
-                    )
+                    lines.append("Fetch this file for use in your project.")
+                    lines.append("")
+                    lines.append("See the Reference Code Index below for a description of what this file does.")
                     lines.append("")
 
                 expected = step.get("expected_output")
