@@ -34,19 +34,6 @@ class AiResourcesPagePlugin(BasePlugin):
         s = re.sub(r"-{2,}", "-", s).strip("-")
         return s or "category"
 
-    def sanitize_table_content(self, text: str) -> str:
-        """
-        Escapes characters that would break the Markdown table layout.
-        Mainly pipes `|` and newlines.
-        """
-        if not text:
-            return ""
-        # Replace pipe with escaped pipe or HTML entity
-        text = text.replace("|", "&#124;")
-        # Replace newlines with space to keep it in one cell
-        text = text.replace("\n", " ").replace("\r", "")
-        return text
-
     def on_page_markdown(self, markdown, page, config, files):
         # Target only the AI Resources page
         if not page.file.src_path.endswith("ai-resources.md"):
@@ -102,16 +89,15 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
 ## Access LLM Files
 
-| Category | Description | File | Actions |
-|:---|:---|:---|:---|"""
+| File | Description | Actions |
+|:---|:---|:---|"""
         output.append(overview)
 
         # 1. llms.txt (Root File)
-        # Note: llms.txt usually lives at root, so path is "/llms.txt"
         actions_llms = self._file_utils.generate_dropdown_html(
             url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
         )
-        row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
+        row_llms = f'| <code style="white-space: nowrap;">llms.txt</code> | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | {actions_llms} |'
         output.append(row_llms)
 
         # 2. site-index.json
@@ -120,50 +106,18 @@ These AI-ready files do not include any persona or system prompts. They are pure
             filename="site-index.json",
             site_url=site_url,
         )
-        row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
+        row_site_index = f'| <code style="white-space: nowrap;">site-index.json</code> | Lightweight site index of JSON objects (one per page) with metadata and content previews. | {actions_site_index} |'
         output.append(row_site_index)
 
         # 3. llms-full.jsonl
-        # Typically no "View" for large JSONL
         actions_full = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
             site_url=site_url,
         )
-        row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
+        row_full = f'| <code style="white-space: nowrap;">llms-full.jsonl</code> | Full content of documentation site enhanced with metadata. | {actions_full} |'
         output.append(row_full)
-
-        # 4. Categories (key order in categories_info controls display order)
-        for cat_id, cat_info in categories_info.items():
-            slug = self.slugify_category(cat_id)
-
-            display_name = cat_info.get("name", cat_id)
-            description = cat_info.get("description", f"Resources for {display_name}.")
-
-            # Sanitize for markdown table
-            display_name = self.sanitize_table_content(display_name)
-            description = self.sanitize_table_content(description)
-
-            filename = f"{slug}.md"
-            url = f"{base_path}{public_root_stripped}/categories/{filename}"
-
-            actions = self._file_utils.generate_dropdown_html(
-                url=url, filename=filename, site_url=site_url
-            )
-
-            row = f'| {display_name} (Full) | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
-            output.append(row)
-
-            light_filename = f"{slug}-light.md"
-            light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
-
-            light_actions = self._file_utils.generate_dropdown_html(
-                url=light_url, filename=light_filename, site_url=site_url
-            )
-
-            light_row = f'| {display_name} (Light) | Lightweight index with page titles, URLs, previews, and section headings. | <code style="white-space: nowrap;">{light_filename}</code> | {light_actions} |'
-            output.append(light_row)
 
         # Add Note
         note = """
@@ -171,5 +125,34 @@ These AI-ready files do not include any persona or system prompts. They are pure
     The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
 """
         output.append(note)
+
+        # 4. Categories — each gets its own subsection with a two-column table
+        if categories_info:
+            output.append("\n## Categories")
+
+        for cat_id, cat_info in categories_info.items():
+            slug = self.slugify_category(cat_id)
+
+            display_name = cat_info.get("name", cat_id)
+            description = cat_info.get("description", f"Resources for {display_name}.")
+
+            filename = f"{slug}.md"
+            url = f"{base_path}{public_root_stripped}/categories/{filename}"
+            actions = self._file_utils.generate_dropdown_html(
+                url=url, filename=filename, site_url=site_url
+            )
+
+            light_filename = f"{slug}-light.md"
+            light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
+            light_actions = self._file_utils.generate_dropdown_html(
+                url=light_url, filename=light_filename, site_url=site_url
+            )
+
+            output.append(f"\n### {display_name}")
+            output.append(description)
+            output.append("\n| File | Description | Actions |")
+            output.append("|:---|:---|:---|")
+            output.append(f'| <code style="white-space: nowrap;">{filename}</code> | Full bundle — complete page content for all tagged pages. | {actions} |')
+            output.append(f'| <code style="white-space: nowrap;">{light_filename}</code> | Lightweight index — titles, URLs, previews, and section headings. | {light_actions} |')
 
         return "\n".join(output)

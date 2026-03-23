@@ -50,6 +50,8 @@ class TestAiResourcesPageSubpath:
         assert "/ai/categories/basics.md" in result
         assert "/ai/categories/basics-light.md" in result
         assert "/llms.txt" in result
+        assert "## Categories" in result
+        assert "### Basics" in result
         # Should NOT have a double path like /docs/ai/
         assert '"/docs/' not in result
 
