@@ -1,3 +1,4 @@
+import base64
 import copy
 import html
 import json
@@ -229,6 +230,41 @@ class AIFileUtils:
     def build_ai_page_url(slug: str) -> str:
         """Build the ``/ai/pages/{slug}.md`` URL from a slug."""
         return f"/ai/pages/{slug}.md"
+
+    # ------------------------------------------------------------------
+    # MCP deeplinks & helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def build_cursor_deeplink(server_name: str, mcp_url: str) -> str:
+        """Build a ``cursor://`` one-click install deeplink."""
+        config_json = json.dumps({"url": mcp_url}, separators=(",", ":"))
+        b64_config = base64.b64encode(config_json.encode()).decode()
+        return (
+            "cursor://anysphere.cursor-deeplink/mcp/install"
+            f"?name={server_name}&config={b64_config}"
+        )
+
+    @staticmethod
+    def build_vscode_deeplink(server_name: str, mcp_url: str) -> str:
+        """Build a ``vscode:`` one-click install deeplink."""
+        config_json = json.dumps(
+            {"name": server_name, "url": mcp_url}, separators=(",", ":")
+        )
+        return f"vscode:mcp/install?{urllib.parse.quote(config_json, safe='')}"
+
+    @staticmethod
+    def mcp_install_button(href: str, label: str = "Install") -> str:
+        """Return an inline HTML button for a deeplink install action."""
+        return (
+            f'<a href="{href}" class="ai-file-actions-btn"'
+            f' style="border-radius:25px;color:#fff;text-decoration:none">{label}</a>'
+        )
+
+    @staticmethod
+    def mcp_copy_code(command: str) -> str:
+        """Return an inline ``<code>`` element."""
+        return f'<code style="">{command}</code>'
 
     # ------------------------------------------------------------------
     # HTML generation

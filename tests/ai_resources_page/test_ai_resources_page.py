@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from urllib.parse import unquote
 
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 from plugins.ai_resources_page.plugin import AiResourcesPagePlugin
 
 
@@ -136,7 +137,7 @@ class TestMcpSection:
 
     def test_cursor_deeplink_format(self):
         """Cursor deeplink encodes the MCP URL as base64 config."""
-        link = AiResourcesPagePlugin._build_cursor_deeplink(
+        link = AIFileUtils.build_cursor_deeplink(
             self.MCP_NAME, self.MCP_URL
         )
 
@@ -150,7 +151,7 @@ class TestMcpSection:
 
     def test_vscode_deeplink_format(self):
         """VS Code deeplink URL-encodes a JSON config with name and url."""
-        link = AiResourcesPagePlugin._build_vscode_deeplink(
+        link = AIFileUtils.build_vscode_deeplink(
             self.MCP_NAME, self.MCP_URL
         )
 
