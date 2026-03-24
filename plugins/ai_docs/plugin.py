@@ -1499,13 +1499,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 "sections_indexed": len(sections),
             }
 
-            resolved_md_url = page.get("url", "").rstrip("/") + ".md"
             entry = {
                 "id": page["slug"],
                 "title": page.get("title"),
                 "slug": page["slug"],
                 "categories": page.get("categories", []),
-                "resolved_md_url": resolved_md_url,
+                "raw_md_url": page.get("url", "").rstrip("/") + ".md",
                 "html_url": page.get("url"),
                 "preview": preview,
                 "outline": outline,
@@ -1514,7 +1513,6 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 "last_updated": page_last_updated,
                 "token_estimator": token_estimator,
             }
-            entry["raw_md_url"] = resolved_md_url
             site_index_entries.append(entry)
 
         # Wrap entries in a top-level object with build metadata

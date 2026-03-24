@@ -40,7 +40,7 @@ docs.example.com/smart-contracts/overview.md
 **Impact:**
 - Any external links, scripts, or integrations that reference the old `/ai/pages/{slug}.md` URL pattern will break and must be updated.
 - The `repository.ai_artifacts_path` and `outputs.files.pages_dir` config options in `llms_config.json` no longer control where individual page `.md` files are written. The `outputs.public_root` setting still controls where category bundles, the site index, and `llms.txt` are written (defaulting to `/ai/`).
-- The `resolved_md_url` field in `ai-site-index.json` and the links in category bundles and `llms.txt` now point to the new paths.
+- The `raw_md_url` field in `ai-site-index.json` and the links in category bundles and `llms.txt` now point to the new paths.
 
 ### Changes
 
