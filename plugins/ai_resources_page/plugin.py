@@ -1,7 +1,8 @@
+import base64
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
@@ -46,6 +47,73 @@ class AiResourcesPagePlugin(BasePlugin):
         # Replace newlines with space to keep it in one cell
         text = text.replace("\n", " ").replace("\r", "")
         return text
+
+    @staticmethod
+    def _build_cursor_deeplink(server_name: str, mcp_url: str) -> str:
+        """Build a ``cursor://`` one-click install deeplink."""
+        config_json = json.dumps({"url": mcp_url}, separators=(",", ":"))
+        b64_config = base64.b64encode(config_json.encode()).decode()
+        return (
+            "cursor://anysphere.cursor-deeplink/mcp/install"
+            f"?name={server_name}&config={b64_config}"
+        )
+
+    @staticmethod
+    def _build_vscode_deeplink(server_name: str, mcp_url: str) -> str:
+        """Build a ``vscode:`` one-click install deeplink."""
+        config_json = json.dumps(
+            {"name": server_name, "url": mcp_url}, separators=(",", ":")
+        )
+        return f"vscode:mcp/install?{quote(config_json, safe='')}"
+
+    @staticmethod
+    def _mcp_install_button(href: str, label: str = "Install") -> str:
+        """Return an inline HTML button for a deeplink install action."""
+        return (
+            f'<a href="{href}" class="ai-file-actions-btn"'
+            f' style="border-radius:25px;color:#fff;text-decoration:none">{label}</a>'
+        )
+
+    @staticmethod
+    def _mcp_copy_code(command: str) -> str:
+        """Return an inline ``<code>`` with a copy-to-clipboard button."""
+        return (
+            f'<code style="">{command}</code>'
+        )
+
+    def _generate_mcp_section(self) -> str:
+        """Return the MCP install Markdown section, or ``""`` if unconfigured."""
+        project_cfg = self.llms_config.get("project", {})
+        mcp_name = project_cfg.get("mcp_name")
+        mcp_url = project_cfg.get("mcp_url")
+        if not mcp_url:
+            return ""
+
+        cursor_link = self._build_cursor_deeplink(mcp_name, mcp_url)
+        vscode_link = self._build_vscode_deeplink(mcp_name, mcp_url)
+
+        cursor_btn = self._mcp_install_button(cursor_link)
+        vscode_btn = self._mcp_install_button(vscode_link)
+        claude_cmd = self._mcp_copy_code(
+            f"claude mcp add --transport http {mcp_name} {mcp_url}"
+        )
+        codex_cmd = self._mcp_copy_code(
+            f"codex mcp add {mcp_name} --url {mcp_url}"
+        )
+        claude_desktop_link = (
+            '<a href="https://modelcontextprotocol.io/docs/develop/connect-remote-servers"'
+            ' target="_blank" rel="noopener noreferrer">Setup guide</a>'
+        )
+
+        rows = [
+            f"| Cursor | One-click install | {cursor_btn} |",
+            f"| VS Code | One-click install | {vscode_btn} |",
+            f"| Claude Code CLI | Terminal command | {claude_cmd} |",
+            f"| Codex CLI | Terminal command | {codex_cmd} |",
+            f"| Claude Desktop | Manual setup | {claude_desktop_link} |",
+        ]
+
+        return "\n".join(rows) + "\n"
 
     def on_page_markdown(self, markdown, page, config, files):
         # Target only the AI Resources page
@@ -161,5 +229,16 @@ These AI-ready files do not include any persona or system prompts. They are pure
     The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
 """
         output.append(note)
+
+        # MCP install section (only when both mcp_url and mcp_name are configured)
+        if project_cfg.get("mcp_url") and project_cfg.get("mcp_name"):
+            mcp_overview = f"""## Connect via MCP
+
+Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to connect your AI tools directly to {project_name} documentation.
+
+| Client | Method | Action |
+|:---|:---|:---|"""
+            output.append(mcp_overview)
+            output.append(self._generate_mcp_section())
 
         return "\n".join(output)
