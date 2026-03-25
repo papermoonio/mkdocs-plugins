@@ -258,7 +258,7 @@ class AIFileUtils:
         """Return an inline HTML button for a deeplink install action."""
         return (
             f'<a href="{href}" class="ai-file-actions-btn"'
-            f' style="border-radius:15px;color:#fff;text-decoration:none">{label}</a>'
+            f' style="border-radius:8px;color:#fff;text-decoration:none">{label}</a>'
         )
 
     @staticmethod
