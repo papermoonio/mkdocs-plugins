@@ -251,13 +251,14 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # Category bundle rows
         for cat_id, cat_info in categories_info.items():
             slug = self.slugify_category(cat_id)
-            display_name = html.escape(cat_info.get("name", cat_id))
+            raw_name = cat_info.get("name", cat_id)
+            display_name = html.escape(raw_name)
             description = html.escape(
-                cat_info.get("description", f"Resources for {display_name}.")
+                cat_info.get("description", f"Resources for {raw_name}.")
             )
             filename = f"{slug}.md"
             url = f"{base_path}{public_root_stripped}/categories/{filename}"
-            token_count = category_tokens.get(cat_id, 0)
+            token_count = int(category_tokens.get(cat_id, 0) or 0)
             actions = self._file_utils.generate_dropdown_html(
                 url=url, filename=filename, site_url=site_url
             )
@@ -266,7 +267,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 + td(display_name)
                 + td(description)
                 + td(f'<code style="white-space: nowrap;">{filename}</code>')
-                + td(f"{token_count:,}", "right")
+                + td(fmt_tokens(token_count), "right")
                 + td(actions)
                 + "</tr>"
             )
@@ -281,7 +282,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         )
 
     def _patch_ai_resources_page(
-        self, site_dir: Path, config: dict
+        self, site_dir: Path, config: MkDocsConfig
     ) -> None:
         """Inject the AI resources table (with token estimates) into the built HTML page."""
         use_directory_urls = config.get("use_directory_urls", True)
@@ -299,7 +300,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         site_url = config.get("site_url", "")
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
         outputs_cfg = self._llms_config.get("outputs", {})
-        public_root_stripped = outputs_cfg.get("public_root", "/ai/").rstrip("/")
+        public_root_stripped = "/" + outputs_cfg.get("public_root", "/ai/").strip("/")
         public_root = public_root_stripped.strip("/")
         content_cfg = self._llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info", {})
