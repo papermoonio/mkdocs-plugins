@@ -1,4 +1,5 @@
 import hashlib
+import html
 import ipaddress
 import json
 import os
@@ -119,20 +120,6 @@ class AIDocsPlugin(BasePlugin):
         widget = BeautifulSoup(widget_html, "html.parser")
         wrapper.append(widget)
 
-    @staticmethod
-    def _sanitize_table_content(text: str) -> str:
-        """
-        Escapes characters that would break the Markdown table layout.
-        Mainly pipes `|` and newlines.
-        """
-        if not text:
-            return ""
-        # Replace pipe with escaped pipe or HTML entity
-        text = text.replace("|", "&#124;")
-        # Replace newlines with space to keep it in one cell
-        text = text.replace("\n", " ").replace("\r", "")
-        return text
-
     # ------------------------------------------------------------------
     # Lifecycle hooks
     # ------------------------------------------------------------------
@@ -152,18 +139,6 @@ class AIDocsPlugin(BasePlugin):
         log.info(f"[ai_docs] Generating content for {page.file.src_path}")
 
         self._ensure_config_loaded(config)
-        content_cfg = self._llms_config.get("content", {})
-        categories_info = content_cfg.get("categories_info", {})
-
-        # Get the site URL for fully-qualified prompt URLs
-        site_url = config.get("site_url", "")
-
-        # Extract base path for sites deployed under a subpath (e.g., /docs/)
-        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
-
-        # Determine public root (e.g. "/ai/")
-        outputs_cfg = self._llms_config.get("outputs", {})
-        public_root_stripped = outputs_cfg.get("public_root", "/ai/").rstrip("/")
 
         # Get project name
         project_cfg = self._llms_config.get("project", {})
@@ -173,11 +148,9 @@ class AIDocsPlugin(BasePlugin):
                 "[ai_docs] 'project.name' is missing in llms_config.json"
             )
 
-        # Construct the page content
-        output = []
-
-        # Overview Text
-        overview = f"""# AI Resources
+        # The table is injected with token estimates in on_post_build via
+        # _patch_ai_resources_page, after all pages have been processed.
+        return f"""# AI Resources
 
 {project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
 
@@ -192,68 +165,180 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
 ## Access LLM Files
 
-| Category | Description | File | Actions |
-|:---|:---|:---|:---|"""
-        output.append(overview)
+<div id="ai-resources-table"></div>
 
-        # 1. llms.txt (Root File)
-        # Note: llms.txt usually lives at root, so path is "/llms.txt"
+!!! note
+    The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
+"""
+
+
+    def _build_resources_table_html(
+        self,
+        categories_info: dict,
+        base_path: str,
+        public_root_stripped: str,
+        site_url: str,
+        category_tokens: dict[str, int],
+        aggregate_tokens: dict[str, int],
+    ) -> str:
+        """Render the AI resources HTML table from pre-computed token estimates."""
+
+        def th(text: str, align: str = "left") -> str:
+            return f'<th style="text-align:{align}">{text}</th>'
+
+        def td(content: str, align: str = "left") -> str:
+            return f'<td style="text-align:{align}">{content}</td>'
+
+        header = (
+            "<thead><tr>"
+            + th("Category") + th("Description") + th("File")
+            + th("Token Estimate", "right") + th("Actions")
+            + "</tr></thead>"
+        )
+
+        def fmt_tokens(n: int) -> str:
+            return f"{n:,}" if n else "—"
+
+        body_rows: list[str] = []
+
+        # llms.txt
         actions_llms = self._file_utils.generate_dropdown_html(
             url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
         )
-        row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
-        output.append(row_llms)
+        body_rows.append(
+            "<tr>"
+            + td("Index")
+            + td("Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format.")
+            + td('<code style="white-space: nowrap;">llms.txt</code>')
+            + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)), "right")
+            + td(actions_llms)
+            + "</tr>"
+        )
 
-        # 2. site-index.json
+        # site-index.json
         actions_site_index = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/site-index.json",
             filename="site-index.json",
             site_url=site_url,
         )
-        row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
-        output.append(row_site_index)
+        body_rows.append(
+            "<tr>"
+            + td("Site index (JSON)")
+            + td("Lightweight site index of JSON objects (one per page) with metadata and content previews.")
+            + td('<code style="white-space: nowrap;">site-index.json</code>')
+            + td(fmt_tokens(aggregate_tokens.get("site_index", 0)), "right")
+            + td(actions_site_index)
+            + "</tr>"
+        )
 
-        # 3. llms-full.jsonl
-        # Typically no "View" for large JSONL
+        # llms-full.jsonl
         actions_full = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
             site_url=site_url,
         )
-        row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
-        output.append(row_full)
+        body_rows.append(
+            "<tr>"
+            + td("Full site contents (JSONL)")
+            + td("Full content of documentation site enhanced with metadata.")
+            + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
+            + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)), "right")
+            + td(actions_full)
+            + "</tr>"
+        )
 
-        # 4. Categories (key order in categories_info controls display order)
+        # Category bundle rows
         for cat_id, cat_info in categories_info.items():
             slug = self.slugify_category(cat_id)
-
-            display_name = cat_info.get("name", cat_id)
-            description = cat_info.get("description", f"Resources for {display_name}.")
-
-            # Sanitize for markdown table
-            display_name = self._sanitize_table_content(display_name)
-            description = self._sanitize_table_content(description)
-
+            display_name = html.escape(cat_info.get("name", cat_id))
+            description = html.escape(
+                cat_info.get("description", f"Resources for {display_name}.")
+            )
             filename = f"{slug}.md"
             url = f"{base_path}{public_root_stripped}/categories/{filename}"
-
+            token_count = category_tokens.get(cat_id, 0)
             actions = self._file_utils.generate_dropdown_html(
                 url=url, filename=filename, site_url=site_url
             )
+            body_rows.append(
+                "<tr>"
+                + td(display_name)
+                + td(description)
+                + td(f'<code style="white-space: nowrap;">{filename}</code>')
+                + td(f"{token_count:,}", "right")
+                + td(actions)
+                + "</tr>"
+            )
 
-            row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
-            output.append(row)
+        return (
+            "<table>\n"
+            + header + "\n"
+            + "<tbody>\n"
+            + "\n".join(body_rows) + "\n"
+            + "</tbody>\n"
+            + "</table>"
+        )
 
-        # Add Note
-        note = """
-!!! note
-    The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
-"""
-        output.append(note)
+    def _patch_ai_resources_page(
+        self, site_dir: Path, config: dict
+    ) -> None:
+        """Inject the AI resources table (with token estimates) into the built HTML page."""
+        use_directory_urls = config.get("use_directory_urls", True)
+        if use_directory_urls:
+            html_path = site_dir / "ai-resources" / "index.html"
+        else:
+            html_path = site_dir / "ai-resources.html"
 
-        return "\n".join(output)
+        if not html_path.exists():
+            log.warning(
+                f"[ai_docs] ai-resources HTML not found at {html_path}, skipping table injection"
+            )
+            return
 
+        site_url = config.get("site_url", "")
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        outputs_cfg = self._llms_config.get("outputs", {})
+        public_root_stripped = outputs_cfg.get("public_root", "/ai/").rstrip("/")
+        public_root = public_root_stripped.strip("/")
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info", {})
+
+        # Estimate tokens for the three aggregate artifact files from their built content
+        def _file_tokens(path: Path) -> int:
+            return self.estimate_tokens(path.read_text(encoding="utf-8")) if path.exists() else 0
+
+        # Read token estimates for category bundles from their built front matter
+        categories_dir = site_dir / public_root / "categories"
+        category_tokens: dict[str, int] = {}
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            bundle_path = categories_dir / f"{slug}.md"
+            if bundle_path.exists():
+                fm, _ = self.split_front_matter(bundle_path.read_text(encoding="utf-8"))
+                category_tokens[cat_id] = fm.get("token_estimate", 0)
+
+        # Read token estimates for the three aggregate artifact files from their content
+        aggregate_tokens = {
+            "llms_txt": _file_tokens(site_dir / "llms.txt"),
+            "site_index": _file_tokens(site_dir / public_root / "site-index.json"),
+            "llms_full": _file_tokens(site_dir / public_root / "llms-full.jsonl"),
+        }
+
+        table_html = self._build_resources_table_html(
+            categories_info, base_path, public_root_stripped, site_url,
+            category_tokens, aggregate_tokens,
+        )
+
+        page_html = html_path.read_text(encoding="utf-8")
+        placeholder = '<div id="ai-resources-table"></div>'
+        if placeholder not in page_html:
+            log.warning("[ai_docs] ai-resources-table placeholder not found in built HTML")
+            return
+
+        page_html = page_html.replace(placeholder, table_html, 1)
+        html_path.write_text(page_html, encoding="utf-8")
+        log.info(f"[ai_docs] injected resources table with token estimates into {html_path}")
 
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
@@ -491,6 +576,10 @@ These AI-ready files do not include any persona or system prompts. They are pure
         self.build_site_index(ai_pages, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir, build_timestamp)
+        # Inject resources table with token estimates into the built ai-resources HTML
+        # (must run after all artifact files are written so their sizes can be estimated)
+        if self.config.get("ai_resources_page", True):
+            self._patch_ai_resources_page(site_dir, config)
 
     # ------------------------------------------------------------------
     # Helper static functions
