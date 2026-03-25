@@ -319,7 +319,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         ])
 
     def _patch_ai_resources_page(
-        self, site_dir: Path, config: dict
+        self, site_dir: Path, config: MkDocsConfig
     ) -> None:
         """Inject the AI resources table (with token estimates) into the built HTML page."""
         use_directory_urls = config.get("use_directory_urls", True)
@@ -337,7 +337,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         site_url = config.get("site_url", "")
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
         outputs_cfg = self._llms_config.get("outputs", {})
-        public_root_stripped = outputs_cfg.get("public_root", "/ai/").rstrip("/")
+        public_root_stripped = "/" + outputs_cfg.get("public_root", "/ai/").strip("/")
         public_root = public_root_stripped.strip("/")
         content_cfg = self._llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info", {})
@@ -358,7 +358,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             ]:
                 if path.exists():
                     fm, _ = self.split_front_matter(path.read_text(encoding="utf-8"))
-                    target[cat_id] = fm.get("token_estimate", 0)
+                    target[cat_id] = int(fm.get("token_estimate", 0) or 0)
 
         # Read token estimates for the three aggregate artifact files from their content
         aggregate_tokens = {
@@ -663,7 +663,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         rel_paths = []
         abs_by_rel: dict[str, str] = {}
         for fp in file_paths:
-            rel = os.path.relpath(fp, abs_repo)
+            rel = os.path.relpath(fp, abs_repo).replace(os.sep, "/")
             rel_paths.append(rel)
             abs_by_rel[rel] = fp
 
