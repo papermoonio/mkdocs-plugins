@@ -258,13 +258,21 @@ class AIFileUtils:
         """Return an inline HTML button for a deeplink install action."""
         return (
             f'<a href="{href}" class="ai-file-actions-btn"'
-            f' style="border-radius:25px;color:#fff;text-decoration:none">{label}</a>'
+            f' style="border-radius:15px;color:#fff;text-decoration:none">{label}</a>'
         )
 
     @staticmethod
     def mcp_copy_code(command: str) -> str:
         """Return an inline ``<code>`` element."""
-        return f'<code style="">{command}</code>'
+        return f"<code>{command}</code>"
+
+    @staticmethod
+    def mcp_external_link(href: str, label: str = "Setup guide") -> str:
+        """Return an external ``<a>`` that opens in a new tab."""
+        return (
+            f'<a href="{href}"'
+            f' target="_blank" rel="noopener noreferrer">{label}</a>'
+        )
 
     # ------------------------------------------------------------------
     # HTML generation

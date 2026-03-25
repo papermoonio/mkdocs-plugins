@@ -47,40 +47,36 @@ class AiResourcesPagePlugin(BasePlugin):
         text = text.replace("\n", " ").replace("\r", "")
         return text
 
-    def _generate_mcp_section(self) -> str:
-        """Return the MCP install Markdown section, or ``""`` if unconfigured."""
-        project_cfg = self.llms_config.get("project", {})
-        mcp_name = project_cfg.get("mcp_name")
-        mcp_url = project_cfg.get("mcp_url")
-        if not mcp_url or not mcp_name:
-            return ""
-
+    def _generate_mcp_section(self, project_name: str, mcp_name: str, mcp_url: str) -> str:
+        """Return the full MCP Markdown section (heading, intro, table)."""
         utils = self._file_utils
-        cursor_link = utils.build_cursor_deeplink(mcp_name, mcp_url)
-        vscode_link = utils.build_vscode_deeplink(mcp_name, mcp_url)
 
-        cursor_btn = utils.mcp_install_button(cursor_link)
-        vscode_btn = utils.mcp_install_button(vscode_link)
-        claude_cmd = utils.mcp_copy_code(
-            f"claude mcp add --transport http {mcp_name} {mcp_url}"
-        )
-        codex_cmd = utils.mcp_copy_code(
-            f"codex mcp add {mcp_name} --url {mcp_url}"
-        )
-        claude_desktop_link = (
-            '<a href="https://modelcontextprotocol.io/docs/develop/connect-remote-servers"'
-            ' target="_blank" rel="noopener noreferrer">Setup guide</a>'
+        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url))
+        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url))
+        claude_cmd = utils.mcp_copy_code(f"claude mcp add --transport http {mcp_name} {mcp_url}")
+        codex_cmd = utils.mcp_copy_code(f"codex mcp add {mcp_name} --url {mcp_url}")
+        desktop_link = utils.mcp_external_link(
+            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers"
         )
 
-        rows = [
-            f"| Cursor | One-click install | {cursor_btn} |",
-            f"| VS Code | One-click install | {vscode_btn} |",
-            f"| Claude Code CLI | Terminal command | {claude_cmd} |",
-            f"| Codex CLI | Terminal command | {codex_cmd} |",
-            f"| Claude Desktop | Manual setup | {claude_desktop_link} |",
-        ]
+        return f"""## Connect via MCP
 
-        return "\n".join(rows) + "\n"
+Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to connect your AI tools directly to {project_name} documentation.
+```
+{mcp_url}
+```
+
+| Client | Method | Action |
+|:---|:---|:---|
+| Cursor | One-click install | {cursor_btn} |
+| VS Code | One-click install | {vscode_btn} |
+| Claude Code CLI | Terminal command | {claude_cmd} |
+| Codex CLI | Terminal command | {codex_cmd} |
+| Claude Desktop | Manual setup | {desktop_link} |
+
+!!! note
+    Add `--scope user` to the terminal commands above to make the MCP server available across all projects.
+"""
 
     def on_page_markdown(self, markdown, page, config, files):
         # Target only the AI Resources page
@@ -198,14 +194,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
         output.append(note)
 
         # MCP install section (only when both mcp_url and mcp_name are configured)
-        if project_cfg.get("mcp_url") and project_cfg.get("mcp_name"):
-            mcp_overview = f"""## Connect via MCP
-
-Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to connect your AI tools directly to {project_name} documentation.
-
-| Client | Method | Action |
-|:---|:---|:---|"""
-            output.append(mcp_overview)
-            output.append(self._generate_mcp_section())
+        mcp_name = project_cfg.get("mcp_name")
+        mcp_url = project_cfg.get("mcp_url")
+        if mcp_url and mcp_name:
+            output.append(self._generate_mcp_section(project_name, mcp_name, mcp_url))
 
         return "\n".join(output)
