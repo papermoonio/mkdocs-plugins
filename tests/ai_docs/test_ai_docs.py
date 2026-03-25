@@ -777,3 +777,112 @@ class TestPatchAiResourcesPage:
 
         result = html_path.read_text(encoding="utf-8")
         assert "<table>" in result
+
+
+# ===========================================================================
+# build_category_light
+# ===========================================================================
+
+class TestBuildCategoryLight:
+    """Tests for build_category_light — per-category lightweight index files."""
+
+    def _make_plugin_with_config(self, tmp_path):
+        plugin = _make_plugin()
+        llms_config = {
+            "project": {"name": "TestProject"},
+            "content": {
+                "categories_info": {
+                    "basics": {"name": "Basics", "description": "Basic docs."},
+                },
+                "exclusions": {"skip_basenames": [], "skip_paths": []},
+            },
+            "outputs": {"public_root": "/ai/"},
+        }
+        config_file = tmp_path / "llms_config.json"
+        config_file.write_text(json.dumps(llms_config), encoding="utf-8")
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        plugin._ensure_config_loaded({"config_file_path": str(mkdocs_yml), "site_url": ""})
+        return plugin
+
+    def _make_pages(self):
+        return [
+            {
+                "slug": "intro",
+                "title": "Introduction",
+                "categories": ["basics"],
+                "url": "https://example.com/intro/",
+                "raw_md_url": "https://example.com/intro.md",
+                "preview": "A short intro.",
+                "outline": [
+                    {"title": "Overview", "anchor": "overview", "depth": 2},
+                    {"title": "Details", "anchor": "details", "depth": 2},
+                ],
+                "word_count": 50,
+                "token_estimate": 80,
+                "version_hash": "sha256:abc",
+                "last_updated": "2025-01-01T00:00:00+00:00",
+                "body": "## Overview\n\nSome text.\n\n## Details\n\nMore text.",
+            },
+        ]
+
+    def test_file_is_generated_for_category(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        plugin.build_category_light(self._make_pages(), ai_root)
+        assert (ai_root / "categories" / "basics-light.md").exists()
+
+    def test_front_matter_fields(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        plugin.build_category_light(self._make_pages(), ai_root, build_timestamp="2025-06-01T00:00:00+00:00")
+        content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
+        fm = yaml.safe_load(content.split("---")[1])
+        assert fm["category"] == "Basics"
+        assert fm["description"] == "Basic docs."
+        assert fm["page_count"] == 1
+        assert isinstance(fm["token_estimate"], int)
+        assert fm["token_estimate"] > 0
+        assert fm["updated"] == "2025-06-01T00:00:00+00:00"
+
+    def test_front_matter_omits_updated_when_no_timestamp(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        plugin.build_category_light(self._make_pages(), ai_root)
+        content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
+        fm = yaml.safe_load(content.split("---")[1])
+        assert "updated" not in fm
+
+    def test_section_headings_and_anchors_emitted(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        plugin.build_category_light(self._make_pages(), ai_root)
+        content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
+        assert "Overview" in content
+        assert "`#overview`" in content
+        assert "Details" in content
+        assert "`#details`" in content
+
+    def test_page_title_and_url_emitted(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        plugin.build_category_light(self._make_pages(), ai_root)
+        content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
+        assert "## Introduction" in content
+        assert "https://example.com/intro.md" in content
+
+    def test_no_file_for_empty_pages(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        plugin.build_category_light([], ai_root)
+        assert not (ai_root / "categories" / "basics-light.md").exists()
+
+    def test_page_count_zero_for_unmatched_category(self, tmp_path):
+        plugin = self._make_plugin_with_config(tmp_path)
+        ai_root = tmp_path / "ai"
+        pages = [{"slug": "x", "title": "X", "categories": ["other"], "body": "hello",
+                  "raw_md_url": "", "preview": "", "outline": [], "token_estimate": 5}]
+        plugin.build_category_light(pages, ai_root)
+        content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
+        fm = yaml.safe_load(content.split("---")[1])
+        assert fm["page_count"] == 0
