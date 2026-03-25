@@ -59,7 +59,6 @@ class AIDocsPlugin(BasePlugin):
         # Resolve MD vars
         self.allow_remote_snippets = True
         self.allowed_domains = []
-        self.docs_base_url = "/"
         self._remote_snippet_cache: dict[str, str | None] = {}
 
         # AI page actions vars
@@ -429,7 +428,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         # --- Toggle pages ---
         # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
-        # so the derived .md path always matches what resolve_md writes.
+        # so the derived .md path always matches the co-located artifact path.
         route = page.url.strip("/")
         if route.endswith(".html"):
             route = route[: -len(".html")]
@@ -497,7 +496,6 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # Determine docs_base_url for canonical URLs
         project_cfg = self._llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
-        self.docs_base_url = docs_base_url
 
         # Determine AI artifacts root (categories, index, llms files)
         outputs_cfg = self._llms_config.get("outputs", {})
