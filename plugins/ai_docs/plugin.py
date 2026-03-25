@@ -518,7 +518,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         rel_paths = []
         abs_by_rel: dict[str, str] = {}
         for fp in file_paths:
-            rel = os.path.relpath(fp, abs_repo)
+            rel = os.path.relpath(fp, abs_repo).replace(os.sep, "/")
             rel_paths.append(rel)
             abs_by_rel[rel] = fp
 
