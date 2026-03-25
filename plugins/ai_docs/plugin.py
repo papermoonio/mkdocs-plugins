@@ -1718,7 +1718,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 lines: list[str] = []
                 title = page.get("title") or page.get("id", "")
                 lines.append(f"## {title}")
-                md_url = page.get("resolved_md_url", "")
+                md_url = page.get("raw_md_url", "")
                 if md_url:
                     lines.append(md_url)
                 preview = page.get("preview", "")
