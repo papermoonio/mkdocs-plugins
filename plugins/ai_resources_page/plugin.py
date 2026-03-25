@@ -75,7 +75,7 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
 | Claude Desktop | Manual setup | {desktop_link} |
 
 !!! note
-    Add `--scope user` to the terminal commands above to make the MCP server available across all projects.
+    For Claude Code, add `--scope user` to make the MCP server available across all projects.
 """
 
     def on_page_markdown(self, markdown, page, config, files):
