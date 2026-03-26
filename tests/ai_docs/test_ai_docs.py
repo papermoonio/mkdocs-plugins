@@ -546,3 +546,51 @@ class TestAiResourcesPageSubpath:
         page = _make_page(src_path="ai-resources.md")
         with pytest.raises(KeyError):
             plugin.on_page_markdown("", page=page, config=config, files=[])
+
+
+class TestMCPSection:
+    """Tests for MCP install section on the AI Resources page."""
+
+    def test_mcp_section_present_when_configured(self, tmp_path):
+        """MCP section should appear when mcp_name and mcp_url are set in project config."""
+        llms_config = {
+            "project": {
+                "name": "TestProject",
+                "mcp_name": "test-mcp",
+                "mcp_url": "https://mcp.example.com/sse",
+            },
+            "content": {
+                "categories_info": {
+                    "basics": {"name": "Basics", "description": "Basic docs."}
+                },
+                "exclusions": {"skip_basenames": [], "skip_paths": []},
+            },
+            "outputs": {"public_root": "/ai/"},
+        }
+        plugin = _make_plugin()
+        config = _make_mkdocs_config(tmp_path, llms_config=llms_config)
+        page = _make_page(src_path="ai-resources.md")
+
+        result = plugin.on_page_markdown("", page=page, config=config, files=[])
+
+        assert "## Connect via MCP" in result
+        assert "https://mcp.example.com/sse" in result
+        # All 5 client rows should be present
+        assert "Cursor" in result
+        assert "VS Code" in result
+        assert "Claude Code CLI" in result
+        assert "Codex CLI" in result
+        assert "Claude Desktop" in result
+        # Deeplinks should be generated
+        assert "cursor://anysphere.cursor-deeplink" in result
+        assert "vscode:mcp/install?" in result
+
+    def test_mcp_section_absent_when_not_configured(self, tmp_path):
+        """MCP section should not appear when mcp_name/mcp_url are missing."""
+        plugin = _make_plugin()
+        config = _make_mkdocs_config(tmp_path)
+        page = _make_page(src_path="ai-resources.md")
+
+        result = plugin.on_page_markdown("", page=page, config=config, files=[])
+
+        assert "## Connect via MCP" not in result

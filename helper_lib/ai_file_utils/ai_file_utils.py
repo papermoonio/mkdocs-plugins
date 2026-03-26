@@ -206,7 +206,7 @@ class AIFileUtils:
         b64_config = base64.urlsafe_b64encode(config_json.encode()).decode()
         return (
             "cursor://anysphere.cursor-deeplink/mcp/install"
-            f"?name={server_name}&config={b64_config}"
+            f"?name={urllib.parse.quote(server_name, safe='')}&config={b64_config}"
         )
 
     @staticmethod
@@ -220,22 +220,26 @@ class AIFileUtils:
     @staticmethod
     def mcp_install_button(href: str, label: str = "Install") -> str:
         """Return an inline HTML button for a deeplink install action."""
+        safe_href = html.escape(href, quote=True)
+        safe_label = html.escape(label, quote=True)
         return (
-            f'<a href="{href}" class="ai-file-actions-btn"'
-            f' style="border-radius:8px;color:#fff;text-decoration:none">{label}</a>'
+            f'<a href="{safe_href}" class="ai-file-actions-btn"'
+            f' style="border-radius:8px;color:#fff;text-decoration:none">{safe_label}</a>'
         )
 
     @staticmethod
     def mcp_copy_code(command: str) -> str:
         """Return an inline ``<code>`` element."""
-        return f"<code>{command}</code>"
+        return f"<code>{html.escape(command)}</code>"
 
     @staticmethod
     def mcp_external_link(href: str, label: str = "Setup guide") -> str:
         """Return an external ``<a>`` that opens in a new tab."""
+        safe_href = html.escape(href, quote=True)
+        safe_label = html.escape(label, quote=True)
         return (
-            f'<a href="{href}"'
-            f' target="_blank" rel="noopener noreferrer">{label}</a>'
+            f'<a href="{safe_href}"'
+            f' target="_blank" rel="noopener noreferrer">{safe_label}</a>'
         )
 
     # ------------------------------------------------------------------

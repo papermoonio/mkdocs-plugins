@@ -193,7 +193,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 """
         output.append(note)
 
-         # MCP install section (only when both mcp_url and mcp_name are configured)
+        # MCP install section (only when both mcp_url and mcp_name are configured)
         mcp_name = project_cfg.get("mcp_name")
         mcp_url = project_cfg.get("mcp_url")
         if mcp_url and mcp_name:
