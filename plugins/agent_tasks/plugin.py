@@ -80,13 +80,6 @@ class AgentTasksPlugin(BasePlugin):
         lines.append(f"title: \"{task['title']}\"")
         lines.append(f"objective: \"{task['objective']}\"")
 
-        prereqs = task.get("prerequisites", {})
-        all_prereqs = []
-        for group in prereqs.values():
-            all_prereqs.extend(group)
-        if all_prereqs:
-            lines.append(f"prerequisites: {json.dumps(all_prereqs)}")
-
         lines.append(f"estimated_steps: {len(task.get('steps', []))}")
 
         ref_code = task.get("reference_code", {})
@@ -95,7 +88,9 @@ class AgentTasksPlugin(BasePlugin):
         if repo_info:
             lines.append(f"reference_repo: {repo_info.get('url', '')}")
 
-        lines.append(f"generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
+        lines.append(
+            f"generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        )
         lines.append("---")
         lines.append("")
 
@@ -106,6 +101,7 @@ class AgentTasksPlugin(BasePlugin):
         lines.append("")
 
         # --- Prerequisites ---
+        prereqs = task.get("prerequisites", {})
         if prereqs:
             lines.append("## Prerequisites")
             lines.append("")
@@ -156,14 +152,14 @@ class AgentTasksPlugin(BasePlugin):
 
                 ref_file = step.get("reference_file")
                 if ref_file:
-                    raw_url = self._build_raw_url(
-                        reference_repos, ref_code, ref_file
-                    )
+                    raw_url = self._build_raw_url(reference_repos, ref_code, ref_file)
                     lines.append(f"**Reference file:** [`{ref_file}`]({raw_url})")
                     lines.append("")
                     lines.append("Fetch this file for use in your project.")
                     lines.append("")
-                    lines.append("See the Reference Code Index below for a description of what this file does.")
+                    lines.append(
+                        "See the Reference Code Index below for a description of what this file does."
+                    )
                     lines.append("")
 
                 expected = step.get("expected_output")

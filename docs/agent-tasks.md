@@ -62,7 +62,7 @@ The configuration file supports the following top-level objects:
 
 For each task defined in the configuration, the plugin generates:
 
-- **`{task_id}.md`** — A Markdown file containing YAML front matter (task ID, title, objective, prerequisites, step count, reference repo, and generation timestamp) followed by structured sections for prerequisites, environment variables, execution steps, reference code index, error recovery, and supplementary context.
+- **`{task_id}.md`** — A Markdown file containing YAML front matter (task ID, title, objective, step count, reference repo, and generation timestamp) followed by structured sections for prerequisites, environment variables, execution steps, reference code index, error recovery, and supplementary context.
 - **`index.json`** — A JSON index listing all tasks with their ID, title, objective, filename, and step count, along with project metadata and a generation timestamp.
 
 ## Notes
