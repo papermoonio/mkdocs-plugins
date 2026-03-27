@@ -56,7 +56,7 @@ class AiResourcesPagePlugin(BasePlugin):
         claude_cmd = utils.mcp_copy_code(f"claude mcp add --transport http {mcp_name} {mcp_url}")
         codex_cmd = utils.mcp_copy_code(f"codex mcp add {mcp_name} --url {mcp_url}")
         desktop_link = utils.mcp_external_link(
-            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers"
+            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server"
         )
 
         return f"""## Connect via MCP
