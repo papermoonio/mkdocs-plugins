@@ -21,6 +21,14 @@ plugins:
 - `llms_config` now defaults to `"llms_config.json"` rather than being required.
 - The old `resolve_md`, `ai_page_actions`, and `ai_resources_page` plugins remain available in this release for backward compatibility. They are deprecated and will be removed in a future major release.
 
+#### `ai_docs` — Lightweight category index files
+
+Each category now generates a `{slug}-light.md` file alongside the full `{slug}.md` bundle. The light file contains titles, resolved markdown URLs, content previews, and section headings for every page in the category — without full page content. This gives a compact, navigable index suited for smaller context windows. Light files are listed in the AI resources table alongside their full bundle counterparts.
+
+#### `ai_docs` — Token estimates in AI resources table
+
+The AI resources table now includes a **Token Estimate** column. Category bundle counts are read from each bundle's front matter (the authoritative value written at build time). Counts for `llms.txt`, `site-index.json`, and `llms-full.jsonl` are estimated from their built content using the same heuristic estimator applied elsewhere.
+
 ### Breaking Changes
 
 #### `resolve_md` — Resolved markdown files moved to page-level paths
