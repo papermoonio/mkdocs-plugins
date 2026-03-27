@@ -118,21 +118,6 @@ class AIDocsPlugin(BasePlugin):
         widget = BeautifulSoup(widget_html, "html.parser")
         wrapper.append(widget)
 
-    @staticmethod
-    def _sanitize_table_content(text: str) -> str:
-        """
-        Escapes characters that would break the Markdown table layout.
-        Mainly pipes `|` and newlines.
-        """
-        if not text:
-            return ""
-        # Replace pipe with escaped pipe or HTML entity
-        text = text.replace("|", "&#124;")
-        # Replace newlines with space to keep it in one cell
-        text = text.replace("\n", " ").replace("\r", "")
-        return text
-
-
     def _generate_mcp_section(self, project_name: str, mcp_name: str, mcp_url: str) -> str:
         """Return the full MCP Markdown section (heading, intro, table)."""
         utils = self._file_utils
