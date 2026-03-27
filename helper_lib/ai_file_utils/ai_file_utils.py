@@ -223,14 +223,13 @@ class AIFileUtils:
         safe_href = html.escape(href, quote=True)
         safe_label = html.escape(label, quote=True)
         return (
-            f'<a href="{safe_href}" class="ai-file-actions-btn"'
-            f' style="border-radius:8px;color:#fff;text-decoration:none">{safe_label}</a>'
+            f'<a href="{safe_href}" class="ai-file-actions-btn single-action-btn">{safe_label}</a>'
         )
 
     @staticmethod
     def mcp_copy_code(command: str) -> str:
         """Return an inline ``<code>`` element."""
-        return f"<code>{html.escape(command)}</code>"
+        return f'<pre><code style="white-space: pre-wrap; word-break: break-all;">{html.escape(command)}</code></pre>'
 
     @staticmethod
     def mcp_external_link(href: str, label: str = "Setup guide") -> str:
