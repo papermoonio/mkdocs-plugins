@@ -59,7 +59,6 @@ class AIDocsPlugin(BasePlugin):
         # Resolve MD vars
         self.allow_remote_snippets = True
         self.allowed_domains = []
-        self.docs_base_url = "/"
         self._remote_snippet_cache: dict[str, str | None] = {}
 
         # AI page actions vars
@@ -133,9 +132,6 @@ class AIDocsPlugin(BasePlugin):
         text = text.replace("\n", " ").replace("\r", "")
         return text
 
-    # ------------------------------------------------------------------
-    # Lifecycle hooks
-    # ------------------------------------------------------------------
 
     def _generate_mcp_section(self, project_name: str, mcp_name: str, mcp_url: str) -> str:
         """Return the full MCP Markdown section (heading, intro, table)."""
@@ -168,6 +164,9 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
     For Claude Code, add `--scope user` to make the MCP server available across all projects.
 """
 
+    # ------------------------------------------------------------------
+    # Lifecycle hooks
+    # ------------------------------------------------------------------
     def on_page_markdown(self, markdown, page, config, files):
         """
         Add an AI Resources page at /ai-resources.md with links to the LLM files and category bundles.
@@ -184,18 +183,19 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
         log.info(f"[ai_docs] Generating content for {page.file.src_path}")
 
         self._ensure_config_loaded(config)
-        content_cfg = self._llms_config.get("content", {})
-        categories_info = content_cfg.get("categories_info", {})
+        # TODO: Do we need this anymore??
+        # content_cfg = self._llms_config.get("content", {})
+        # categories_info = content_cfg.get("categories_info", {})
 
-        # Get the site URL for fully-qualified prompt URLs
-        site_url = config.get("site_url", "")
+        # # Get the site URL for fully-qualified prompt URLs
+        # site_url = config.get("site_url", "")
 
-        # Extract base path for sites deployed under a subpath (e.g., /docs/)
-        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        # # Extract base path for sites deployed under a subpath (e.g., /docs/)
+        # base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
 
-        # Determine public root (e.g. "/ai/")
-        outputs_cfg = self._llms_config.get("outputs", {})
-        public_root_stripped = outputs_cfg.get("public_root", "/ai/").rstrip("/")
+        # # Determine public root (e.g. "/ai/")
+        # outputs_cfg = self._llms_config.get("outputs", {})
+        # public_root_stripped = outputs_cfg.get("public_root", "/ai/").rstrip("/")
 
         # Get project name
         project_cfg = self._llms_config.get("project", {})
@@ -205,11 +205,33 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
                 "[ai_docs] 'project.name' is missing in llms_config.json"
             )
 
-        # Construct the page content
-        output = []
+        # Category headings are emitted here so MkDocs includes them in the TOC.
+        # The tables are injected with token estimates in on_post_build via
+        # _patch_ai_resources_page, after all artifact files have been written.
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info", {}) or {}
 
-        # Overview Text
-        overview = f"""# AI Resources
+        category_sections = ""
+        if categories_info:
+            category_sections = "\n\n## Categories\n"
+            for cat_id, cat_info in categories_info.items():
+                slug = self.slugify_category(cat_id)
+                display_name = cat_info.get("name", cat_id)
+                description = cat_info.get("description", f"Resources for {display_name}.")
+                category_sections += (
+                    f"\n### {display_name}\n\n"
+                    f"{description}\n\n"
+                    f'<div id="ai-category-{slug}-table"></div>\n'
+                )
+
+        # MCP install section (only when both mcp_url and mcp_name are configured)
+        mcp_name = project_cfg.get("mcp_name")
+        mcp_url = project_cfg.get("mcp_url")
+        mcp_section = ""
+        if mcp_url and mcp_name:
+            mcp_section = self._generate_mcp_section(project_name, mcp_name, mcp_url)
+
+        return f"""# AI Resources
 
 {project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
 
@@ -224,74 +246,222 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
 ## Access LLM Files
 
-| Category | Description | File | Actions |
-|:---|:---|:---|:---|"""
-        output.append(overview)
+<div id="ai-resources-aggregate-table"></div>
 
-        # 1. llms.txt (Root File)
-        # Note: llms.txt usually lives at root, so path is "/llms.txt"
+!!! note
+    The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
+{category_sections}
+{mcp_section}
+"""
+
+
+    def _build_aggregate_table_html(
+        self,
+        base_path: str,
+        public_root_stripped: str,
+        site_url: str,
+        aggregate_tokens: dict[str, int],
+    ) -> str:
+        """Render the aggregate AI resources table (llms.txt, site-index.json, llms-full.jsonl)."""
+
+        def th(text: str) -> str:
+            return f"<th>{text}</th>"
+
+        def td(content: str) -> str:
+            return f"<td>{content}</td>"
+
+        def fmt_tokens(n: int) -> str:
+            return f"{n:,}" if n else "—"
+
+        def make_table(rows: list[str]) -> str:
+            header = (
+                "<thead><tr>"
+                + th("File") + th("Description")
+                + th("Token Estimate") + th("Actions")
+                + "</tr></thead>"
+            )
+            return (
+                "<table>\n"
+                + header + "\n"
+                + "<tbody>\n"
+                + "\n".join(rows) + "\n"
+                + "</tbody>\n"
+                + "</table>"
+            )
+
         actions_llms = self._file_utils.generate_dropdown_html(
             url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
         )
-        row_llms = f'| Index | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | <code style="white-space: nowrap;">llms.txt</code> | {actions_llms} |'
-        output.append(row_llms)
-
-        # 2. site-index.json
         actions_site_index = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/site-index.json",
             filename="site-index.json",
             site_url=site_url,
         )
-        row_site_index = f'| Site index (JSON) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | <code style="white-space: nowrap;">site-index.json</code> | {actions_site_index} |'
-        output.append(row_site_index)
-
-        # 3. llms-full.jsonl
-        # Typically no "View" for large JSONL
         actions_full = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
             site_url=site_url,
         )
-        row_full = f'| Full site contents (JSONL) | Full content of documentation site enhanced with metadata. | <code style="white-space: nowrap;">llms-full.jsonl</code> | {actions_full} |'
-        output.append(row_full)
+        return make_table([
+            "<tr>"
+            + td('<code style="white-space: nowrap;">llms.txt</code>')
+            + td("Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format.")
+            + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)))
+            + td(actions_llms)
+            + "</tr>",
+            "<tr>"
+            + td('<code style="white-space: nowrap;">site-index.json</code>')
+            + td("Lightweight site index of JSON objects (one per page) with metadata and content previews.")
+            + td(fmt_tokens(aggregate_tokens.get("site_index", 0)))
+            + td(actions_site_index)
+            + "</tr>",
+            "<tr>"
+            + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
+            + td("Full content of documentation site enhanced with metadata.")
+            + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)))
+            + td(actions_full)
+            + "</tr>",
+        ])
 
-        # 4. Categories (key order in categories_info controls display order)
-        for cat_id, cat_info in categories_info.items():
-            slug = self.slugify_category(cat_id)
+    def _build_category_table_html(
+        self,
+        cat_id: str,
+        base_path: str,
+        public_root_stripped: str,
+        site_url: str,
+        category_tokens: dict[str, int],
+        category_light_tokens: dict[str, int],
+    ) -> str:
+        """Render the table for a single category (full bundle + light file rows)."""
 
-            display_name = cat_info.get("name", cat_id)
-            description = cat_info.get("description", f"Resources for {display_name}.")
+        def th(text: str) -> str:
+            return f"<th>{text}</th>"
 
-            # Sanitize for markdown table
-            display_name = self._sanitize_table_content(display_name)
-            description = self._sanitize_table_content(description)
+        def td(content: str) -> str:
+            return f"<td>{content}</td>"
 
-            filename = f"{slug}.md"
-            url = f"{base_path}{public_root_stripped}/categories/{filename}"
+        def fmt_tokens(n: int) -> str:
+            return f"{n:,}" if n else "—"
 
-            actions = self._file_utils.generate_dropdown_html(
-                url=url, filename=filename, site_url=site_url
+        def make_table(rows: list[str]) -> str:
+            header = (
+                "<thead><tr>"
+                + th("File") + th("Description")
+                + th("Token Estimate") + th("Actions")
+                + "</tr></thead>"
+            )
+            return (
+                "<table>\n"
+                + header + "\n"
+                + "<tbody>\n"
+                + "\n".join(rows) + "\n"
+                + "</tbody>\n"
+                + "</table>"
             )
 
-            row = f'| {display_name} | {description} | <code style="white-space: nowrap;">{filename}</code> | {actions} |'
-            output.append(row)
+        slug = self.slugify_category(cat_id)
+        filename = f"{slug}.md"
+        light_filename = f"{slug}-light.md"
+        url = f"{base_path}{public_root_stripped}/categories/{filename}"
+        light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
+        actions = self._file_utils.generate_dropdown_html(
+            url=url, filename=filename, site_url=site_url
+        )
+        light_actions = self._file_utils.generate_dropdown_html(
+            url=light_url, filename=light_filename, site_url=site_url
+        )
+        return make_table([
+            "<tr>"
+            + td(f'<code style="white-space: nowrap;">{filename}</code>')
+            + td("Full bundle — complete page content for all tagged pages.")
+            + td(fmt_tokens(category_tokens.get(cat_id, 0)))
+            + td(actions)
+            + "</tr>",
+            "<tr>"
+            + td(f'<code style="white-space: nowrap;">{light_filename}</code>')
+            + td("Lightweight index — titles, URLs, previews, and section headings.")
+            + td(fmt_tokens(category_light_tokens.get(cat_id, 0)))
+            + td(light_actions)
+            + "</tr>",
+        ])
 
-        # Add Note
-        note = """
-!!! note
-    The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
-"""
-        output.append(note)
+    def _patch_ai_resources_page(
+        self, site_dir: Path, config: MkDocsConfig
+    ) -> None:
+        """Inject the AI resources table (with token estimates) into the built HTML page."""
+        use_directory_urls = config.get("use_directory_urls", True)
+        if use_directory_urls:
+            html_path = site_dir / "ai-resources" / "index.html"
+        else:
+            html_path = site_dir / "ai-resources.html"
 
-        # MCP install section (only when both mcp_url and mcp_name are configured)
-        mcp_name = project_cfg.get("mcp_name")
-        mcp_url = project_cfg.get("mcp_url")
-        if mcp_url and mcp_name:
-            output.append(self._generate_mcp_section(project_name, mcp_name, mcp_url))
+        if not html_path.exists():
+            log.warning(
+                f"[ai_docs] ai-resources HTML not found at {html_path}, skipping table injection"
+            )
+            return
 
-        return "\n".join(output)
+        site_url = config.get("site_url", "")
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        outputs_cfg = self._llms_config.get("outputs", {})
+        public_root_stripped = "/" + outputs_cfg.get("public_root", "/ai/").strip("/")
+        public_root = public_root_stripped.strip("/")
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info", {})
 
+        # Estimate tokens for the three aggregate artifact files from their built content
+        def _file_tokens(path: Path) -> int:
+            return self.estimate_tokens(path.read_text(encoding="utf-8")) if path.exists() else 0
+
+        # Read token estimates for category bundles and light files from their front matter
+        categories_dir = site_dir / public_root / "categories"
+        category_tokens: dict[str, int] = {}
+        category_light_tokens: dict[str, int] = {}
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            for path, target in [
+                (categories_dir / f"{slug}.md", category_tokens),
+                (categories_dir / f"{slug}-light.md", category_light_tokens),
+            ]:
+                if path.exists():
+                    fm, _ = self.split_front_matter(path.read_text(encoding="utf-8"))
+                    target[cat_id] = int(fm.get("token_estimate", 0) or 0)
+
+        # Read token estimates for the three aggregate artifact files from their content
+        aggregate_tokens = {
+            "llms_txt": _file_tokens(site_dir / "llms.txt"),
+            "site_index": _file_tokens(site_dir / public_root / "site-index.json"),
+            "llms_full": _file_tokens(site_dir / public_root / "llms-full.jsonl"),
+        }
+
+        page_html = html_path.read_text(encoding="utf-8")
+
+        # Replace aggregate table placeholder
+        aggregate_placeholder = '<div id="ai-resources-aggregate-table"></div>'
+        if aggregate_placeholder not in page_html:
+            log.warning("[ai_docs] ai-resources-aggregate-table placeholder not found in built HTML")
+            return
+        aggregate_html = self._build_aggregate_table_html(
+            base_path, public_root_stripped, site_url, aggregate_tokens
+        )
+        page_html = page_html.replace(aggregate_placeholder, aggregate_html, 1)
+
+        # Replace per-category table placeholders
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            cat_placeholder = f'<div id="ai-category-{slug}-table"></div>'
+            if cat_placeholder not in page_html:
+                log.warning(f"[ai_docs] placeholder not found for category '{cat_id}'")
+                continue
+            cat_html = self._build_category_table_html(
+                cat_id, base_path, public_root_stripped, site_url,
+                category_tokens, category_light_tokens,
+            )
+            page_html = page_html.replace(cat_placeholder, cat_html, 1)
+
+        html_path.write_text(page_html, encoding="utf-8")
+        log.info(f"[ai_docs] injected resources tables with token estimates into {html_path}")
 
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
@@ -326,7 +496,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         # --- Toggle pages ---
         # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
-        # so the derived .md path always matches what resolve_md writes.
+        # so the derived .md path always matches the co-located artifact path.
         route = page.url.strip("/")
         if route.endswith(".html"):
             route = route[: -len(".html")]
@@ -394,7 +564,6 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # Determine docs_base_url for canonical URLs
         project_cfg = self._llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
-        self.docs_base_url = docs_base_url
 
         # Determine AI artifacts root (categories, index, llms files)
         outputs_cfg = self._llms_config.get("outputs", {})
@@ -526,9 +695,15 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # Build category bundles based on current AI pages
         self.build_category_bundles(ai_pages, ai_root, build_timestamp)
         # Build site index + llms JSONL artifacts
-        self.build_site_index(ai_pages, ai_root, build_timestamp)
+        enriched = self.build_site_index(ai_pages, ai_root, build_timestamp)
+        # Build per-category lightweight index files
+        self.build_category_light(enriched, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir, build_timestamp)
+        # Inject resources table with token estimates into the built ai-resources HTML
+        # (must run after all artifact files are written so their sizes can be estimated)
+        if self.config.get("ai_resources_page", True):
+            self._patch_ai_resources_page(site_dir, config)
 
     # ------------------------------------------------------------------
     # Helper static functions
@@ -1315,7 +1490,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
     @staticmethod
     def select_pages_for_category(category: str, pages: list[dict]) -> list[dict]:
-        cat_lower = category.lower()
+        cat_slug = AIDocsPlugin.slugify_category(category)
         selected = []
         for page in pages:
             cats = page.get("categories") or []
@@ -1323,7 +1498,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 cats_iter = [cats]
             else:
                 cats_iter = cats
-            if any(str(c).lower() == cat_lower for c in cats_iter):
+            if any(AIDocsPlugin.slugify_category(str(c)) == cat_slug for c in cats_iter):
                 selected.append(page)
         return selected
 
@@ -1474,10 +1649,10 @@ These AI-ready files do not include any persona or system prompts. They are pure
     # Create full-site content related AI artifact files
     def build_site_index(
         self, pages: list[dict], ai_root: Path, build_timestamp: str = ""
-    ) -> None:
+    ) -> list[dict]:
         """Generate site-index.json and llms_full.jsonl from AI pages."""
         if not pages:
-            return
+            return []
         outputs = self._llms_config.get("outputs", {})
         files_cfg = outputs.get("files", {})
         site_index_name = files_cfg.get("site_index", "site-index.json")
@@ -1577,6 +1752,76 @@ These AI-ready files do not include any persona or system prompts. They are pure
         log.info(
             f"[ai_docs] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
         )
+        return site_index_entries
+
+    def build_category_light(
+        self, enriched: list[dict], ai_root: Path, build_timestamp: str = ""
+    ) -> None:
+        """Generate per-category lightweight index files (<slug>-light.md)."""
+        if not enriched:
+            return
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info") or {}
+        if not categories_info:
+            log.info("[ai_docs] no categories configured; skipping light files")
+            return
+
+        categories_dir = ai_root / "categories"
+        categories_dir.mkdir(parents=True, exist_ok=True)
+
+        for category_id, cat_info in categories_info.items():
+            cat_slug = self.slugify_category(category_id)
+            display_name = cat_info.get("name", category_id)
+            description = cat_info.get("description", "")
+
+            cat_pages = sorted(
+                self.select_pages_for_category(category_id, enriched),
+                key=lambda p: (p.get("title") or "").lower(),
+            )
+
+            blocks: list[str] = []
+            for page in cat_pages:
+                lines: list[str] = []
+                title = page.get("title") or page.get("id", "")
+                lines.append(f"## {title}")
+                md_url = page.get("raw_md_url", "")
+                if md_url:
+                    lines.append(md_url)
+                preview = page.get("preview", "")
+                if preview:
+                    lines.append("")
+                    lines.append(preview)
+                outline = page.get("outline", [])
+                if outline:
+                    lines.append("")
+                    lines.append("### Sections")
+                    for heading in outline:
+                        lines.append(f"- {heading['title']} `#{heading['anchor']}`")
+                blocks.append("\n".join(lines))
+
+            body = "\n\n---\n\n".join(blocks)
+            fm_obj = {
+                "category": display_name,
+                "description": description,
+                "page_count": len(cat_pages),
+                "token_estimate": self.estimate_tokens(body),
+            }
+            if build_timestamp:
+                fm_obj["updated"] = build_timestamp
+
+            fm_yaml = yaml.safe_dump(
+                fm_obj, sort_keys=False, allow_unicode=True, width=4096
+            ).strip()
+            content = f"---\n{fm_yaml}\n---\n\n{body}\n"
+
+            out_path = categories_dir / f"{cat_slug}-light.md"
+            out_path.write_text(content, encoding="utf-8")
+            log.debug(
+                f"[ai_docs] light file {out_path.name}: {len(cat_pages)} pages"
+            )
+
+        log.info(f"[ai_docs] category light files written to {categories_dir}")
+
 
     def build_llms_txt(
         self, pages: list[dict], docs_dir: Path, build_timestamp: str = ""
