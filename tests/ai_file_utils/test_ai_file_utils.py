@@ -278,13 +278,47 @@ class TestMCPHelpers:
         decoded = json.loads(urllib.parse.unquote(encoded_json))
         assert decoded == {"name": "my-server", "url": "https://mcp.example.com/sse"}
 
+    def test_mcp_install_button_html(self):
+        """Install button should be an <a> with correct class and default label."""
+        result = AIFileUtils.mcp_install_button("cursor://install")
+
+        assert 'href="cursor://install"' in result
+        assert 'class="ai-file-actions-btn single-action-btn"' in result
+        assert ">Install</a>" in result
+
+    def test_mcp_install_button_custom_label(self):
+        """Custom label should appear in the button text."""
+        result = AIFileUtils.mcp_install_button("cursor://install", label="Add to Cursor")
+        assert ">Add to Cursor</a>" in result
+
     def test_mcp_install_button_escapes_href(self):
         """href with special HTML characters should be escaped."""
         result = AIFileUtils.mcp_install_button('bad"onclick="alert(1)')
         assert 'href="bad&quot;onclick=&quot;alert(1)"' in result
+
+    def test_mcp_copy_code_html(self):
+        """Copy code should wrap command in <pre><code> tags with inline style."""
+        result = AIFileUtils.mcp_copy_code("claude mcp add my-server https://example.com")
+        assert "<pre><code" in result
+        assert "white-space: pre-wrap" in result
+        assert "claude mcp add my-server https://example.com</code></pre>" in result
 
     def test_mcp_copy_code_escapes_html(self):
         """HTML characters in commands should be escaped."""
         result = AIFileUtils.mcp_copy_code("echo <script>alert(1)</script>")
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
+
+    def test_mcp_external_link_html(self):
+        """External link should have target=_blank and rel attributes."""
+        result = AIFileUtils.mcp_external_link("https://example.com/docs")
+
+        assert 'href="https://example.com/docs"' in result
+        assert 'target="_blank"' in result
+        assert 'rel="noopener noreferrer"' in result
+        assert ">Setup guide</a>" in result
+
+    def test_mcp_external_link_custom_label(self):
+        """Custom label should appear in the link text."""
+        result = AIFileUtils.mcp_external_link("https://example.com", label="Read more")
+        assert ">Read more</a>" in result
