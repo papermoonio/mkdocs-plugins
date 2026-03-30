@@ -25,6 +25,14 @@ plugins:
 
 Each category now generates a `{slug}-light.md` file alongside the full `{slug}.md` bundle. The light file contains titles, resolved markdown URLs, content previews, and section headings for every page in the category — without full page content. This gives a compact, navigable index suited for smaller context windows. Light files are listed in the AI resources table alongside their full bundle counterparts.
 
+#### `ai_docs` — MCP connection section on AI Resources page
+
+When `mcp_name` and `mcp_url` are configured in the `project` section of `llms_config.json`, the AI Resources page now includes a **Connect via MCP** section with:
+
+- One-click install buttons for **Cursor** and **VS Code** (deeplinks)
+- Copy-able terminal commands for **Claude Code CLI** and **Codex CLI**
+- A setup guide link for **Claude Desktop**
+
 #### `ai_docs` — Token estimates in AI resources table
 
 The AI resources table now includes a **Token Estimate** column. Category bundle counts are read from each bundle's front matter (the authoritative value written at build time). Counts for `llms.txt`, `site-index.json`, and `llms-full.jsonl` are estimated from their built content using the same heuristic estimator applied elsewhere.

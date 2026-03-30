@@ -78,3 +78,56 @@ class TestAiResourcesPageSubpath:
         assert "/ai/site-index.json" in result
         assert "/ai/categories/basics.md" in result
         assert "/llms.txt" in result
+
+
+class TestMCPSection:
+    """Tests for MCP install section on the AI Resources page."""
+
+    def test_mcp_section_present_when_configured(self, tmp_path):
+        """MCP section should appear when mcp_name and mcp_url are set."""
+        llms_config = {
+            "project": {
+                "name": "TestProject",
+                "mcp_name": "test-mcp",
+                "mcp_url": "https://mcp.example.com/sse",
+            },
+            "content": {
+                "categories_info": {
+                    "basics": {"name": "Basics", "description": "Basic docs."}
+                }
+            },
+            "outputs": {"public_root": "/ai/"},
+        }
+        config_file = tmp_path / "llms_config.json"
+        config_file.write_text(json.dumps(llms_config), encoding="utf-8")
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        config = {"config_file_path": str(mkdocs_yml), "site_url": "https://docs.example.com/"}
+
+        plugin = AiResourcesPagePlugin()
+        page = MagicMock()
+        page.file.src_path = "ai-resources.md"
+
+        result = plugin.on_page_markdown("", page, config, [])
+
+        assert "## Connect via MCP" in result
+        assert "https://mcp.example.com/sse" in result
+        assert "Cursor" in result
+        assert "VS Code" in result
+        assert "Claude Code CLI" in result
+        assert "Codex CLI" in result
+        assert "Claude Desktop" in result
+        assert "cursor://anysphere.cursor-deeplink" in result
+        assert "vscode:mcp/install?" in result
+
+    def test_mcp_section_absent_when_not_configured(self, tmp_path):
+        """MCP section should not appear when mcp_name/mcp_url are missing."""
+        config = _make_config(tmp_path)
+
+        plugin = AiResourcesPagePlugin()
+        page = MagicMock()
+        page.file.src_path = "ai-resources.md"
+
+        result = plugin.on_page_markdown("", page, config, [])
+
+        assert "## Connect via MCP" not in result
