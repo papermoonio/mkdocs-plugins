@@ -7,11 +7,11 @@ from mkdocs.config.config_options import Type
 from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
 
-LOG_PREFIX = "[agent_tasks]"
+LOG_PREFIX = "[agent_skills]"
 
 
-class AgentTasksPlugin(BasePlugin):
-    config_scheme = (("agent_tasks_config", Type(str, required=True)),)
+class AgentSkillsPlugin(BasePlugin):
+    config_scheme = (("agent_skills_config", Type(str, required=True)),)
 
     def on_post_build(self, config):
         # Locate project root and load config
@@ -19,48 +19,48 @@ class AgentTasksPlugin(BasePlugin):
         project_root = config_file_path.parent
         site_dir = Path(config["site_dir"]).resolve()
 
-        tasks_config = self._load_config(project_root)
-        if not tasks_config:
+        skills_config = self._load_config(project_root)
+        if not skills_config:
             return
 
         # Resolve output directory
-        outputs = tasks_config.get("outputs", {})
+        outputs = skills_config.get("outputs", {})
         public_root = outputs.get("public_root", "/ai/").strip("/")
-        tasks_dir_name = outputs.get("tasks_dir", "tasks")
-        tasks_output_dir = site_dir / public_root / tasks_dir_name
+        skills_dir_name = outputs.get("skills_dir", "skills")
+        skills_output_dir = site_dir / public_root / skills_dir_name
 
         # Clean and recreate
-        if tasks_output_dir.exists():
+        if skills_output_dir.exists():
             import shutil
 
-            shutil.rmtree(tasks_output_dir)
-        tasks_output_dir.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(skills_output_dir)
+        skills_output_dir.mkdir(parents=True, exist_ok=True)
 
-        project = tasks_config.get("project", {})
-        reference_repos = tasks_config.get("reference_repos", {})
-        tasks = tasks_config.get("tasks", [])
+        project = skills_config.get("project", {})
+        reference_repos = skills_config.get("reference_repos", {})
+        skills = skills_config.get("skills", [])
 
-        if not tasks:
-            log.warning(f"{LOG_PREFIX} no tasks defined in config")
+        if not skills:
+            log.warning(f"{LOG_PREFIX} no skills defined in config")
             return
 
-        log.info(f"{LOG_PREFIX} generating {len(tasks)} task file(s)")
+        log.info(f"{LOG_PREFIX} generating {len(skills)} skill file(s)")
 
-        for task in tasks:
-            task_id = task.get("id", "unknown")
+        for skill in skills:
+            skill_id = skill.get("id", "unknown")
             try:
-                content = self._render_task(task, project, reference_repos)
-                output_path = tasks_output_dir / f"{task_id}.md"
+                content = self._render_skill(skill, project, reference_repos)
+                output_path = skills_output_dir / f"{skill_id}.md"
                 output_path.write_text(content, encoding="utf-8")
                 log.info(f"{LOG_PREFIX} wrote {output_path}")
             except Exception as e:
-                log.error(f"{LOG_PREFIX} failed to generate task '{task_id}': {e}")
+                log.error(f"{LOG_PREFIX} failed to generate skill '{skill_id}': {e}")
 
-        # Generate task index
-        self._write_index(tasks, project, tasks_output_dir)
+        # Generate skill index
+        self._write_index(skills, project, skills_output_dir)
 
     def _load_config(self, project_root):
-        config_path = project_root / self.config["agent_tasks_config"]
+        config_path = project_root / self.config["agent_skills_config"]
         if not config_path.exists():
             log.error(f"{LOG_PREFIX} config not found: {config_path}")
             return None
@@ -71,37 +71,43 @@ class AgentTasksPlugin(BasePlugin):
             log.error(f"{LOG_PREFIX} failed to load config: {e}")
             return None
 
-    def _render_task(self, task, project, reference_repos):
+    def _render_skill(self, skill, project, reference_repos):
         lines = []
 
         # --- Frontmatter ---
-        lines.append("---")
-        lines.append(f"task_id: {task['id']}")
-        lines.append(f"title: \"{task['title']}\"")
-        lines.append(f"objective: \"{task['objective']}\"")
-
-        lines.append(f"estimated_steps: {len(task.get('steps', []))}")
-
-        ref_code = task.get("reference_code", {})
+        ref_code = skill.get("reference_code", {})
         repo_id = ref_code.get("repo", "")
         repo_info = reference_repos.get(repo_id, {})
-        if repo_info:
-            lines.append(f"reference_repo: {repo_info.get('url', '')}")
 
+        lines.append("---")
+        lines.append(f"name: {skill['id']}")
+        lines.append(f"description: \"{skill['objective']}\"")
+
+        if skill.get("license"):
+            lines.append(f"license: {skill['license']}")
+        if skill.get("compatibility"):
+            lines.append(f"compatibility: {skill['compatibility']}")
+
+        lines.append("metadata:")
+        lines.append(f"  title: \"{skill['title']}\"")
+        lines.append(f"  estimated_steps: \"{len(skill.get('steps', []))}\"")
+        if repo_info:
+            lines.append(f"  reference_repo: {repo_info.get('url', '')}")
         lines.append(
-            f"generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            f"  generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
         )
+
         lines.append("---")
         lines.append("")
 
         # --- Objective ---
-        lines.append(f"# {task['title']}")
+        lines.append(f"# {skill['title']}")
         lines.append("")
-        lines.append(f"**Objective:** {task['objective']}")
+        lines.append(f"**Objective:** {skill['objective']}")
         lines.append("")
 
         # --- Prerequisites ---
-        prereqs = task.get("prerequisites", {})
+        prereqs = skill.get("prerequisites", {})
         if prereqs:
             lines.append("## Prerequisites")
             lines.append("")
@@ -112,7 +118,7 @@ class AgentTasksPlugin(BasePlugin):
                 lines.append("")
 
         # --- Environment Variables ---
-        env_vars = task.get("env_vars", [])
+        env_vars = skill.get("env_vars", [])
         if env_vars:
             lines.append("## Environment Variables")
             lines.append("")
@@ -127,7 +133,7 @@ class AgentTasksPlugin(BasePlugin):
             lines.append("")
 
         # --- Execution Steps ---
-        steps = task.get("steps", [])
+        steps = skill.get("steps", [])
         if steps:
             lines.append("## Execution Steps")
             lines.append("")
@@ -190,7 +196,7 @@ class AgentTasksPlugin(BasePlugin):
             lines.append("")
 
         # --- Error Recovery ---
-        error_patterns = task.get("error_patterns", [])
+        error_patterns = skill.get("error_patterns", [])
         if error_patterns:
             lines.append("## Error Recovery")
             lines.append("")
@@ -201,7 +207,7 @@ class AgentTasksPlugin(BasePlugin):
                 lines.append("")
 
         # --- Supplementary Context ---
-        supp = task.get("supplementary_context")
+        supp = skill.get("supplementary_context")
         if supp:
             lines.append("## Supplementary Context")
             lines.append("")
@@ -224,24 +230,24 @@ class AgentTasksPlugin(BasePlugin):
         base_path = ref_code.get("base_path", "")
         return f"{raw_base}/{base_path}/{file_path}"
 
-    def _write_index(self, tasks, project, tasks_output_dir):
+    def _write_index(self, skills, project, skills_output_dir):
         index = {
             "project": project,
             "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "tasks": [],
+            "skills": [],
         }
-        for task in tasks:
-            index["tasks"].append(
+        for skill in skills:
+            index["skills"].append(
                 {
-                    "id": task["id"],
-                    "title": task["title"],
-                    "objective": task["objective"],
-                    "file": f"{task['id']}.md",
-                    "steps": len(task.get("steps", [])),
+                    "id": skill["id"],
+                    "title": skill["title"],
+                    "description": skill["objective"],
+                    "file": f"{skill['id']}.md",
+                    "steps": len(skill.get("steps", [])),
                 }
             )
-        index_path = tasks_output_dir / "index.json"
+        index_path = skills_output_dir / "index.json"
         index_path.write_text(
             json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        log.info(f"{LOG_PREFIX} wrote task index: {index_path}")
+        log.info(f"{LOG_PREFIX} wrote skill index: {index_path}")

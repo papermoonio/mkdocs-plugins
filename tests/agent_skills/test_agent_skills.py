@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from plugins.agent_tasks.plugin import AgentTasksPlugin
+from plugins.agent_skills.plugin import AgentSkillsPlugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -14,20 +14,20 @@ from plugins.agent_tasks.plugin import AgentTasksPlugin
 
 def _make_plugin(**overrides):
     """Return a plugin instance with a minimal config dict."""
-    plugin = AgentTasksPlugin()
-    plugin.config = {"agent_tasks_config": "agent_tasks_config.json", **overrides}
+    plugin = AgentSkillsPlugin()
+    plugin.config = {"agent_skills_config": "agent_skills_config.json", **overrides}
     return plugin
 
 
-def _minimal_task(**overrides):
-    """Return a task dict with only the required fields."""
-    task = {
-        "id": "test-task",
-        "title": "Test Task",
+def _minimal_skill(**overrides):
+    """Return a skill dict with only the required fields."""
+    skill = {
+        "id": "test-skill",
+        "title": "Test Skill",
         "objective": "Verify the plugin works",
     }
-    task.update(overrides)
-    return task
+    skill.update(overrides)
+    return skill
 
 
 REFERENCE_REPOS = {
@@ -81,12 +81,12 @@ class TestBuildRawUrl:
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskFrontmatter
+# TestRenderSkillFrontmatter
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskFrontmatter:
-    """Tests for YAML frontmatter in rendered task output."""
+class TestRenderSkillFrontmatter:
+    """Tests for YAML frontmatter in rendered skill output."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -97,30 +97,30 @@ class TestRenderTaskFrontmatter:
         return parts[1] if len(parts) >= 3 else ""
 
     def test_contains_required_fields(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
-        assert "task_id: test-task" in fm
-        assert 'title: "Test Task"' in fm
-        assert 'objective: "Verify the plugin works"' in fm
-        assert "estimated_steps: 0" in fm
+        assert "name: test-skill" in fm
+        assert 'description: "Verify the plugin works"' in fm
+        assert 'title: "Test Skill"' in fm
+        assert 'estimated_steps: "0"' in fm
         assert "generated:" in fm
 
     def test_includes_reference_repo_when_present(self):
-        task = _minimal_task(reference_code={"repo": "demo-repo", "base_path": "src"})
-        content = self.plugin._render_task(task, PROJECT, REFERENCE_REPOS)
+        task = _minimal_skill(reference_code={"repo": "demo-repo", "base_path": "src"})
+        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
         fm = self._frontmatter(content)
-        assert "reference_repo: https://github.com/org/demo-repo" in fm
+        assert "  reference_repo: https://github.com/org/demo-repo" in fm
 
     def test_omits_reference_repo_when_missing(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
         assert "reference_repo" not in fm
 
     def test_prerequisites_not_in_frontmatter(self):
-        task = _minimal_task(prerequisites={"tools": ["Node.js >= 18", "npm"]})
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill(prerequisites={"tools": ["Node.js >= 18", "npm"]})
+        content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
         assert "prerequisites" not in fm
 
@@ -129,31 +129,61 @@ class TestRenderTaskFrontmatter:
             {"order": 1, "action": "Init"},
             {"order": 2, "action": "Build"},
         ]
-        task = _minimal_task(steps=steps)
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill(steps=steps)
+        content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
-        assert "estimated_steps: 2" in fm
+        assert 'estimated_steps: "2"' in fm
+
+    def test_metadata_block_present(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
+        fm = self._frontmatter(content)
+        assert "metadata:" in fm
+
+    def test_includes_license_when_present(self):
+        task = _minimal_skill(license="BSD-2-Clause")
+        content = self.plugin._render_skill(task, PROJECT, {})
+        fm = self._frontmatter(content)
+        assert "license: BSD-2-Clause" in fm
+
+    def test_omits_license_when_absent(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
+        fm = self._frontmatter(content)
+        assert "license" not in fm
+
+    def test_includes_compatibility_when_present(self):
+        task = _minimal_skill(compatibility="Requires Node.js >= 18")
+        content = self.plugin._render_skill(task, PROJECT, {})
+        fm = self._frontmatter(content)
+        assert "compatibility: Requires Node.js >= 18" in fm
+
+    def test_omits_compatibility_when_absent(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
+        fm = self._frontmatter(content)
+        assert "compatibility" not in fm
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskPrerequisites
+# TestRenderSkillPrerequisites
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskPrerequisites:
+class TestRenderSkillPrerequisites:
     """Tests for the Prerequisites body section."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
     def test_renders_grouped_prerequisites(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             prerequisites={
                 "tools": ["Node.js >= 18", "npm"],
                 "accounts": ["GitHub account"],
             }
         )
-        content = self.plugin._render_task(task, PROJECT, {})
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Prerequisites" in content
         assert "**Tools:**" in content
         assert "- Node.js >= 18" in content
@@ -162,29 +192,29 @@ class TestRenderTaskPrerequisites:
         assert "- GitHub account" in content
 
     def test_omits_section_when_no_prerequisites(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Prerequisites" not in content
 
     def test_omits_section_when_prerequisites_empty(self):
-        task = _minimal_task(prerequisites={})
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill(prerequisites={})
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Prerequisites" not in content
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskEnvVars
+# TestRenderSkillEnvVars
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskEnvVars:
+class TestRenderSkillEnvVars:
     """Tests for the Environment Variables section."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
     def test_renders_env_vars(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             env_vars=[
                 {"name": "API_KEY", "description": "Your API key", "required": True},
                 {
@@ -194,7 +224,7 @@ class TestRenderTaskEnvVars:
                 },
             ]
         )
-        content = self.plugin._render_task(task, PROJECT, {})
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Environment Variables" in content
         assert "```env" in content
         assert "# Your API key (required)" in content
@@ -203,24 +233,24 @@ class TestRenderTaskEnvVars:
         assert "DEBUG=" in content
 
     def test_omits_section_when_no_env_vars(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Environment Variables" not in content
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskSteps
+# TestRenderSkillSteps
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskSteps:
+class TestRenderSkillSteps:
     """Tests for the Execution Steps section."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
     def test_renders_step_with_all_fields(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             reference_code={
                 "repo": "demo-repo",
                 "base_path": "src",
@@ -237,7 +267,7 @@ class TestRenderTaskSteps:
                 },
             ],
         )
-        content = self.plugin._render_task(task, PROJECT, REFERENCE_REPOS)
+        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
         assert "### Step 1: Initialize project" in content
         assert "Set up the project directory." in content
         assert "```bash" in content
@@ -247,32 +277,32 @@ class TestRenderTaskSteps:
         assert "**Expected output:** Directory created" in content
 
     def test_renders_step_without_optional_fields(self):
-        task = _minimal_task(steps=[{"order": 1, "action": "Do something"}])
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill(steps=[{"order": 1, "action": "Do something"}])
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "### Step 1: Do something" in content
         assert "```bash" not in content
         assert "**Reference file:**" not in content
         assert "**Expected output:**" not in content
 
     def test_omits_section_when_no_steps(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Execution Steps" not in content
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskReferenceCodeIndex
+# TestRenderSkillReferenceCodeIndex
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskReferenceCodeIndex:
+class TestRenderSkillReferenceCodeIndex:
     """Tests for the Reference Code Index table."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
     def test_renders_reference_code_table(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             reference_code={
                 "repo": "demo-repo",
                 "base_path": "src",
@@ -282,7 +312,7 @@ class TestRenderTaskReferenceCodeIndex:
                 ],
             }
         )
-        content = self.plugin._render_task(task, PROJECT, REFERENCE_REPOS)
+        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
         assert "## Reference Code Index" in content
         assert "| File | Description | Raw URL |" in content
         assert "| `index.ts` | Entry point |" in content
@@ -290,36 +320,36 @@ class TestRenderTaskReferenceCodeIndex:
         assert "[Fetch](" in content
 
     def test_includes_repo_description(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             reference_code={
                 "repo": "demo-repo",
                 "base_path": "src",
                 "files": [{"path": "app.ts", "description": "App"}],
             }
         )
-        content = self.plugin._render_task(task, PROJECT, REFERENCE_REPOS)
+        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
         assert "These files are from [demo-repo]" in content
         assert "`src` directory" in content
 
     def test_omits_section_when_no_files(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Reference Code Index" not in content
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskErrorRecovery
+# TestRenderSkillErrorRecovery
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskErrorRecovery:
+class TestRenderSkillErrorRecovery:
     """Tests for the Error Recovery section."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
     def test_renders_error_patterns(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             error_patterns=[
                 {
                     "pattern": "ECONNREFUSED",
@@ -328,31 +358,31 @@ class TestRenderTaskErrorRecovery:
                 },
             ]
         )
-        content = self.plugin._render_task(task, PROJECT, {})
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Error Recovery" in content
         assert "**`ECONNREFUSED`**" in content
         assert "- **Cause:** Server not running" in content
         assert "- **Resolution:** Start the dev server first" in content
 
     def test_omits_section_when_no_error_patterns(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Error Recovery" not in content
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskSupplementaryContext
+# TestRenderSkillSupplementaryContext
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskSupplementaryContext:
+class TestRenderSkillSupplementaryContext:
     """Tests for the Supplementary Context section."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
     def test_renders_supplementary_context(self):
-        task = _minimal_task(
+        task = _minimal_skill(
             supplementary_context={
                 "description": "Related documentation pages.",
                 "pages": [
@@ -364,7 +394,7 @@ class TestRenderTaskSupplementaryContext:
                 ],
             }
         )
-        content = self.plugin._render_task(task, PROJECT, {})
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Supplementary Context" in content
         assert "Related documentation pages." in content
         assert (
@@ -373,32 +403,32 @@ class TestRenderTaskSupplementaryContext:
         )
 
     def test_omits_section_when_no_supplementary_context(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert "## Supplementary Context" not in content
 
 
 # ---------------------------------------------------------------------------
-# TestRenderTaskMinimal
+# TestRenderSkillMinimal
 # ---------------------------------------------------------------------------
 
 
-class TestRenderTaskMinimal:
+class TestRenderSkillMinimal:
     """Tests that a task with only required fields renders cleanly."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
 
-    def test_minimal_task_renders(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+    def test_minimal_skill_renders(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         assert content.startswith("---")
-        assert "# Test Task" in content
+        assert "# Test Skill" in content
         assert "**Objective:** Verify the plugin works" in content
 
-    def test_minimal_task_omits_all_optional_sections(self):
-        task = _minimal_task()
-        content = self.plugin._render_task(task, PROJECT, {})
+    def test_minimal_skill_omits_all_optional_sections(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task, PROJECT, {})
         for section in [
             "## Prerequisites",
             "## Environment Variables",
@@ -422,33 +452,33 @@ class TestWriteIndex:
         self.plugin = _make_plugin()
 
     def test_writes_valid_index(self, tmp_path):
-        tasks = [
-            _minimal_task(),
-            _minimal_task(
-                id="second-task",
-                title="Second Task",
-                objective="Another task",
+        skills = [
+            _minimal_skill(),
+            _minimal_skill(
+                id="second-skill",
+                title="Second Skill",
+                objective="Another skill",
                 steps=[{"order": 1, "action": "Go"}],
             ),
         ]
-        self.plugin._write_index(tasks, PROJECT, tmp_path)
+        self.plugin._write_index(skills, PROJECT, tmp_path)
         index_path = tmp_path / "index.json"
         assert index_path.exists()
 
         data = json.loads(index_path.read_text(encoding="utf-8"))
         assert data["project"] == PROJECT
         assert "generated" in data
-        assert len(data["tasks"]) == 2
+        assert len(data["skills"]) == 2
 
-        first = data["tasks"][0]
-        assert first["id"] == "test-task"
-        assert first["title"] == "Test Task"
-        assert first["objective"] == "Verify the plugin works"
-        assert first["file"] == "test-task.md"
+        first = data["skills"][0]
+        assert first["id"] == "test-skill"
+        assert first["title"] == "Test Skill"
+        assert first["description"] == "Verify the plugin works"
+        assert first["file"] == "test-skill.md"
         assert first["steps"] == 0
 
-        second = data["tasks"][1]
-        assert second["id"] == "second-task"
+        second = data["skills"][1]
+        assert second["id"] == "second-skill"
         assert second["steps"] == 1
 
 
@@ -464,8 +494,8 @@ class TestLoadConfig:
         self.plugin = _make_plugin()
 
     def test_loads_valid_config(self, tmp_path):
-        config_data = {"project": {"id": "p1"}, "tasks": []}
-        config_path = tmp_path / "agent_tasks_config.json"
+        config_data = {"project": {"id": "p1"}, "skills": []}
+        config_path = tmp_path / "agent_skills_config.json"
         config_path.write_text(json.dumps(config_data), encoding="utf-8")
 
         result = self.plugin._load_config(tmp_path)
@@ -476,7 +506,7 @@ class TestLoadConfig:
         assert result is None
 
     def test_returns_none_for_invalid_json(self, tmp_path):
-        config_path = tmp_path / "agent_tasks_config.json"
+        config_path = tmp_path / "agent_skills_config.json"
         config_path.write_text("not valid json {{{", encoding="utf-8")
 
         result = self.plugin._load_config(tmp_path)
