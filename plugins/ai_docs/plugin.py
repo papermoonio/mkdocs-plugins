@@ -187,13 +187,13 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
 
         category_sections = ""
         if categories_info:
-            category_sections = "\n\n## Categories\n"
+            category_sections = "\n\n### Category Files\n"
             for cat_id, cat_info in categories_info.items():
                 slug = self.slugify_category(cat_id)
                 display_name = cat_info.get("name", cat_id)
                 description = cat_info.get("description", f"Resources for {display_name}.")
                 category_sections += (
-                    f"\n### {display_name}\n\n"
+                    f"\n#### {display_name}\n\n"
                     f"{description}\n\n"
                     f'<div id="ai-category-{slug}-table"></div>\n'
                 )
@@ -209,7 +209,9 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
 
 {project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
 
-## How to Use These Files
+{mcp_section}
+
+## Access LLM Files
 
 - **Quick navigation**: Use `llms.txt` to give models a high-level map of the site.
 - **Lightweight context**: Use `site-index.json` for smaller context windows or when you only need targeted retrieval.
@@ -218,15 +220,14 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
 
 These AI-ready files do not include any persona or system prompts. They are purely informational and can be used without conflicting with your existing agent or tool prompting.
 
-## Access LLM Files
+### Full Site Files
 
 <div id="ai-resources-aggregate-table"></div>
 
 !!! note
     The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
 {category_sections}
-
-{mcp_section}"""
+"""
 
     def _build_aggregate_table_html(
         self,
