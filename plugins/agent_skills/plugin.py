@@ -1,8 +1,9 @@
 import json
-import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bs4 import BeautifulSoup
 from mkdocs.config.config_options import Type
 from mkdocs.plugins import BasePlugin
 from mkdocs.utils import log
@@ -13,32 +14,65 @@ LOG_PREFIX = "[agent_skills]"
 class AgentSkillsPlugin(BasePlugin):
     config_scheme = (("agent_skills_config", Type(str, required=True)),)
 
-    def on_post_build(self, config):
-        # Locate project root and load config
+    def on_config(self, config):
+        """Load skills config and build page-to-skill reverse mapping."""
         config_file_path = Path(config["config_file_path"]).resolve()
         project_root = config_file_path.parent
-        site_dir = Path(config["site_dir"]).resolve()
 
-        skills_config = self._load_config(project_root)
-        if not skills_config:
+        self._skills_config = self._load_config(project_root)
+        self._page_skill_map = {}
+
+        if not self._skills_config:
+            return config
+
+        outputs = self._skills_config.get("outputs", {})
+        self._public_root = outputs.get("public_root", "/ai/").strip("/")
+        self._skills_dir_name = outputs.get("skills_dir", "skills")
+
+        for skill in self._skills_config.get("skills", []):
+            for page_path in skill.get("source_pages", []):
+                self._page_skill_map.setdefault(page_path, []).append(
+                    {
+                        "id": skill["id"],
+                        "title": skill["title"],
+                    }
+                )
+
+        return config
+
+    def on_post_page(self, output, page, config):
+        """Inject skill badge on pages that have a related skill."""
+        skills = self._page_skill_map.get(page.file.src_path, [])
+        if not skills:
+            return output
+
+        site_url = (config.get("site_url") or "").rstrip("/")
+        badges_html = self._render_skill_badges(skills, site_url)
+
+        soup = BeautifulSoup(output, "html.parser")
+        h1 = soup.find("h1")
+        if h1:
+            badge_soup = BeautifulSoup(badges_html, "html.parser")
+            h1.insert_after(badge_soup)
+            return str(soup)
+
+        return output
+
+    def on_post_build(self, config):
+        """Generate skill files and index."""
+        if not self._skills_config:
             return
 
-        # Resolve output directory
-        outputs = skills_config.get("outputs", {})
-        public_root = outputs.get("public_root", "/ai/").strip("/")
-        skills_dir_name = outputs.get("skills_dir", "skills")
-        skills_output_dir = site_dir / public_root / skills_dir_name
+        site_dir = Path(config["site_dir"]).resolve()
+        skills_output_dir = site_dir / self._public_root / self._skills_dir_name
 
-        # Clean and recreate
         if skills_output_dir.exists():
-            import shutil
-
             shutil.rmtree(skills_output_dir)
         skills_output_dir.mkdir(parents=True, exist_ok=True)
 
-        project = skills_config.get("project", {})
-        reference_repos = skills_config.get("reference_repos", {})
-        skills = skills_config.get("skills", [])
+        project = self._skills_config.get("project", {})
+        reference_repos = self._skills_config.get("reference_repos", {})
+        skills = self._skills_config.get("skills", [])
 
         if not skills:
             log.warning(f"{LOG_PREFIX} no skills defined in config")
@@ -56,7 +90,6 @@ class AgentSkillsPlugin(BasePlugin):
             except Exception as e:
                 log.error(f"{LOG_PREFIX} failed to generate skill '{skill_id}': {e}")
 
-        # Generate skill index
         self._write_index(skills, project, skills_output_dir)
 
     def _load_config(self, project_root):
@@ -93,6 +126,12 @@ class AgentSkillsPlugin(BasePlugin):
         lines.append(f"  estimated_steps: \"{len(skill.get('steps', []))}\"")
         if repo_info:
             lines.append(f"  reference_repo: {repo_info.get('url', '')}")
+
+        source_pages = skill.get("source_pages", [])
+        if source_pages:
+            pages_yaml = ", ".join(f'"{p}"' for p in source_pages)
+            lines.append(f"  source_pages: [{pages_yaml}]")
+
         lines.append(
             f"  generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
         )
@@ -223,6 +262,24 @@ class AgentSkillsPlugin(BasePlugin):
 
         return "\n".join(lines)
 
+    def _render_skill_badges(self, skills, site_url):
+        items = []
+        for skill in skills:
+            path = f"/{self._public_root}/{self._skills_dir_name}/{skill['id']}.md"
+            url = f"{site_url}{path}" if site_url else path
+            label = skill["title"]
+            items.append(
+                f'<a href="{url}" class="agent-skill-badge" '
+                f'target="_blank" rel="noopener">'
+                f'<span class="agent-skill-badge__label">{label}</span>'
+                f"</a>"
+            )
+        return (
+            '<div class="agent-skill-badges">'
+            + "".join(items)
+            + "</div>"
+        )
+
     def _build_raw_url(self, reference_repos, ref_code, file_path):
         repo_id = ref_code.get("repo", "")
         repo_info = reference_repos.get(repo_id, {})
@@ -237,15 +294,18 @@ class AgentSkillsPlugin(BasePlugin):
             "skills": [],
         }
         for skill in skills:
-            index["skills"].append(
-                {
-                    "id": skill["id"],
-                    "title": skill["title"],
-                    "description": skill["objective"],
-                    "file": f"{skill['id']}.md",
-                    "steps": len(skill.get("steps", [])),
-                }
-            )
+            entry = {
+                "id": skill["id"],
+                "title": skill["title"],
+                "description": skill["objective"],
+                "file": f"{skill['id']}.md",
+                "steps": len(skill.get("steps", [])),
+            }
+            source_pages = skill.get("source_pages", [])
+            if source_pages:
+                entry["source_pages"] = source_pages
+            index["skills"].append(entry)
+
         index_path = skills_output_dir / "index.json"
         index_path.write_text(
             json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8"
