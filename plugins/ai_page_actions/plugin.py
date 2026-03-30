@@ -41,7 +41,6 @@ class AiPageActionsPlugin(BasePlugin):
         self._file_utils = AIFileUtils()
         self._skip_basenames: List[str] = []
         self._skip_paths: List[str] = []
-        self._public_root: str = "/ai/"
         self._config_loaded = False
 
     # ------------------------------------------------------------------
@@ -59,7 +58,6 @@ class AiPageActionsPlugin(BasePlugin):
         exclusions = llms_config.get("content", {}).get("exclusions", {})
         self._skip_basenames = exclusions.get("skip_basenames", [])
         self._skip_paths = exclusions.get("skip_paths", [])
-        self._public_root = llms_config.get("outputs", {}).get("public_root", "/ai/")
         self._config_loaded = True
 
     def _load_llms_config(self, project_root: Path) -> dict:
@@ -80,12 +78,11 @@ class AiPageActionsPlugin(BasePlugin):
     # H1 wrapping
     # ------------------------------------------------------------------
 
-    def _wrap_h1(self, h1: Tag, slug: str, soup: BeautifulSoup, site_url: str = "") -> None:
+    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
         """Wrap an H1 element and the AI actions widget in a flex container."""
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
-        public_root = self._public_root.strip("/")
-        url = f"{base_path}/{public_root}/pages/{slug}.md"
-        filename = f"{slug}.md"
+        url = f"{base_path}/{md_path}"
+        filename = md_path.rsplit("/", 1)[-1]
 
         widget_html = self._file_utils.generate_dropdown_html(
             url=url,
@@ -135,6 +132,12 @@ class AiPageActionsPlugin(BasePlugin):
         modified = False
 
         # --- Toggle pages ---
+        # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
+        # so the derived .md path always matches what resolve_md writes.
+        route = page.url.strip("/")
+        if route.endswith(".html"):
+            route = route[: -len(".html")]
+
         toggle_containers = md_content.select(".toggle-container")
         if toggle_containers:
             for container in toggle_containers:
@@ -150,16 +153,20 @@ class AiPageActionsPlugin(BasePlugin):
                         f'.toggle-btn[data-variant="{variant}"]'
                     )
                     data_filename = btn.get("data-filename", "") if btn else ""
-                    slug = AIFileUtils.build_toggle_slug(page.url, data_filename)
-                    self._wrap_h1(h1, slug, soup, site_url=site_url)
+                    if data_filename:
+                        segments = route.split("/")
+                        md_path = "/".join(segments[:-1] + [f"{data_filename}.md"])
+                    else:
+                        md_path = f"{route}.md"
+                    self._wrap_h1(h1, md_path, soup, site_url=site_url)
                     modified = True
 
         # --- Normal pages (no toggle) ---
         if not toggle_containers:
             h1 = md_content.find("h1")
             if h1:
-                slug = AIFileUtils.build_slug(page.url)
-                self._wrap_h1(h1, slug, soup, site_url=site_url)
+                md_path = f"{route}.md"
+                self._wrap_h1(h1, md_path, soup, site_url=site_url)
                 modified = True
 
         if not modified:

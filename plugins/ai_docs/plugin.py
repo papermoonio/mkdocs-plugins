@@ -8,14 +8,21 @@ import socket
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List, Optional
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
 
+from bs4 import BeautifulSoup, Tag
+
 import yaml
 from mkdocs.config.config_options import Type
+from mkdocs.config.defaults import MkDocsConfig
 from mkdocs.plugins import BasePlugin
+from mkdocs.structure.pages import Page
 from mkdocs.utils import log
+
+from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
 
 # Module scope regex variables
@@ -37,24 +44,437 @@ SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
 
 # Define plugin class
-class ResolveMDPlugin(BasePlugin):
-    # Define value for `llms_config` in the project mkdocs.yml file
-    config_scheme = (("llms_config", Type(str, required=True)),)
+class AIDocsPlugin(BasePlugin):
+        # Define value for `llms_config` in the project mkdocs.yml file
+    config_scheme = (
+        ("llms_config", Type(str, default="llms_config.json")),
+        ("ai_resources_page", Type(bool, default=True)),
+        ("ai_page_actions", Type(bool, default=True)),
+    )
 
     def __init__(self):
         super().__init__()
+        self._llms_config: dict = {}
+
+        # Resolve MD vars
         self.allow_remote_snippets = True
         self.allowed_domains = []
-        self.docs_base_url = "/"
         self._remote_snippet_cache: dict[str, str | None] = {}
+
+        # AI page actions vars
+        self._file_utils = AIFileUtils()
+        self._skip_basenames: List[str] = []
+        self._skip_paths: List[str] = []
+        self._config_loaded = False
+
+    # ------------------------------------------------------------------
+    # Internal functions
+    # ------------------------------------------------------------------
+
+    def _ensure_config_loaded(self, config: MkDocsConfig) -> None:
+        """Load llms_config.json once per build and cache the result."""
+        if self._config_loaded:
+            return
+        config_file_path = Path(config["config_file_path"]).resolve()
+        project_root = config_file_path.parent
+        self._llms_config = self._load_llms_config(project_root)
+
+        exclusions = self._llms_config.get("content", {}).get("exclusions", {})
+        self._skip_basenames = exclusions.get("skip_basenames", [])
+        self._skip_paths = exclusions.get("skip_paths", [])
+        self._config_loaded = True
+
+    def _load_llms_config(self, project_root: Path) -> dict:
+        """Load the LLM config file from the configured path."""
+        config_filename = self.config.get("llms_config", "llms_config.json")
+        config_path = (project_root / config_filename).resolve()
+        if not config_path.exists():
+            raise FileNotFoundError(f"[ai_docs] llms_config not found at {config_path}")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            log.warning(f"[ai_docs] Failed to load LLM config: {e}")
+            return {}
+
+    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
+        """Wrap an H1 element and the AI actions widget in a flex container."""
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        url = f"{base_path}/{md_path}"
+        filename = md_path.rsplit("/", 1)[-1]
+
+        widget_html = self._file_utils.generate_dropdown_html(
+            url=url,
+            filename=filename,
+            primary_label="Copy page",
+            site_url=site_url,
+            label_replace={"file": "page"},
+        )
+
+        wrapper = soup.new_tag("div")
+        wrapper["class"] = "h1-ai-actions-wrapper"
+
+        h1.wrap(wrapper)
+        widget = BeautifulSoup(widget_html, "html.parser")
+        wrapper.append(widget)
+
+    # ------------------------------------------------------------------
+    # Lifecycle hooks
+    # ------------------------------------------------------------------
+    def on_page_markdown(self, markdown, page, config, files):
+        """
+        Add an AI Resources page at /ai-resources.md with links to the LLM files and category bundles.
+        The content is generated dynamically based on the current llms_config.json and the categories defined therein.
+        """
+
+        if not self.config.get("ai_resources_page", True):
+            return markdown
+
+        # Target only the AI Resources page
+        if not page.file.src_path.endswith("ai-resources.md"):
+            return markdown
+
+        log.info(f"[ai_docs] Generating content for {page.file.src_path}")
+
+        self._ensure_config_loaded(config)
+
+        # Get project name
+        project_cfg = self._llms_config.get("project", {})
+        project_name = project_cfg.get("name")
+        if not project_name:
+            raise KeyError(
+                "[ai_docs] 'project.name' is missing in llms_config.json"
+            )
+
+        # Category headings are emitted here so MkDocs includes them in the TOC.
+        # The tables are injected with token estimates in on_post_build via
+        # _patch_ai_resources_page, after all artifact files have been written.
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info", {}) or {}
+
+        category_sections = ""
+        if categories_info:
+            category_sections = "\n\n## Categories\n"
+            for cat_id, cat_info in categories_info.items():
+                slug = self.slugify_category(cat_id)
+                display_name = cat_info.get("name", cat_id)
+                description = cat_info.get("description", f"Resources for {display_name}.")
+                category_sections += (
+                    f"\n### {display_name}\n\n"
+                    f"{description}\n\n"
+                    f'<div id="ai-category-{slug}-table"></div>\n'
+                )
+
+        return f"""# AI Resources
+
+{project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
+
+## How to Use These Files
+
+- **Quick navigation**: Use `llms.txt` to give models a high-level map of the site.
+- **Lightweight context**: Use `site-index.json` for smaller context windows or when you only need targeted retrieval.
+- **Full content**: Use `llms-full.jsonl` for large-context models or preparing data for RAG pipelines.
+- **Focused bundles**: Use category files (e.g., `basics.md`, `reference.md`) to limit content to a specific theme or task for more focused responses.
+
+These AI-ready files do not include any persona or system prompts. They are purely informational and can be used without conflicting with your existing agent or tool prompting.
+
+## Access LLM Files
+
+<div id="ai-resources-aggregate-table"></div>
+
+!!! note
+    The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
+{category_sections}"""
+
+
+    def _build_aggregate_table_html(
+        self,
+        base_path: str,
+        public_root_stripped: str,
+        site_url: str,
+        aggregate_tokens: dict[str, int],
+    ) -> str:
+        """Render the aggregate AI resources table (llms.txt, site-index.json, llms-full.jsonl)."""
+
+        def th(text: str) -> str:
+            return f"<th>{text}</th>"
+
+        def td(content: str) -> str:
+            return f"<td>{content}</td>"
+
+        def fmt_tokens(n: int) -> str:
+            return f"{n:,}" if n else "—"
+
+        def make_table(rows: list[str]) -> str:
+            header = (
+                "<thead><tr>"
+                + th("File") + th("Description")
+                + th("Token Estimate") + th("Actions")
+                + "</tr></thead>"
+            )
+            return (
+                "<table>\n"
+                + header + "\n"
+                + "<tbody>\n"
+                + "\n".join(rows) + "\n"
+                + "</tbody>\n"
+                + "</table>"
+            )
+
+        actions_llms = self._file_utils.generate_dropdown_html(
+            url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
+        )
+        actions_site_index = self._file_utils.generate_dropdown_html(
+            url=f"{base_path}{public_root_stripped}/site-index.json",
+            filename="site-index.json",
+            site_url=site_url,
+        )
+        actions_full = self._file_utils.generate_dropdown_html(
+            url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
+            filename="llms-full.jsonl",
+            exclude=["view-markdown"],
+            site_url=site_url,
+        )
+        return make_table([
+            "<tr>"
+            + td('<code style="white-space: nowrap;">llms.txt</code>')
+            + td("Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format.")
+            + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)))
+            + td(actions_llms)
+            + "</tr>",
+            "<tr>"
+            + td('<code style="white-space: nowrap;">site-index.json</code>')
+            + td("Lightweight site index of JSON objects (one per page) with metadata and content previews.")
+            + td(fmt_tokens(aggregate_tokens.get("site_index", 0)))
+            + td(actions_site_index)
+            + "</tr>",
+            "<tr>"
+            + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
+            + td("Full content of documentation site enhanced with metadata.")
+            + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)))
+            + td(actions_full)
+            + "</tr>",
+        ])
+
+    def _build_category_table_html(
+        self,
+        cat_id: str,
+        base_path: str,
+        public_root_stripped: str,
+        site_url: str,
+        category_tokens: dict[str, int],
+        category_light_tokens: dict[str, int],
+    ) -> str:
+        """Render the table for a single category (full bundle + light file rows)."""
+
+        def th(text: str) -> str:
+            return f"<th>{text}</th>"
+
+        def td(content: str) -> str:
+            return f"<td>{content}</td>"
+
+        def fmt_tokens(n: int) -> str:
+            return f"{n:,}" if n else "—"
+
+        def make_table(rows: list[str]) -> str:
+            header = (
+                "<thead><tr>"
+                + th("File") + th("Description")
+                + th("Token Estimate") + th("Actions")
+                + "</tr></thead>"
+            )
+            return (
+                "<table>\n"
+                + header + "\n"
+                + "<tbody>\n"
+                + "\n".join(rows) + "\n"
+                + "</tbody>\n"
+                + "</table>"
+            )
+
+        slug = self.slugify_category(cat_id)
+        filename = f"{slug}.md"
+        light_filename = f"{slug}-light.md"
+        url = f"{base_path}{public_root_stripped}/categories/{filename}"
+        light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
+        actions = self._file_utils.generate_dropdown_html(
+            url=url, filename=filename, site_url=site_url
+        )
+        light_actions = self._file_utils.generate_dropdown_html(
+            url=light_url, filename=light_filename, site_url=site_url
+        )
+        return make_table([
+            "<tr>"
+            + td(f'<code style="white-space: nowrap;">{filename}</code>')
+            + td("Full bundle — complete page content for all tagged pages.")
+            + td(fmt_tokens(category_tokens.get(cat_id, 0)))
+            + td(actions)
+            + "</tr>",
+            "<tr>"
+            + td(f'<code style="white-space: nowrap;">{light_filename}</code>')
+            + td("Lightweight index — titles, URLs, previews, and section headings.")
+            + td(fmt_tokens(category_light_tokens.get(cat_id, 0)))
+            + td(light_actions)
+            + "</tr>",
+        ])
+
+    def _patch_ai_resources_page(
+        self, site_dir: Path, config: MkDocsConfig
+    ) -> None:
+        """Inject the AI resources table (with token estimates) into the built HTML page."""
+        use_directory_urls = config.get("use_directory_urls", True)
+        if use_directory_urls:
+            html_path = site_dir / "ai-resources" / "index.html"
+        else:
+            html_path = site_dir / "ai-resources.html"
+
+        if not html_path.exists():
+            log.warning(
+                f"[ai_docs] ai-resources HTML not found at {html_path}, skipping table injection"
+            )
+            return
+
+        site_url = config.get("site_url", "")
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        outputs_cfg = self._llms_config.get("outputs", {})
+        public_root_stripped = "/" + outputs_cfg.get("public_root", "/ai/").strip("/")
+        public_root = public_root_stripped.strip("/")
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info", {})
+
+        # Estimate tokens for the three aggregate artifact files from their built content
+        def _file_tokens(path: Path) -> int:
+            return self.estimate_tokens(path.read_text(encoding="utf-8")) if path.exists() else 0
+
+        # Read token estimates for category bundles and light files from their front matter
+        categories_dir = site_dir / public_root / "categories"
+        category_tokens: dict[str, int] = {}
+        category_light_tokens: dict[str, int] = {}
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            for path, target in [
+                (categories_dir / f"{slug}.md", category_tokens),
+                (categories_dir / f"{slug}-light.md", category_light_tokens),
+            ]:
+                if path.exists():
+                    fm, _ = self.split_front_matter(path.read_text(encoding="utf-8"))
+                    target[cat_id] = int(fm.get("token_estimate", 0) or 0)
+
+        # Read token estimates for the three aggregate artifact files from their content
+        aggregate_tokens = {
+            "llms_txt": _file_tokens(site_dir / "llms.txt"),
+            "site_index": _file_tokens(site_dir / public_root / "site-index.json"),
+            "llms_full": _file_tokens(site_dir / public_root / "llms-full.jsonl"),
+        }
+
+        page_html = html_path.read_text(encoding="utf-8")
+
+        # Replace aggregate table placeholder
+        aggregate_placeholder = '<div id="ai-resources-aggregate-table"></div>'
+        if aggregate_placeholder not in page_html:
+            log.warning("[ai_docs] ai-resources-aggregate-table placeholder not found in built HTML")
+            return
+        aggregate_html = self._build_aggregate_table_html(
+            base_path, public_root_stripped, site_url, aggregate_tokens
+        )
+        page_html = page_html.replace(aggregate_placeholder, aggregate_html, 1)
+
+        # Replace per-category table placeholders
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            cat_placeholder = f'<div id="ai-category-{slug}-table"></div>'
+            if cat_placeholder not in page_html:
+                log.warning(f"[ai_docs] placeholder not found for category '{cat_id}'")
+                continue
+            cat_html = self._build_category_table_html(
+                cat_id, base_path, public_root_stripped, site_url,
+                category_tokens, category_light_tokens,
+            )
+            page_html = page_html.replace(cat_placeholder, cat_html, 1)
+
+        html_path.write_text(page_html, encoding="utf-8")
+        log.info(f"[ai_docs] injected resources tables with token estimates into {html_path}")
+
+    def on_post_page(
+        self, output: str, *, page: Page, config: MkDocsConfig
+    ) -> Optional[str]:
+        """Inject the AI actions widget next to each page's H1 (opt-out via ai_page_actions: false)."""
+        if not self.config.get("ai_page_actions", True):
+            return output
+
+        self._ensure_config_loaded(config)
+
+        # Always skip the homepage (root index.md)
+        if page.is_homepage:
+            return output
+
+        # Skip excluded pages (driven by llms_config.json + dot-dirs + front matter)
+        if self._file_utils.is_page_excluded(
+            page.file.src_path,
+            page.meta,
+            skip_basenames=self._skip_basenames,
+            skip_paths=self._skip_paths,
+        ):
+            return output
+
+        site_url = config.get("site_url", "")
+
+        soup = BeautifulSoup(output, "html.parser")
+        md_content = soup.select_one(".md-content")
+        if not md_content:
+            return output
+
+        modified = False
+
+        # --- Toggle pages ---
+        # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
+        # so the derived .md path always matches the co-located artifact path.
+        route = page.url.strip("/")
+        if route.endswith(".html"):
+            route = route[: -len(".html")]
+
+        toggle_containers = md_content.select(".toggle-container")
+        if toggle_containers:
+            for container in toggle_containers:
+                header_spans = container.select(
+                    ".toggle-header > span[data-variant]"
+                )
+                for span in header_spans:
+                    h1 = span.find("h1")
+                    if not h1:
+                        continue
+                    variant = span.get("data-variant", "")
+                    btn = container.select_one(
+                        f'.toggle-btn[data-variant="{variant}"]'
+                    )
+                    data_filename = btn.get("data-filename", "") if btn else ""
+                    if data_filename:
+                        segments = route.split("/")
+                        md_path = "/".join(segments[:-1] + [f"{data_filename}.md"])
+                    else:
+                        md_path = f"{route}.md"
+                    self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                    modified = True
+
+        # --- Normal pages (no toggle) ---
+        if not toggle_containers:
+            h1 = md_content.find("h1")
+            if h1:
+                md_path = f"{route}.md"
+                self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                modified = True
+
+        if not modified:
+            return output
+
+        return str(soup)
+
 
     # Process will start after site build is complete
     def on_post_build(self, config):
-        # Locate and load config
-        config_file_path = Path(config["config_file_path"]).resolve()
-        project_root = config_file_path.parent
-        self.llms_config = self.load_llms_config(project_root)
-        snippet_cfg = self.llms_config.get("snippets", {})
+        """Generate resolved Markdown files for AI consumption, plus category bundles and site index artifacts."""
+        self._ensure_config_loaded(config)
+        snippet_cfg = self._llms_config.get("snippets", {})
         self.allow_remote_snippets = snippet_cfg.get("allow_remote", True)
         self.allowed_domains = snippet_cfg.get("allowed_domains", [])
 
@@ -65,28 +485,27 @@ class ResolveMDPlugin(BasePlugin):
         # Snippet directory defaults to docs/.snippets
         snippet_dir = docs_dir / ".snippets"
         if not snippet_dir.exists():
-            log.debug(f"[resolve_md] snippet directory not found at {snippet_dir}")
+            log.debug(f"[ai_docs] snippet directory not found at {snippet_dir}")
 
         # Load shared variables (variables.yml sits inside docs_dir)
         variables_path = docs_dir / "variables.yml"
         variables = self.load_yaml(str(variables_path))
         if not variables:
-            log.warning(f"[resolve_md] no variables loaded from {variables_path}")
+            log.warning(f"[ai_docs] no variables loaded from {variables_path}")
 
         # Determine docs_base_url for canonical URLs
-        project_cfg = self.llms_config.get("project", {})
+        project_cfg = self._llms_config.get("project", {})
         docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
-        self.docs_base_url = docs_base_url
 
         # Determine AI artifacts root (categories, index, llms files)
-        outputs_cfg = self.llms_config.get("outputs", {})
+        outputs_cfg = self._llms_config.get("outputs", {})
         public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
         ai_root = site_dir / public_root
         ai_root.mkdir(parents=True, exist_ok=True)
-        log.info(f"[resolve_md] writing resolved pages alongside HTML in {site_dir}")
+        log.info(f"[ai_docs] writing resolved pages alongside HTML in {site_dir}")
 
         # Loop through docs_dir MD files, filter for exclusions defined in llms_config.json
-        content_cfg = self.llms_config.get("content", {})
+        content_cfg = self._llms_config.get("content", {})
         exclusions = content_cfg.get("exclusions", {})
         skip_basenames = exclusions.get("skip_basenames", [])
         skip_paths = exclusions.get("skip_paths", [])
@@ -94,7 +513,7 @@ class ResolveMDPlugin(BasePlugin):
             docs_dir, skip_basenames, skip_paths
         )
 
-        log.info(f"[resolve_md] found {len(markdown_files)} markdown files")
+        log.info(f"[ai_docs] found {len(markdown_files)} markdown files")
 
         build_timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -139,16 +558,16 @@ class ResolveMDPlugin(BasePlugin):
                 body, snippet_dir, variables
             )
             if snippet_body != body:
-                log.debug(f"[resolve_md] resolved snippets in {md_path}")
+                log.debug(f"[ai_docs] resolved snippets in {md_path}")
             body = snippet_body
             # Resolve variable placeholders against variables.yml definitions
             resolved_body = self.resolve_markdown_placeholders(body, variables)
             if resolved_body != body:
-                log.debug(f"[resolve_md] resolved placeholders in {md_path}")
+                log.debug(f"[ai_docs] resolved placeholders in {md_path}")
             # Remove HTML comments after substitutions
             cleaned_body = self.remove_html_comments(resolved_body)
             if cleaned_body != resolved_body:
-                log.debug(f"[resolve_md] stripped HTML comments in {md_path}")
+                log.debug(f"[ai_docs] stripped HTML comments in {md_path}")
             # Convert path to slug and canonical URLs
             rel_path = Path(md_path).relative_to(docs_dir)
             rel_no_ext = str(rel_path.with_suffix(""))
@@ -196,23 +615,31 @@ class ResolveMDPlugin(BasePlugin):
                 }
             )
 
-            log.debug(f"[resolve_md] {md_path} FM keys: {list(front_matter.keys())}")
-            log.debug(f"[resolve_md] {md_path} mapped FM: {reduced_fm}")
+            log.debug(f"[ai_docs] {md_path} FM keys: {list(front_matter.keys())}")
+            log.debug(f"[ai_docs] {md_path} mapped FM: {reduced_fm}")
 
-        log.info(f"[resolve_md] processed {processed} AI pages")
+        log.info(f"[ai_docs] processed {processed} AI pages")
         if ai_pages:
             log.debug(
-                f"[resolve_md] sample AI page metadata: slug={ai_pages[0]['slug']} cats={ai_pages[0].get('categories')}"
+                f"[ai_docs] sample AI page metadata: slug={ai_pages[0]['slug']} cats={ai_pages[0].get('categories')}"
             )
 
         # Build category bundles based on current AI pages
         self.build_category_bundles(ai_pages, ai_root, build_timestamp)
         # Build site index + llms JSONL artifacts
-        self.build_site_index(ai_pages, ai_root, build_timestamp)
+        enriched = self.build_site_index(ai_pages, ai_root, build_timestamp)
+        # Build per-category lightweight index files
+        self.build_category_light(enriched, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir, build_timestamp)
+        # Inject resources table with token estimates into the built ai-resources HTML
+        # (must run after all artifact files are written so their sizes can be estimated)
+        if self.config.get("ai_resources_page", True):
+            self._patch_ai_resources_page(site_dir, config)
 
-    # ----- Helper functions -------
+    # ------------------------------------------------------------------
+    # Helper static functions
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_git_timestamp(ts: str) -> str:
@@ -236,7 +663,7 @@ class ResolveMDPlugin(BasePlugin):
         rel_paths = []
         abs_by_rel: dict[str, str] = {}
         for fp in file_paths:
-            rel = os.path.relpath(fp, abs_repo)
+            rel = os.path.relpath(fp, abs_repo).replace(os.sep, "/")
             rel_paths.append(rel)
             abs_by_rel[rel] = fp
 
@@ -280,7 +707,7 @@ class ResolveMDPlugin(BasePlugin):
             abs_path = abs_by_rel.get(rel)
             if abs_path:
                 try:
-                    result_map[abs_path] = ResolveMDPlugin._parse_git_timestamp(ts)
+                    result_map[abs_path] = AIDocsPlugin._parse_git_timestamp(ts)
                 except (ValueError, OSError):
                     pass
         return result_map
@@ -308,7 +735,7 @@ class ResolveMDPlugin(BasePlugin):
             )
             ts = result.stdout.strip()
             if ts:
-                return ResolveMDPlugin._parse_git_timestamp(ts)
+                return AIDocsPlugin._parse_git_timestamp(ts)
         except (subprocess.SubprocessError, OSError):
             pass
         # Fallback: filesystem modification time
@@ -346,21 +773,6 @@ class ResolveMDPlugin(BasePlugin):
                 results.append(os.path.join(root, file))
         return sorted(results)
 
-    # Loaders for llms_config.json and yaml files
-
-    def load_llms_config(self, project_root: Path) -> dict:
-        """Load llms_config.json from the repo root."""
-        config_json = self.config["llms_config"]
-        llms_config_path = (project_root / config_json).resolve()
-
-        if not llms_config_path.exists():
-            raise FileNotFoundError(f"llms_config not found at {llms_config_path}")
-
-        with llms_config_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        log.debug(f"[resolve_md] llms_config keys: {list(data.keys())}")
-        return data
-
     @staticmethod
     def load_yaml(yaml_file: str):
         """Load a YAML file; return {} if missing/empty."""
@@ -370,7 +782,7 @@ class ResolveMDPlugin(BasePlugin):
             with open(yaml_file, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
         except yaml.YAMLError as exc:
-            log.warning(f"[resolve_md] unable to parse YAML file {yaml_file}: {exc}")
+            log.warning(f"[ai_docs] unable to parse YAML file {yaml_file}: {exc}")
             return {}
         return data or {}
 
@@ -458,7 +870,7 @@ class ResolveMDPlugin(BasePlugin):
 
         def replacer(match):
             key_path = match.group(1)
-            value = ResolveMDPlugin.get_value_from_path(variables, key_path)
+            value = AIDocsPlugin.get_value_from_path(variables, key_path)
             return str(value) if value is not None else match.group(0)
 
         return PLACEHOLDER_PATTERN.sub(replacer, content)
@@ -475,23 +887,23 @@ class ResolveMDPlugin(BasePlugin):
         double_match = SNIPPET_DOUBLE_RANGE_RE.match(ref)
         if double_match:
             file_only = double_match.group("path")
-            line_end = ResolveMDPlugin._parse_line_number(double_match.group("end"))
+            line_end = AIDocsPlugin._parse_line_number(double_match.group("end"))
             return file_only, 1, line_end, None
 
         range_match = SNIPPET_RANGE_RE.match(ref)
         if range_match:
             file_only = range_match.group("path")
-            line_start = ResolveMDPlugin._parse_line_number(range_match.group("start"))
-            line_end = ResolveMDPlugin._parse_line_number(range_match.group("end"))
+            line_start = AIDocsPlugin._parse_line_number(range_match.group("start"))
+            line_end = AIDocsPlugin._parse_line_number(range_match.group("end"))
             return file_only, line_start, line_end, None
 
         single_match = SNIPPET_SINGLE_RANGE_RE.match(ref)
         if single_match:
             file_only = single_match.group("path")
-            line_start = ResolveMDPlugin._parse_line_number(single_match.group("start"))
+            line_start = AIDocsPlugin._parse_line_number(single_match.group("start"))
             return file_only, line_start, None, None
 
-        idx = ResolveMDPlugin._find_selector_colon(ref)
+        idx = AIDocsPlugin._find_selector_colon(ref)
         if idx is not None:
             section = ref[idx + 1 :].strip()
             file_only = ref[:idx]
@@ -561,7 +973,7 @@ class ResolveMDPlugin(BasePlugin):
             end_idx = self._normalize_line_index(line_end, total, default=total)
             if end_idx < start_idx:
                 log.warning(
-                    f"[resolve_md] invalid line range ({line_start}:{line_end}) in {snippet_ref}"
+                    f"[ai_docs] invalid line range ({line_start}:{line_end}) in {snippet_ref}"
                 )
                 return ""
             selected = "\n".join(lines[start_idx - 1 : end_idx])
@@ -605,11 +1017,11 @@ class ResolveMDPlugin(BasePlugin):
                 return "\n".join(lines[start_idx:idx])
         if start_idx is not None:
             log.warning(
-                f"[resolve_md] snippet section '{section}' missing end marker in {snippet_ref}"
+                f"[ai_docs] snippet section '{section}' missing end marker in {snippet_ref}"
             )
         else:
             log.warning(
-                f"[resolve_md] snippet section '{section}' not found in {snippet_ref}"
+                f"[ai_docs] snippet section '{section}' not found in {snippet_ref}"
             )
         return None
 
@@ -624,11 +1036,11 @@ class ResolveMDPlugin(BasePlugin):
             absolute_snippet_path.relative_to(snippet_directory_root)
         except ValueError:
             log.warning(
-                f"[resolve_md] invalid local snippet path (outside snippet directory): {snippet_ref}"
+                f"[ai_docs] invalid local snippet path (outside snippet directory): {snippet_ref}"
             )
             return f"<!-- INVALID LOCAL SNIPPET PATH {snippet_ref} -->"
         if not absolute_snippet_path.exists():
-            log.warning(f"[resolve_md] missing local snippet {snippet_ref}")
+            log.warning(f"[ai_docs] missing local snippet {snippet_ref}")
             return f"<!-- MISSING LOCAL SNIPPET {snippet_ref} -->"
 
         snippet_content = absolute_snippet_path.read_text(encoding="utf-8")
@@ -678,13 +1090,13 @@ class ResolveMDPlugin(BasePlugin):
             return f"<!-- REMOTE SNIPPET SKIPPED (disabled): {snippet_ref} -->"
         url, line_start, line_end, section = self.parse_line_range(snippet_ref)
         if not url.startswith("http"):
-            log.warning(f"[resolve_md] invalid remote snippet ref {snippet_ref}")
+            log.warning(f"[ai_docs] invalid remote snippet ref {snippet_ref}")
             return f"<!-- INVALID REMOTE SNIPPET {snippet_ref} -->"
 
         block_reason = self._validate_url(url)
         if block_reason:
             log.warning(
-                f"[resolve_md] blocked remote snippet {snippet_ref}: {block_reason}"
+                f"[ai_docs] blocked remote snippet {snippet_ref}: {block_reason}"
             )
             return f"<!-- BLOCKED REMOTE SNIPPET {snippet_ref} -->"
 
@@ -699,14 +1111,14 @@ class ResolveMDPlugin(BasePlugin):
                     content_length = response.headers.get("Content-Length")
                     if content_length and content_length.isdigit() and int(content_length) > _MAX_SNIPPET_BYTES:
                         log.warning(
-                            f"[resolve_md] remote snippet too large ({content_length} bytes): {snippet_ref}"
+                            f"[ai_docs] remote snippet too large ({content_length} bytes): {snippet_ref}"
                         )
                         self._remote_snippet_cache[url] = None
                         return f"<!-- REMOTE SNIPPET TOO LARGE {snippet_ref} -->"
                     raw = response.read(_MAX_SNIPPET_BYTES + 1)
                     if len(raw) > _MAX_SNIPPET_BYTES:
                         log.warning(
-                            f"[resolve_md] remote snippet exceeded {_MAX_SNIPPET_BYTES} bytes: {snippet_ref}"
+                            f"[ai_docs] remote snippet exceeded {_MAX_SNIPPET_BYTES} bytes: {snippet_ref}"
                         )
                         self._remote_snippet_cache[url] = None
                         return f"<!-- REMOTE SNIPPET TOO LARGE {snippet_ref} -->"
@@ -714,7 +1126,7 @@ class ResolveMDPlugin(BasePlugin):
                 self._remote_snippet_cache[url] = snippet_content
             except (urllib_error.URLError, urllib_error.HTTPError) as exc:
                 log.warning(
-                    f"[resolve_md] error fetching remote snippet {snippet_ref}: {exc}"
+                    f"[ai_docs] error fetching remote snippet {snippet_ref}: {exc}"
                 )
                 self._remote_snippet_cache[url] = None
                 return f"<!-- ERROR FETCHING REMOTE SNIPPET {snippet_ref} -->"
@@ -764,7 +1176,7 @@ class ResolveMDPlugin(BasePlugin):
             iterations += 1
             if iterations > max_depth:
                 log.warning(
-                    "[resolve_md] snippet expansion exceeded %d iterations — "
+                    "[ai_docs] snippet expansion exceeded %d iterations — "
                     "possible circular reference, stopping expansion",
                     max_depth,
                 )
@@ -924,14 +1336,14 @@ class ResolveMDPlugin(BasePlugin):
 
     def get_ai_output_dir(self, base_dir: Path) -> Path:
         """Resolve target directory for resolved markdown files."""
-        repo_cfg = self.llms_config.get("repository", {})
+        repo_cfg = self._llms_config.get("repository", {})
         ai_path = repo_cfg.get("ai_artifacts_path")
         if ai_path:
             ai_path = Path(ai_path)
             if not ai_path.is_absolute():
                 ai_path = base_dir / ai_path
         else:
-            outputs_cfg = self.llms_config.get("outputs", {})
+            outputs_cfg = self._llms_config.get("outputs", {})
             public_root = outputs_cfg.get("public_root", "/ai/").strip("/")
             pages_dir = outputs_cfg.get("files", {}).get("pages_dir", "pages")
             ai_path = base_dir / public_root / pages_dir
@@ -981,7 +1393,7 @@ class ResolveMDPlugin(BasePlugin):
         content = f"---\n{fm_yaml}\n---\n\n{body.strip()}\n"
         with out_path.open("w", encoding="utf-8") as fh:
             fh.write(content)
-        log.debug(f"[resolve_md] wrote {out_path}")
+        log.debug(f"[ai_docs] wrote {out_path}")
 
     # Category and slug helper functions
     @staticmethod
@@ -1010,7 +1422,7 @@ class ResolveMDPlugin(BasePlugin):
 
     @staticmethod
     def select_pages_for_category(category: str, pages: list[dict]) -> list[dict]:
-        cat_lower = category.lower()
+        cat_slug = AIDocsPlugin.slugify_category(category)
         selected = []
         for page in pages:
             cats = page.get("categories") or []
@@ -1018,7 +1430,7 @@ class ResolveMDPlugin(BasePlugin):
                 cats_iter = [cats]
             else:
                 cats_iter = cats
-            if any(str(c).lower() == cat_lower for c in cats_iter):
+            if any(AIDocsPlugin.slugify_category(str(c)) == cat_slug for c in cats_iter):
                 selected.append(page)
         return selected
 
@@ -1104,10 +1516,10 @@ class ResolveMDPlugin(BasePlugin):
         self, pages: list[dict], ai_root: Path, build_timestamp: str = ""
     ) -> None:
         """Generate per-category bundle files based on AI pages."""
-        content_cfg = self.llms_config.get("content", {})
+        content_cfg = self._llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info") or {}
         if not categories_info:
-            log.info("[resolve_md] no categories configured; skipping bundles")
+            log.info("[ai_docs] no categories configured; skipping bundles")
             return
         base_cats = content_cfg.get("base_context_categories") or []
 
@@ -1120,7 +1532,7 @@ class ResolveMDPlugin(BasePlugin):
         base_union = self.union_pages(base_sets) if base_sets else []
 
         log.debug(
-            f"[resolve_md] building category bundles for {len(categories_info)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
+            f"[ai_docs] building category bundles for {len(categories_info)} categories; sample page cats: {pages[0].get('categories') if pages else 'none'}"
         )
 
         for category_id, cat_info in categories_info.items():
@@ -1137,7 +1549,7 @@ class ResolveMDPlugin(BasePlugin):
                     category_pages, key=lambda p: p.get("title", "").lower()
                 )
                 log.debug(
-                    f"[resolve_md] base bundle {display_name} ({category_id}): {len(bundle_pages)} pages"
+                    f"[ai_docs] base bundle {display_name} ({category_id}): {len(bundle_pages)} pages"
                 )
                 self.write_category_bundle(
                     out_path,
@@ -1153,7 +1565,7 @@ class ResolveMDPlugin(BasePlugin):
                     combined, key=lambda p: p.get("title", "").lower()
                 )
                 log.debug(
-                    f"[resolve_md] category bundle {display_name} ({category_id}): base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
+                    f"[ai_docs] category bundle {display_name} ({category_id}): base={len(base_union)} cat-only={len(category_pages)} total={len(bundle_pages)}"
                 )
                 self.write_category_bundle(
                     out_path,
@@ -1164,16 +1576,16 @@ class ResolveMDPlugin(BasePlugin):
                     build_timestamp,
                 )
 
-        log.info(f"[resolve_md] category bundles written to {categories_dir}")
+        log.info(f"[ai_docs] category bundles written to {categories_dir}")
 
     # Create full-site content related AI artifact files
     def build_site_index(
         self, pages: list[dict], ai_root: Path, build_timestamp: str = ""
-    ) -> None:
+    ) -> list[dict]:
         """Generate site-index.json and llms_full.jsonl from AI pages."""
         if not pages:
-            return
-        outputs = self.llms_config.get("outputs", {})
+            return []
+        outputs = self._llms_config.get("outputs", {})
         files_cfg = outputs.get("files", {})
         site_index_name = files_cfg.get("site_index", "site-index.json")
         llms_full_name = files_cfg.get("llms_full", "llms-full.jsonl")
@@ -1267,11 +1679,81 @@ class ResolveMDPlugin(BasePlugin):
                 fh.write(line + "\n")
 
         log.info(
-            f"[resolve_md] site index written to {index_path} (pages={len(site_index_entries)})"
+            f"[ai_docs] site index written to {index_path} (pages={len(site_index_entries)})"
         )
         log.info(
-            f"[resolve_md] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
+            f"[ai_docs] llms full JSONL written to {llms_path} (sections={len(jsonl_lines)})"
         )
+        return site_index_entries
+
+    def build_category_light(
+        self, enriched: list[dict], ai_root: Path, build_timestamp: str = ""
+    ) -> None:
+        """Generate per-category lightweight index files (<slug>-light.md)."""
+        if not enriched:
+            return
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info") or {}
+        if not categories_info:
+            log.info("[ai_docs] no categories configured; skipping light files")
+            return
+
+        categories_dir = ai_root / "categories"
+        categories_dir.mkdir(parents=True, exist_ok=True)
+
+        for category_id, cat_info in categories_info.items():
+            cat_slug = self.slugify_category(category_id)
+            display_name = cat_info.get("name", category_id)
+            description = cat_info.get("description", "")
+
+            cat_pages = sorted(
+                self.select_pages_for_category(category_id, enriched),
+                key=lambda p: (p.get("title") or "").lower(),
+            )
+
+            blocks: list[str] = []
+            for page in cat_pages:
+                lines: list[str] = []
+                title = page.get("title") or page.get("id", "")
+                lines.append(f"## {title}")
+                md_url = page.get("raw_md_url", "")
+                if md_url:
+                    lines.append(md_url)
+                preview = page.get("preview", "")
+                if preview:
+                    lines.append("")
+                    lines.append(preview)
+                outline = page.get("outline", [])
+                if outline:
+                    lines.append("")
+                    lines.append("### Sections")
+                    for heading in outline:
+                        lines.append(f"- {heading['title']} `#{heading['anchor']}`")
+                blocks.append("\n".join(lines))
+
+            body = "\n\n---\n\n".join(blocks)
+            fm_obj = {
+                "category": display_name,
+                "description": description,
+                "page_count": len(cat_pages),
+                "token_estimate": self.estimate_tokens(body),
+            }
+            if build_timestamp:
+                fm_obj["updated"] = build_timestamp
+
+            fm_yaml = yaml.safe_dump(
+                fm_obj, sort_keys=False, allow_unicode=True, width=4096
+            ).strip()
+            content = f"---\n{fm_yaml}\n---\n\n{body}\n"
+
+            out_path = categories_dir / f"{cat_slug}-light.md"
+            out_path.write_text(content, encoding="utf-8")
+            log.debug(
+                f"[ai_docs] light file {out_path.name}: {len(cat_pages)} pages"
+            )
+
+        log.info(f"[ai_docs] category light files written to {categories_dir}")
+
 
     def build_llms_txt(
         self, pages: list[dict], docs_dir: Path, build_timestamp: str = ""
@@ -1279,17 +1761,17 @@ class ResolveMDPlugin(BasePlugin):
         """Generate llms.txt listing resolved markdown links grouped by category."""
         if not pages:
             return
-        project_cfg = self.llms_config.get("project", {})
+        project_cfg = self._llms_config.get("project", {})
         project_name = project_cfg.get("name", "Documentation")
         summary_line = project_cfg.get("project_url") or project_cfg.get(
             "docs_base_url", ""
         )
 
-        content_cfg = self.llms_config.get("content", {})
+        content_cfg = self._llms_config.get("content", {})
         categories_info = content_cfg.get("categories_info", {}) or {}
 
         docs_root = docs_dir.resolve()
-        output_rel = self.llms_config.get("llms_txt_output_path", "llms.txt")
+        output_rel = self._llms_config.get("llms_txt_output_path", "llms.txt")
         out_path = Path(output_rel)
         if not out_path.is_absolute():
             out_path = (docs_root / out_path).resolve()
@@ -1329,7 +1811,7 @@ class ResolveMDPlugin(BasePlugin):
             line for line in content_lines if line is not None
         )
         out_path.write_text(llms_txt_content, encoding="utf-8")
-        log.info(f"[resolve_md] llms.txt written to {out_path}")
+        log.info(f"[ai_docs] llms.txt written to {out_path}")
 
     @staticmethod
     def format_llms_metadata_section(
@@ -1339,7 +1821,7 @@ class ResolveMDPlugin(BasePlugin):
             cat for page in pages for cat in (page.get("categories") or [])
         }
         all_content = "".join(p.get("body", "") for p in pages)
-        version_hash = ResolveMDPlugin.sha256_text(all_content)
+        version_hash = AIDocsPlugin.sha256_text(all_content)
         lines = [
             "## Metadata",
             f"- Documentation pages: {len(pages)}",

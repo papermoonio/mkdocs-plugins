@@ -4,13 +4,13 @@ A collection of custom [MkDocs](https://www.mkdocs.org/) plugins designed to ext
 
 Currently included:
 
-- **[AI Resources Page](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-resources-page.md)**: Automate the generation of an "AI Resources" page with a dynamic table of artifact files.
+- **[AI Docs](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-docs.md)**: Unified AI documentation plugin. Generates AI-ready artifacts (resolved markdown, category bundles, site index, `llms.txt`), injects a per-page actions widget, and generates an AI resources page.
 - **[Copy Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/copy-md.md)**: Serve raw Markdown files by copying them directly to your site's build folder.
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
-- **[Resolve Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md)**: Resolve variable and code snippet placeholders and serve resolved Markdown files directly from your site's build folder.
 - **[Agent Tasks](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/agent-tasks.md)**: Generate structured, agent-ready task files from a JSON configuration.
-- **[AI Page Actions](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-page-actions.md)**: Injects a per-page AI actions widget next to each page's H1 heading at build time.
+
+> **Deprecated** (kept for backward compatibility, will be removed in a future major release): [`resolve_md`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md), [`ai_page_actions`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-page-actions.md), [`ai_resources_page`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-resources-page.md). Use `ai_docs` instead.
 
 Helper utilities and libraries: 
 
@@ -33,8 +33,8 @@ Enable one or more plugins in your `mkdocs.yml`:
 plugins:
   - agent_tasks:
       agent_tasks_config: agent_tasks_config.json
-  - ai_resources_page
-  - ai_page_actions
+  - ai_docs:
+      llms_config: llms_config.json
   - copy_md:
       source_dir: docs/.example
       target_dir: example
@@ -43,8 +43,6 @@ plugins:
       minify_css: true
       minify_js: true
   - page_toggle
-  - resolve_md:
-      llms_config: example_config.json
 ```
 ## License
 

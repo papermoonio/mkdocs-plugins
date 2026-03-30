@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "papermoon-mkdocs-plugins"
-version = "0.1.0a8"
+version = "0.1.0a9"
 description = "A collection of MkDocs plugins"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 authors = [
     { name="Papermoon" },
 ]
@@ -31,6 +31,7 @@ resolve_md = "plugins.resolve_md.plugin:ResolveMDPlugin"
 page_toggle = "plugins.page_toggle.plugin:TogglePagesPlugin"
 ai_resources_page = "plugins.ai_resources_page.plugin:AiResourcesPagePlugin"
 ai_page_actions = "plugins.ai_page_actions.plugin:AiPageActionsPlugin"
+ai_docs = "plugins.ai_docs.plugin:AIDocsPlugin"
 agent_tasks = "plugins.agent_tasks.plugin:AgentTasksPlugin"
 
 
