@@ -40,23 +40,23 @@ class AgentSkillsPlugin(BasePlugin):
 
         return config
 
-    def on_post_page(self, output, page, config):
+    def on_page_content(self, html, page, config, files):
         """Inject skill badge on pages that have a related skill."""
         skills = self._page_skill_map.get(page.file.src_path, [])
         if not skills:
-            return output
+            return html
 
         site_url = (config.get("site_url") or "").rstrip("/")
         badges_html = self._render_skill_badges(skills, site_url)
 
-        soup = BeautifulSoup(output, "html.parser")
+        soup = BeautifulSoup(html, "html.parser")
         h1 = soup.find("h1")
         if h1:
             badge_soup = BeautifulSoup(badges_html, "html.parser")
             h1.insert_after(badge_soup)
             return str(soup)
 
-        return output
+        return html
 
     def on_post_build(self, config):
         """Generate skill files and index."""
@@ -262,23 +262,35 @@ class AgentSkillsPlugin(BasePlugin):
 
         return "\n".join(lines)
 
+    _TERMINAL_ICON = (
+        '<svg class="agent-skill-badge__icon" xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">'
+        '<path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5'
+        "A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0"
+        "-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0"
+        "-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326"
+        ".749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1"
+        ".734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3"
+        'a.75.75 0 0 1 0-1.5Z"></path></svg>'
+    )
+
     def _render_skill_badges(self, skills, site_url):
         items = []
         for skill in skills:
             path = f"/{self._public_root}/{self._skills_dir_name}/{skill['id']}.md"
             url = f"{site_url}{path}" if site_url else path
-            label = skill["title"]
             items.append(
-                f'<a href="{url}" class="agent-skill-badge" '
-                f'target="_blank" rel="noopener">'
-                f'<span class="agent-skill-badge__label">{label}</span>'
-                f"</a>"
+                f'<div class="agent-skill-badge">'
+                f"{self._TERMINAL_ICON}"
+                f'<span class="agent-skill-badge__label">Agent skill</span>'
+                f'<span class="agent-skill-badge__divider" aria-hidden="true"></span>'
+                f'<a href="{url}" class="agent-skill-badge__action"'
+                f' target="_blank" rel="noopener">View</a>'
+                f'<span class="agent-skill-badge__dot" aria-hidden="true">·</span>'
+                f'<a href="{url}" class="agent-skill-badge__action" download>Download</a>'
+                f"</div>"
             )
-        return (
-            '<div class="agent-skill-badges">'
-            + "".join(items)
-            + "</div>"
-        )
+        return '<div class="agent-skill-badges">' + "".join(items) + "</div>"
 
     def _build_raw_url(self, reference_repos, ref_code, file_path):
         repo_id = ref_code.get("repo", "")
