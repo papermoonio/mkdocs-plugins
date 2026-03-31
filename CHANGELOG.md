@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a10
+
+### Bug Fixes
+
+#### `ai_docs` — AI resources table placeholder now survives all markdown processors
+
+The placeholder used to inject the AI resources table was a raw HTML `<div>` element. Some environments caused Python-Markdown to emit the element with a newline inside (`<div>\n</div>`), which prevented the exact string match in `on_post_build` from finding it — leaving an empty div on the page instead of the table. The placeholder has been changed to an HTML comment (`<!-- ai-resources-aggregate-table -->`), which passes through markdown processing and HTML serialization completely unchanged.
+
 ## 0.1.0a9
 
 ### New Features

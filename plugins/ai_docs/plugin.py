@@ -195,7 +195,7 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
                 category_sections += (
                     f"\n#### {display_name}\n\n"
                     f"{description}\n\n"
-                    f'<div id="ai-category-{slug}-table"></div>\n'
+                    f'<!-- ai-category-{slug}-table -->\n'
                 )
 
         # MCP install section (only when both mcp_url and mcp_name are configured)
@@ -222,7 +222,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
 ### Full Site Files
 
-<div id="ai-resources-aggregate-table"></div>
+<!-- ai-resources-aggregate-table -->
 
 !!! note
     The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
@@ -412,7 +412,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         page_html = html_path.read_text(encoding="utf-8")
 
         # Replace aggregate table placeholder
-        aggregate_placeholder = '<div id="ai-resources-aggregate-table"></div>'
+        aggregate_placeholder = "<!-- ai-resources-aggregate-table -->"
         if aggregate_placeholder not in page_html:
             log.warning("[ai_docs] ai-resources-aggregate-table placeholder not found in built HTML")
             return
@@ -424,7 +424,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # Replace per-category table placeholders
         for cat_id in categories_info:
             slug = self.slugify_category(cat_id)
-            cat_placeholder = f'<div id="ai-category-{slug}-table"></div>'
+            cat_placeholder = f"<!-- ai-category-{slug}-table -->"
             if cat_placeholder not in page_html:
                 log.warning(f"[ai_docs] placeholder not found for category '{cat_id}'")
                 continue
