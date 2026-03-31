@@ -127,28 +127,46 @@ class AIDocsPlugin(BasePlugin):
         """Return the full MCP Markdown section (heading, intro, table)."""
         utils = self._file_utils
 
-        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url))
-        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url))
+        cursor_icon = utils.twemoji_icon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"></path></svg>')
+        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url), "Cursor", html_icon=cursor_icon)
+        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url), ":material-microsoft-visual-studio-code: VS Code")
         claude_cmd = utils.mcp_copy_code(f"claude mcp add --transport http {mcp_name} {mcp_url}")
         codex_cmd = utils.mcp_copy_code(f"codex mcp add {mcp_name} --url {mcp_url}")
-        desktop_link = utils.mcp_external_link(
-            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server"
+        desktop_btn = utils.mcp_install_button(
+            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server", ":simple-claude: Claude Desktop"
         )
 
         return f"""## Connect via MCP
 
 Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to connect your AI tools directly to {project_name} documentation.
-```
+
+```md
 {mcp_url}
 ```
 
-| Client | Method | Action |
-|:---|:---|:---|
-| Cursor | One-click install | {cursor_btn} |
-| VS Code | One-click install | {vscode_btn} |
-| Claude Code CLI | Terminal command | {claude_cmd} |
-| Codex CLI | Terminal command | {codex_cmd} |
-| Claude Desktop | Manual setup | {desktop_link} |
+<div class="grid cards install-mcp" markdown>
+
+- **Install via IDE**
+    
+    {cursor_btn}
+    {vscode_btn}
+    
+- **Install via App**
+    
+    {desktop_btn}
+    
+</div>
+
+<div class="grid cards install-mcp" markdown>
+
+- **Install via CLI**
+
+    | Client  | Command |
+    |:---|:---|
+    | Claude Code CLI | {claude_cmd} |
+    | Codex CLI  | {codex_cmd} |
+    
+</div>
 
 !!! note
     For Claude Code, add `--scope user` to make the MCP server available across all projects.
