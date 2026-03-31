@@ -127,12 +127,12 @@ class AIDocsPlugin(BasePlugin):
         """Return the full MCP Markdown section (heading, intro, table)."""
         utils = self._file_utils
 
-        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url))
-        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url))
+        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url), ":simple-claude: Cursor")
+        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url), ":material-microsoft-visual-studio-code: VS Code")
         claude_cmd = utils.mcp_copy_code(f"claude mcp add --transport http {mcp_name} {mcp_url}")
         codex_cmd = utils.mcp_copy_code(f"codex mcp add {mcp_name} --url {mcp_url}")
         desktop_link = utils.mcp_external_link(
-            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server"
+            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server", "Claude Desktop Setup Guide"
         )
 
         return f"""## Connect via MCP
@@ -142,16 +142,33 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
 {mcp_url}
 ```
 
-| Client | Method | Action |
-|:---|:---|:---|
-| Cursor | One-click install | {cursor_btn} |
-| VS Code | One-click install | {vscode_btn} |
-| Claude Code CLI | Terminal command | {claude_cmd} |
-| Codex CLI | Terminal command | {codex_cmd} |
-| Claude Desktop | Manual setup | {desktop_link} |
+<div class="grid cards" markdown>
+
+- **Install via IDE**
+
+    {cursor_btn}
+    {vscode_btn}
+
+- **Install via App**
+
+    :octicons-arrow-right-24: {desktop_link}
+
+</div>
+
+<div class="grid cards" markdown>
+
+- **Install via CLI**
+
+    | Client  | Command |
+    |:---|:---|
+    | Claude Code CLI | {claude_cmd} |
+    | Codex CLI  | {codex_cmd} |
+
+</div>
 
 !!! note
     For Claude Code, add `--scope user` to make the MCP server available across all projects.
+
 """
 
     def on_page_markdown(self, markdown, page, config, files):
