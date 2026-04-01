@@ -1,8 +1,5 @@
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 import yaml
 
 from plugins.snippet_var_resolver.plugin import SnippetVarResolverPlugin, get_value_from_path
