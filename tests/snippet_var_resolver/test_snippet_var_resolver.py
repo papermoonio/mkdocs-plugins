@@ -130,6 +130,17 @@ class TestOnConfig:
         plugin.on_config(config)  # should not raise
         assert plugin._variables == {}
 
+    def test_later_yaml_file_wins_on_conflict(self, tmp_path):
+        (tmp_path / "a.yml").write_text(yaml.dump({"version": "1.0"}))
+        (tmp_path / "b.yml").write_text(yaml.dump({"version": "2.0"}))
+
+        plugin = SnippetVarResolverPlugin()
+        plugin.load_config({})
+        config = _build_config(tmp_path, include_yaml=["a.yml", "b.yml"])
+
+        plugin.on_config(config)
+        assert plugin._variables.get("version") == "2.0"
+
     def test_missing_yaml_file_does_not_raise(self, tmp_path):
         plugin = SnippetVarResolverPlugin()
         plugin.load_config({})
