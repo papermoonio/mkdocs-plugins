@@ -1,0 +1,145 @@
+name: Publish package to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build package distributions
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip build
+
+      - name: Validate release tag matches pyproject.toml version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          import tomllib
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          package_version = pyproject["project"]["version"]
+          release_tag = os.environ["GITHUB_EVENT_RELEASE_TAG_NAME"]
+          expected_tag = f"v{package_version}"
+
+          print(f"pyproject.toml version: {package_version}")
+          print(f"GitHub release tag:     {release_tag}")
+
+          if release_tag != expected_tag:
+              print(
+                  f"Tag/version mismatch. Expected '{expected_tag}' but got '{release_tag}'.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
+        env:
+          GITHUB_EVENT_RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+
+      - name: Build distribution files
+        run: python -m build
+
+      - name: Verify sdist and wheel were generated
+        shell: bash
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+
+          dist = Path("dist")
+          if not dist.exists():
+              print("dist/ directory was not created.", file=sys.stderr)
+              sys.exit(1)
+
+          wheels = sorted(dist.glob("*.whl"))
+          sdists = sorted(dist.glob("*.tar.gz"))
+
+          print("Wheels found:", [p.name for p in wheels])
+          print("Source distributions found:", [p.name for p in sdists])
+
+          if len(wheels) != 1:
+              print(
+                  f"Expected exactly 1 wheel file, found {len(wheels)}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          if len(sdists) != 1:
+              print(
+                  f"Expected exactly 1 source distribution, found {len(sdists)}.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          PY
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: python-package-distributions
+          if-no-files-found: error
+          path: dist/*
+
+  publish-to-pypi:
+    name: Publish package distributions to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+
+    environment:
+      name: pypi
+      url: https://pypi.org/project/papermoon-mkdocs-plugins/
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+
+  attach-release-assets:
+    name: Attach distribution assets to GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Upload distributions to GitHub Release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "${RELEASE_TAG}" dist/* --clobber
