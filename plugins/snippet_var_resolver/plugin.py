@@ -46,7 +46,7 @@ class SnippetVarResolverPlugin(BasePlugin):
     def _load_yaml_file(self, yaml_path: str, config: MkDocsConfig) -> None:
         from pathlib import Path
 
-        # Resolve relative to docs_dir, then project root
+        # Resolve relative to project root, then docs_dir, then as an absolute path
         candidates = [
             Path(config["docs_dir"]).parent / yaml_path,
             Path(config["docs_dir"]) / yaml_path,
