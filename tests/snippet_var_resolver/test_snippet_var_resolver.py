@@ -17,23 +17,6 @@ def resolve(html, variables=None):
     return plugin.on_page_content(html, page=MagicMock(), config=None, files=None)
 
 
-def make_config(include_yaml=None, extra=None, docs_dir=None):
-    macros = MagicMock()
-    macros.config = {"include_yaml": include_yaml or []}
-
-    config = MagicMock()
-    config.__getitem__ = lambda self, key: {
-        "plugins": {"macros": macros},
-        "extra": extra or {},
-        "docs_dir": docs_dir or "/tmp/docs",
-    }[key]
-    config.get = lambda key, default=None: {
-        "plugins": {"macros": macros},
-        "extra": extra or {},
-        "docs_dir": docs_dir or "/tmp/docs",
-    }.get(key, default)
-    return config
-
 
 class TestGetValueFromPath:
     def test_top_level_key(self):
