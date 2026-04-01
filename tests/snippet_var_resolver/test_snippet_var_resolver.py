@@ -130,6 +130,26 @@ class TestOnConfig:
         assert plugin._variables.get("key_a") == "val_a"
         assert plugin._variables.get("key_b") == "val_b"
 
+    def test_malformed_yaml_does_not_raise(self, tmp_path):
+        (tmp_path / "bad.yml").write_text("key: [unclosed")
+
+        plugin = SnippetVarResolverPlugin()
+        plugin.load_config({})
+        config = _build_config(tmp_path, include_yaml=["bad.yml"])
+
+        plugin.on_config(config)  # should not raise
+        assert plugin._variables == {}
+
+    def test_non_mapping_yaml_does_not_raise(self, tmp_path):
+        (tmp_path / "list.yml").write_text(yaml.dump(["item1", "item2"]))
+
+        plugin = SnippetVarResolverPlugin()
+        plugin.load_config({})
+        config = _build_config(tmp_path, include_yaml=["list.yml"])
+
+        plugin.on_config(config)  # should not raise
+        assert plugin._variables == {}
+
     def test_missing_yaml_file_does_not_raise(self, tmp_path):
         plugin = SnippetVarResolverPlugin()
         plugin.load_config({})

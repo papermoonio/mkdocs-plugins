@@ -54,8 +54,15 @@ class SnippetVarResolverPlugin(BasePlugin):
         ]
         for path in candidates:
             if path.exists():
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f) or {}
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                except yaml.YAMLError as exc:
+                    log.warning(f"[snippet_var_resolver] unable to parse {path}: {exc}")
+                    return
+                if not isinstance(data, dict):
+                    log.warning(f"[snippet_var_resolver] expected a YAML mapping in {path}, got {type(data).__name__} — skipping")
+                    return
                 self._variables.update(data)
                 log.debug(f"[snippet_var_resolver] loaded variables from {path}")
                 return
