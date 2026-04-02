@@ -1,3 +1,4 @@
+import base64
 import copy
 import html
 import json
@@ -193,6 +194,52 @@ class AIFileUtils:
                 action[field] = val
 
         return action
+    
+    # ------------------------------------------------------------------
+    # MCP deeplinks & helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def build_cursor_deeplink(server_name: str, mcp_url: str) -> str:
+        """Build a ``cursor://`` one-click install deeplink."""
+        config_json = json.dumps({"url": mcp_url}, separators=(",", ":"))
+        b64_config = base64.urlsafe_b64encode(config_json.encode()).decode()
+        return (
+            "cursor://anysphere.cursor-deeplink/mcp/install"
+            f"?name={urllib.parse.quote(server_name, safe='')}&config={b64_config}"
+        )
+
+    @staticmethod
+    def build_vscode_deeplink(server_name: str, mcp_url: str) -> str:
+        """Build a ``vscode:`` one-click install deeplink."""
+        config_json = json.dumps(
+            {"name": server_name, "url": mcp_url}, separators=(",", ":")
+        )
+        return f"vscode:mcp/install?{urllib.parse.quote(config_json, safe='')}"
+
+    @staticmethod
+    def mcp_install_button(href: str, label: str = "Install") -> str:
+        """Return an inline HTML button for a deeplink install action."""
+        safe_href = html.escape(href, quote=True)
+        safe_label = html.escape(label, quote=True)
+        return (
+            f'<a href="{safe_href}" class="ai-file-actions-btn single-action-btn">{safe_label}</a>'
+        )
+
+    @staticmethod
+    def mcp_copy_code(command: str) -> str:
+        """Return an inline ``<code>`` element."""
+        return f'<pre><code style="white-space: pre-wrap; word-break: break-all;">{html.escape(command)}</code></pre>'
+
+    @staticmethod
+    def mcp_external_link(href: str, label: str = "Setup guide") -> str:
+        """Return an external ``<a>`` that opens in a new tab."""
+        safe_href = html.escape(href, quote=True)
+        safe_label = html.escape(label, quote=True)
+        return (
+            f'<a href="{safe_href}"'
+            f' target="_blank" rel="noopener noreferrer">{safe_label}</a>'
+        )
 
     # ------------------------------------------------------------------
     # HTML generation
