@@ -934,3 +934,141 @@ class TestBuildCategoryLight:
         content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
         fm = yaml.safe_load(content.split("---")[1])
         assert fm["page_count"] == 0
+
+
+# ===========================================================================
+# Agent skills search section — on_page_markdown
+# ===========================================================================
+
+class TestAgentSkillsSearchMarkdown:
+    """Tests for the agent skills search placeholder in on_page_markdown."""
+
+    def _make_plugin_with_skills(self, tmp_path):
+        """Return a plugin with a minimal skills config loaded."""
+        plugin = _make_plugin(agent_skills_config="agent_skills_config.json", agent_skills=True)
+        config = _make_mkdocs_config(tmp_path)
+        plugin._ensure_config_loaded(config)
+        plugin._skills_config = {"project": {"id": "p", "name": "P"}, "skills": []}
+        plugin._skills_public_root = "ai"
+        plugin._skills_dir_name = "skills"
+        return plugin, config
+
+    def test_emits_skills_section_when_configured(self, tmp_path):
+        """on_page_markdown should include the Agent Skills heading and placeholder when skills are configured."""
+        plugin, config = self._make_plugin_with_skills(tmp_path)
+        page = _make_page(src_path="ai-resources.md")
+        result = plugin.on_page_markdown("", page=page, config=config, files=[])
+        assert "## Agent Skills" in result
+        assert '<div id="agent-skills-search"></div>' in result
+
+    def test_omits_skills_section_when_not_configured(self, tmp_path):
+        """on_page_markdown should not include the Agent Skills section when no skills config is set."""
+        plugin = _make_plugin(agent_skills=True)
+        config = _make_mkdocs_config(tmp_path)
+        page = _make_page(src_path="ai-resources.md")
+        result = plugin.on_page_markdown("", page=page, config=config, files=[])
+        assert "## Agent Skills" not in result
+        assert "agent-skills-search" not in result
+
+    def test_omits_skills_section_when_feature_disabled(self, tmp_path):
+        """on_page_markdown should not include the Agent Skills section when agent_skills=False."""
+        plugin, config = self._make_plugin_with_skills(tmp_path)
+        plugin.config["agent_skills"] = False
+        page = _make_page(src_path="ai-resources.md")
+        result = plugin.on_page_markdown("", page=page, config=config, files=[])
+        assert "## Agent Skills" not in result
+
+
+# ===========================================================================
+# _patch_skills_search — HTML injection
+# ===========================================================================
+
+class TestPatchSkillsSearch:
+    """Tests that _patch_skills_search injects the search widget into the built HTML."""
+
+    def _make_plugin_with_skills(self, tmp_path, site_url="https://docs.example.com/"):
+        plugin = _make_plugin(agent_skills_config="agent_skills_config.json", agent_skills=True)
+        config = _make_mkdocs_config(tmp_path, site_url=site_url)
+        plugin._ensure_config_loaded(config)
+        plugin._skills_config = {"project": {"id": "p", "name": "P"}, "skills": []}
+        plugin._skills_public_root = "ai"
+        plugin._skills_dir_name = "skills"
+        return plugin, config
+
+    def _write_html(self, path, content):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    def _base_html(self):
+        return (
+            '<html><body>'
+            '<div id="agent-skills-search"></div>'
+            '</body></html>'
+        )
+
+    def test_replaces_placeholder(self, tmp_path):
+        """The placeholder div should be replaced with the search widget HTML."""
+        plugin, config = self._make_plugin_with_skills(tmp_path)
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        self._write_html(html_path, self._base_html())
+
+        plugin._patch_skills_search(site_dir, config)
+
+        result = html_path.read_text(encoding="utf-8")
+        assert '<div id="agent-skills-search"></div>' not in result
+        assert 'class="agent-skills-search"' in result
+        assert 'data-skills-index=' in result
+        assert 'id="agent-skills-search-input"' in result
+        assert 'id="agent-skills-results"' in result
+
+    def test_index_url_correct_for_root_deploy(self, tmp_path):
+        """data-skills-index should use /ai/skills/index.json for a root deploy."""
+        plugin, config = self._make_plugin_with_skills(tmp_path, site_url="https://docs.example.com/")
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        self._write_html(html_path, self._base_html())
+
+        plugin._patch_skills_search(site_dir, config)
+
+        result = html_path.read_text(encoding="utf-8")
+        assert 'data-skills-index="/ai/skills/index.json"' in result
+
+    def test_index_url_correct_for_subpath_deploy(self, tmp_path):
+        """data-skills-index should include the subpath prefix."""
+        plugin, config = self._make_plugin_with_skills(tmp_path, site_url="https://example.com/docs/")
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        self._write_html(html_path, self._base_html())
+
+        plugin._patch_skills_search(site_dir, config)
+
+        result = html_path.read_text(encoding="utf-8")
+        assert 'data-skills-index="/docs/ai/skills/index.json"' in result
+
+    def test_missing_html_file_warns(self, tmp_path, caplog):
+        """A missing HTML file should log a warning and not raise."""
+        import logging
+        plugin, config = self._make_plugin_with_skills(tmp_path)
+        site_dir = tmp_path / "site"
+        site_dir.mkdir()
+
+        with caplog.at_level(logging.WARNING):
+            plugin._patch_skills_search(site_dir, config)
+
+        assert any("not found" in r.message for r in caplog.records)
+
+    def test_missing_placeholder_warns(self, tmp_path, caplog):
+        """HTML without the placeholder should log a warning and leave file unchanged."""
+        import logging
+        plugin, config = self._make_plugin_with_skills(tmp_path)
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        original = "<html><body><p>No placeholder here.</p></body></html>"
+        self._write_html(html_path, original)
+
+        with caplog.at_level(logging.WARNING):
+            plugin._patch_skills_search(site_dir, config)
+
+        assert html_path.read_text(encoding="utf-8") == original
+        assert any("placeholder not found" in r.message for r in caplog.records)

@@ -217,8 +217,7 @@ class AIDocsPlugin(BasePlugin):
 
         source_pages = skill.get("source_pages", [])
         if source_pages:
-            pages_yaml = ", ".join(f'"{p}"' for p in source_pages)
-            lines.append(f"  source_pages: [{pages_yaml}]")
+            lines.append(f"  source_pages: \"{', '.join(source_pages)}\"")
 
         lines.append(
             f"  generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
@@ -493,6 +492,17 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
         if mcp_url and mcp_name:
             mcp_section = self._generate_mcp_section(project_name, mcp_name, mcp_url)
 
+        # Agent skills search section (only when agent_skills_config is configured)
+        skills_section = ""
+        if self.config.get("agent_skills", True) and self._skills_config:
+            skills_section = (
+                "## Agent Skills\n\n"
+                "Search available agent skills for this project. "
+                "Skills provide step-by-step instructions and reference code "
+                "that AI coding agents can use to complete tasks.\n\n"
+                '<div id="agent-skills-search"></div>\n'
+            )
+
         return f"""# AI Resources
 
 {project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
@@ -515,6 +525,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 !!! note
     The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
 {category_sections}
+{skills_section}
 """
 
     def _build_aggregate_table_html(
@@ -752,6 +763,52 @@ These AI-ready files do not include any persona or system prompts. They are pure
         log.info(
             f"[ai_docs] injected resources tables with token estimates into {html_path}"
         )
+
+    def _patch_skills_search(self, site_dir: Path, config: MkDocsConfig) -> None:
+        """Inject the agent skills search widget into the built AI Resources HTML page."""
+        use_directory_urls = config.get("use_directory_urls", True)
+        if use_directory_urls:
+            html_path = site_dir / "ai-resources" / "index.html"
+        else:
+            html_path = site_dir / "ai-resources.html"
+
+        if not html_path.exists():
+            log.warning(
+                f"[ai_docs] ai-resources HTML not found at {html_path}, skipping skills search injection"
+            )
+            return
+
+        placeholder = '<div id="agent-skills-search"></div>'
+        page_html = html_path.read_text(encoding="utf-8")
+        if placeholder not in page_html:
+            log.warning(
+                "[ai_docs] agent-skills-search placeholder not found in built HTML"
+            )
+            return
+
+        site_url = config.get("site_url", "")
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        index_url = (
+            f"{base_path}/{self._skills_public_root}/{self._skills_dir_name}/index.json"
+        )
+
+        search_html = (
+            f'<div id="agent-skills-search"'
+            f' class="agent-skills-search"'
+            f' data-skills-index="{index_url}">'
+            f'<input type="search"'
+            f' id="agent-skills-search-input"'
+            f' class="agent-skills-search__input"'
+            f' placeholder="Search agent skills..."'
+            f' aria-label="Search agent skills" />'
+            f'<div id="agent-skills-results"'
+            f' class="agent-skills-search__results"></div>'
+            f"</div>"
+        )
+
+        page_html = page_html.replace(placeholder, search_html, 1)
+        html_path.write_text(page_html, encoding="utf-8")
+        log.info(f"[ai_docs] injected agent skills search widget into {html_path}")
 
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
@@ -1013,6 +1070,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # (must run after all artifact files are written so their sizes can be estimated)
         if self.config.get("ai_resources_page", True):
             self._patch_ai_resources_page(site_dir, config)
+            if self.config.get("agent_skills", True) and self._skills_config:
+                self._patch_skills_search(site_dir, config)
 
         # --- Agent skills file generation ---
         if self.config.get("agent_skills", True) and self._skills_config:
