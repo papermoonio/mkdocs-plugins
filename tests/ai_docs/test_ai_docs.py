@@ -419,6 +419,20 @@ class TestFormatLlmsMetadataSection:
 
 
 # ===========================================================================
+# Cleanup methods
+# ===========================================================================
+
+class TestRemoveAttributeSyntax:
+    def test_strips_attribute_block_from_inline_link(self):
+        content = "[Link](https://example.com){target=\\_blank}"
+        assert AIDocsPlugin.remove_attribute_syntax(content) == "[Link](https://example.com)"
+
+    def test_no_attribute_block_unchanged(self):
+        content = "[Link](https://example.com)"
+        assert AIDocsPlugin.remove_attribute_syntax(content) == content
+
+
+# ===========================================================================
 # Page exclusions (ported from test_ai_page_actions)
 # ===========================================================================
 
