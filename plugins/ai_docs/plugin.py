@@ -24,7 +24,6 @@ from mkdocs.utils import log
 
 from helper_lib.ai_file_utils.ai_file_utils import AIFileUtils
 
-
 # Module scope regex variables
 
 FM_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
@@ -45,11 +44,13 @@ SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
 # Define plugin class
 class AIDocsPlugin(BasePlugin):
-        # Define value for `llms_config` in the project mkdocs.yml file
+    # Define value for `llms_config` in the project mkdocs.yml file
     config_scheme = (
         ("llms_config", Type(str, default="llms_config.json")),
         ("ai_resources_page", Type(bool, default=True)),
         ("ai_page_actions", Type(bool, default=True)),
+        ("agent_skills_config", Type(str, default="")),
+        ("agent_skills", Type(bool, default=True)),
     )
 
     def __init__(self):
@@ -66,6 +67,12 @@ class AIDocsPlugin(BasePlugin):
         self._skip_basenames: List[str] = []
         self._skip_paths: List[str] = []
         self._config_loaded = False
+
+        # Agent skills vars
+        self._skills_config: dict = {}
+        self._page_skill_map: dict = {}
+        self._skills_public_root: str = "ai"
+        self._skills_dir_name: str = "skills"
 
     # ------------------------------------------------------------------
     # Internal functions
@@ -97,8 +104,10 @@ class AIDocsPlugin(BasePlugin):
             log.warning(f"[ai_docs] Failed to load LLM config: {e}")
             return {}
 
-    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
-        """Wrap an H1 element and the AI actions widget in a flex container."""
+    def _wrap_h1(
+        self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = ""
+    ) -> None:
+        """Append the AI actions widget to the page-meta-chips row below the H1."""
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
         url = f"{base_path}/{md_path}"
         filename = md_path.rsplit("/", 1)[-1]
@@ -111,25 +120,304 @@ class AIDocsPlugin(BasePlugin):
             label_replace={"file": "page"},
         )
 
-        wrapper = soup.new_tag("div")
-        wrapper["class"] = "h1-ai-actions-wrapper"
+        chips_div = h1.find_next_sibling("div", class_="page-meta-chips")
+        if not chips_div:
+            chips_div = soup.new_tag("div")
+            chips_div["class"] = "page-meta-chips"
+            h1.insert_after(chips_div)
 
-        h1.wrap(wrapper)
         widget = BeautifulSoup(widget_html, "html.parser")
-        wrapper.append(widget)
+        chips_div.append(widget)
 
+    # ------------------------------------------------------------------
+    # Agent skills helpers
+    # ------------------------------------------------------------------
+
+    def _load_skills_config(self, project_root: Path) -> dict:
+        """Load agent_skills_config.json from the configured path."""
+        config_filename = self.config.get("agent_skills_config", "")
+        if not config_filename:
+            return {}
+        config_path = (project_root / config_filename).resolve()
+        if not config_path.exists():
+            log.error(f"[ai_docs] agent_skills_config not found: {config_path}")
+            return {}
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            log.error(f"[ai_docs] failed to load agent_skills_config: {e}")
+            return {}
+
+    _TERMINAL_ICON = (
+        '<svg class="agent-skill-badge__icon" xmlns="http://www.w3.org/2000/svg" '
+        'viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">'
+        '<path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5'
+        "A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0"
+        "-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0"
+        "-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326"
+        ".749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1"
+        ".734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3"
+        'a.75.75 0 0 1 0-1.5Z"></path></svg>'
+    )
+
+    def _render_skill_badges(self, skills: list, site_url: str) -> str:
+        """Render the agent skill badge HTML for a list of skills."""
+        items = []
+        for skill in skills:
+            path = (
+                f"/{self._skills_public_root}/{self._skills_dir_name}/{skill['id']}.md"
+            )
+            url = f"{site_url}{path}" if site_url else path
+            items.append(
+                f'<div class="agent-skill-badge">'
+                f"{self._TERMINAL_ICON}"
+                f'<span class="agent-skill-badge__label">Agent skill</span>'
+                f'<span class="agent-skill-badge__divider" aria-hidden="true"></span>'
+                f'<a href="{url}" class="agent-skill-badge__action"'
+                f' target="_blank" rel="noopener">View</a>'
+                f'<span class="agent-skill-badge__dot" aria-hidden="true">·</span>'
+                f'<a href="{url}" class="agent-skill-badge__action" download>Download</a>'
+                f"</div>"
+            )
+        return '<div class="agent-skill-badges">' + "".join(items) + "</div>"
+
+    def _build_raw_url(
+        self, reference_repos: dict, ref_code: dict, file_path: str
+    ) -> str:
+        """Build a raw URL for a reference file."""
+        repo_id = ref_code.get("repo", "")
+        repo_info = reference_repos.get(repo_id, {})
+        raw_base = repo_info.get("raw_base_url", "")
+        base_path = ref_code.get("base_path", "")
+        return f"{raw_base}/{base_path}/{file_path}"
+
+    def _render_skill(self, skill: dict, project: dict, reference_repos: dict) -> str:
+        """Render a single skill as a markdown string with YAML frontmatter."""
+        lines = []
+
+        ref_code = skill.get("reference_code", {})
+        repo_id = ref_code.get("repo", "")
+        repo_info = reference_repos.get(repo_id, {})
+
+        lines.append("---")
+        lines.append(f"name: {skill['id']}")
+        lines.append(f"description: \"{skill['objective']}\"")
+
+        if skill.get("license"):
+            lines.append(f"license: {skill['license']}")
+        if skill.get("compatibility"):
+            lines.append(f"compatibility: {skill['compatibility']}")
+
+        lines.append("metadata:")
+        lines.append(f"  title: \"{skill['title']}\"")
+        lines.append(f"  estimated_steps: \"{len(skill.get('steps', []))}\"")
+        if repo_info:
+            lines.append(f"  reference_repo: {repo_info.get('url', '')}")
+
+        source_pages = skill.get("source_pages", [])
+        if source_pages:
+            pages_yaml = ", ".join(f'"{p}"' for p in source_pages)
+            lines.append(f"  source_pages: [{pages_yaml}]")
+
+        lines.append(
+            f"  generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        )
+        lines.append("---")
+        lines.append("")
+
+        lines.append(f"# {skill['title']}")
+        lines.append("")
+        lines.append(f"**Objective:** {skill['objective']}")
+        lines.append("")
+
+        prereqs = skill.get("prerequisites", {})
+        if prereqs:
+            lines.append("## Prerequisites")
+            lines.append("")
+            for group_name, items in prereqs.items():
+                lines.append(f"**{group_name.replace('_', ' ').title()}:**")
+                for item in items:
+                    lines.append(f"- {item}")
+                lines.append("")
+
+        env_vars = skill.get("env_vars", [])
+        if env_vars:
+            lines.append("## Environment Variables")
+            lines.append("")
+            lines.append("Create a `.env` file in your project root:")
+            lines.append("")
+            lines.append("```env")
+            for var in env_vars:
+                required = " (required)" if var.get("required") else " (optional)"
+                lines.append(f"# {var['description']}{required}")
+                lines.append(f"{var['name']}=")
+            lines.append("```")
+            lines.append("")
+
+        steps = skill.get("steps", [])
+        if steps:
+            lines.append("## Execution Steps")
+            lines.append("")
+            for step in steps:
+                order = step.get("order", "?")
+                action = step.get("action", "")
+                lines.append(f"### Step {order}: {action}")
+                lines.append("")
+
+                desc = step.get("description")
+                if desc:
+                    lines.append(desc)
+                    lines.append("")
+
+                commands = step.get("commands")
+                if commands:
+                    lines.append("```bash")
+                    for cmd in commands:
+                        lines.append(cmd)
+                    lines.append("```")
+                    lines.append("")
+
+                ref_file = step.get("reference_file")
+                if ref_file:
+                    raw_url = self._build_raw_url(reference_repos, ref_code, ref_file)
+                    lines.append(f"**Reference file:** [`{ref_file}`]({raw_url})")
+                    lines.append("")
+                    lines.append("Fetch this file for use in your project.")
+                    lines.append("")
+                    lines.append(
+                        "See the Reference Code Index below for a description of what this file does."
+                    )
+                    lines.append("")
+
+                expected = step.get("expected_output")
+                if expected:
+                    lines.append(f"**Expected output:** {expected}")
+                    lines.append("")
+
+        files = ref_code.get("files", [])
+        if files:
+            lines.append("## Reference Code Index")
+            lines.append("")
+            if repo_info:
+                lines.append(
+                    f"These files are from [{repo_id}]({repo_info.get('url', '')}) "
+                    f"(`{ref_code.get('base_path', '')}` directory). "
+                    f"Fetch them as needed — do not download all files upfront."
+                )
+                lines.append("")
+
+            lines.append("| File | Description | Raw URL |")
+            lines.append("|---|---|---|")
+            for file_entry in files:
+                path = file_entry["path"]
+                desc = file_entry.get("description", "")
+                raw_url = self._build_raw_url(reference_repos, ref_code, path)
+                lines.append(f"| `{path}` | {desc} | [Fetch]({raw_url}) |")
+            lines.append("")
+
+        error_patterns = skill.get("error_patterns", [])
+        if error_patterns:
+            lines.append("## Error Recovery")
+            lines.append("")
+            for err in error_patterns:
+                lines.append(f"**`{err['pattern']}`**")
+                lines.append(f"- **Cause:** {err['cause']}")
+                lines.append(f"- **Resolution:** {err['resolution']}")
+                lines.append("")
+
+        supp = skill.get("supplementary_context")
+        if supp:
+            lines.append("## Supplementary Context")
+            lines.append("")
+            lines.append(supp.get("description", ""))
+            lines.append("")
+            for p in supp.get("pages", []):
+                slug = p.get("slug", "")
+                url = p.get("url", "")
+                relevance = p.get("relevance", "")
+                lines.append(f"- [{slug}]({url}) — {relevance}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _write_skills_index(
+        self, skills: list, project: dict, skills_output_dir: Path
+    ) -> None:
+        """Write index.json summarising all skills to the skills output directory."""
+        index = {
+            "project": project,
+            "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "skills": [],
+        }
+        for skill in skills:
+            entry = {
+                "id": skill["id"],
+                "title": skill["title"],
+                "description": skill["objective"],
+                "file": f"{skill['id']}.md",
+                "steps": len(skill.get("steps", [])),
+            }
+            source_pages = skill.get("source_pages", [])
+            if source_pages:
+                entry["source_pages"] = source_pages
+            index["skills"].append(entry)
+
+        index_path = skills_output_dir / "index.json"
+        index_path.write_text(
+            json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        log.info(f"[ai_docs] wrote skill index: {index_path}")
 
     # ------------------------------------------------------------------
     # Lifecycle hooks
     # ------------------------------------------------------------------
 
-    def _generate_mcp_section(self, project_name: str, mcp_name: str, mcp_url: str) -> str:
+    def on_config(self, config):
+        """Load agent_skills_config and build page-to-skill reverse mapping."""
+        if not self.config.get("agent_skills", True):
+            return config
+
+        agent_skills_config_path = self.config.get("agent_skills_config", "")
+        if not agent_skills_config_path:
+            return config
+
+        config_file_path = Path(config["config_file_path"]).resolve()
+        project_root = config_file_path.parent
+
+        self._skills_config = self._load_skills_config(project_root)
+        self._page_skill_map = {}
+
+        if not self._skills_config:
+            return config
+
+        outputs = self._skills_config.get("outputs", {})
+        self._skills_public_root = outputs.get("public_root", "/ai/").strip("/")
+        self._skills_dir_name = outputs.get("skills_dir", "skills")
+
+        for skill in self._skills_config.get("skills", []):
+            for page_path in skill.get("source_pages", []):
+                self._page_skill_map.setdefault(page_path, []).append(
+                    {"id": skill["id"], "title": skill["title"]}
+                )
+
+        return config
+
+    def _generate_mcp_section(
+        self, project_name: str, mcp_name: str, mcp_url: str
+    ) -> str:
         """Return the full MCP Markdown section (heading, intro, table)."""
         utils = self._file_utils
 
-        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url))
-        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url))
-        claude_cmd = utils.mcp_copy_code(f"claude mcp add --transport http {mcp_name} {mcp_url}")
+        cursor_btn = utils.mcp_install_button(
+            utils.build_cursor_deeplink(mcp_name, mcp_url)
+        )
+        vscode_btn = utils.mcp_install_button(
+            utils.build_vscode_deeplink(mcp_name, mcp_url)
+        )
+        claude_cmd = utils.mcp_copy_code(
+            f"claude mcp add --transport http {mcp_name} {mcp_url}"
+        )
         codex_cmd = utils.mcp_copy_code(f"codex mcp add {mcp_name} --url {mcp_url}")
         desktop_link = utils.mcp_external_link(
             "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server"
@@ -175,9 +463,7 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
         project_cfg = self._llms_config.get("project", {})
         project_name = project_cfg.get("name")
         if not project_name:
-            raise KeyError(
-                "[ai_docs] 'project.name' is missing in llms_config.json"
-            )
+            raise KeyError("[ai_docs] 'project.name' is missing in llms_config.json")
 
         # Category headings are emitted here so MkDocs includes them in the TOC.
         # The tables are injected with token estimates in on_post_build via
@@ -191,7 +477,9 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
             for cat_id, cat_info in categories_info.items():
                 slug = self.slugify_category(cat_id)
                 display_name = cat_info.get("name", cat_id)
-                description = cat_info.get("description", f"Resources for {display_name}.")
+                description = cat_info.get(
+                    "description", f"Resources for {display_name}."
+                )
                 category_sections += (
                     f"\n#### {display_name}\n\n"
                     f"{description}\n\n"
@@ -250,15 +538,19 @@ These AI-ready files do not include any persona or system prompts. They are pure
         def make_table(rows: list[str]) -> str:
             header = (
                 "<thead><tr>"
-                + th("File") + th("Description")
-                + th("Token Estimate") + th("Actions")
+                + th("File")
+                + th("Description")
+                + th("Token Estimate")
+                + th("Actions")
                 + "</tr></thead>"
             )
             return (
                 "<table>\n"
-                + header + "\n"
+                + header
+                + "\n"
                 + "<tbody>\n"
-                + "\n".join(rows) + "\n"
+                + "\n".join(rows)
+                + "\n"
                 + "</tbody>\n"
                 + "</table>"
             )
@@ -277,26 +569,32 @@ These AI-ready files do not include any persona or system prompts. They are pure
             exclude=["view-markdown"],
             site_url=site_url,
         )
-        return make_table([
-            "<tr>"
-            + td('<code style="white-space: nowrap;">llms.txt</code>')
-            + td("Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format.")
-            + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)))
-            + td(actions_llms)
-            + "</tr>",
-            "<tr>"
-            + td('<code style="white-space: nowrap;">site-index.json</code>')
-            + td("Lightweight site index of JSON objects (one per page) with metadata and content previews.")
-            + td(fmt_tokens(aggregate_tokens.get("site_index", 0)))
-            + td(actions_site_index)
-            + "</tr>",
-            "<tr>"
-            + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
-            + td("Full content of documentation site enhanced with metadata.")
-            + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)))
-            + td(actions_full)
-            + "</tr>",
-        ])
+        return make_table(
+            [
+                "<tr>"
+                + td('<code style="white-space: nowrap;">llms.txt</code>')
+                + td(
+                    "Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format."
+                )
+                + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)))
+                + td(actions_llms)
+                + "</tr>",
+                "<tr>"
+                + td('<code style="white-space: nowrap;">site-index.json</code>')
+                + td(
+                    "Lightweight site index of JSON objects (one per page) with metadata and content previews."
+                )
+                + td(fmt_tokens(aggregate_tokens.get("site_index", 0)))
+                + td(actions_site_index)
+                + "</tr>",
+                "<tr>"
+                + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
+                + td("Full content of documentation site enhanced with metadata.")
+                + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)))
+                + td(actions_full)
+                + "</tr>",
+            ]
+        )
 
     def _build_category_table_html(
         self,
@@ -321,15 +619,19 @@ These AI-ready files do not include any persona or system prompts. They are pure
         def make_table(rows: list[str]) -> str:
             header = (
                 "<thead><tr>"
-                + th("File") + th("Description")
-                + th("Token Estimate") + th("Actions")
+                + th("File")
+                + th("Description")
+                + th("Token Estimate")
+                + th("Actions")
                 + "</tr></thead>"
             )
             return (
                 "<table>\n"
-                + header + "\n"
+                + header
+                + "\n"
                 + "<tbody>\n"
-                + "\n".join(rows) + "\n"
+                + "\n".join(rows)
+                + "\n"
                 + "</tbody>\n"
                 + "</table>"
             )
@@ -345,24 +647,26 @@ These AI-ready files do not include any persona or system prompts. They are pure
         light_actions = self._file_utils.generate_dropdown_html(
             url=light_url, filename=light_filename, site_url=site_url
         )
-        return make_table([
-            "<tr>"
-            + td(f'<code style="white-space: nowrap;">{filename}</code>')
-            + td("Full bundle — complete page content for all tagged pages.")
-            + td(fmt_tokens(category_tokens.get(cat_id, 0)))
-            + td(actions)
-            + "</tr>",
-            "<tr>"
-            + td(f'<code style="white-space: nowrap;">{light_filename}</code>')
-            + td("Lightweight index — titles, URLs, previews, and section headings.")
-            + td(fmt_tokens(category_light_tokens.get(cat_id, 0)))
-            + td(light_actions)
-            + "</tr>",
-        ])
+        return make_table(
+            [
+                "<tr>"
+                + td(f'<code style="white-space: nowrap;">{filename}</code>')
+                + td("Full bundle — complete page content for all tagged pages.")
+                + td(fmt_tokens(category_tokens.get(cat_id, 0)))
+                + td(actions)
+                + "</tr>",
+                "<tr>"
+                + td(f'<code style="white-space: nowrap;">{light_filename}</code>')
+                + td(
+                    "Lightweight index — titles, URLs, previews, and section headings."
+                )
+                + td(fmt_tokens(category_light_tokens.get(cat_id, 0)))
+                + td(light_actions)
+                + "</tr>",
+            ]
+        )
 
-    def _patch_ai_resources_page(
-        self, site_dir: Path, config: MkDocsConfig
-    ) -> None:
+    def _patch_ai_resources_page(self, site_dir: Path, config: MkDocsConfig) -> None:
         """Inject the AI resources table (with token estimates) into the built HTML page."""
         use_directory_urls = config.get("use_directory_urls", True)
         if use_directory_urls:
@@ -386,7 +690,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         # Estimate tokens for the three aggregate artifact files from their built content
         def _file_tokens(path: Path) -> int:
-            return self.estimate_tokens(path.read_text(encoding="utf-8")) if path.exists() else 0
+            return (
+                self.estimate_tokens(path.read_text(encoding="utf-8"))
+                if path.exists()
+                else 0
+            )
 
         # Read token estimates for category bundles and light files from their front matter
         categories_dir = site_dir / public_root / "categories"
@@ -414,7 +722,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # Replace aggregate table placeholder
         aggregate_placeholder = '<div id="ai-resources-aggregate-table"></div>'
         if aggregate_placeholder not in page_html:
-            log.warning("[ai_docs] ai-resources-aggregate-table placeholder not found in built HTML")
+            log.warning(
+                "[ai_docs] ai-resources-aggregate-table placeholder not found in built HTML"
+            )
             return
         aggregate_html = self._build_aggregate_table_html(
             base_path, public_root_stripped, site_url, aggregate_tokens
@@ -429,34 +739,51 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 log.warning(f"[ai_docs] placeholder not found for category '{cat_id}'")
                 continue
             cat_html = self._build_category_table_html(
-                cat_id, base_path, public_root_stripped, site_url,
-                category_tokens, category_light_tokens,
+                cat_id,
+                base_path,
+                public_root_stripped,
+                site_url,
+                category_tokens,
+                category_light_tokens,
             )
             page_html = page_html.replace(cat_placeholder, cat_html, 1)
 
         html_path.write_text(page_html, encoding="utf-8")
-        log.info(f"[ai_docs] injected resources tables with token estimates into {html_path}")
+        log.info(
+            f"[ai_docs] injected resources tables with token estimates into {html_path}"
+        )
 
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
     ) -> Optional[str]:
-        """Inject the AI actions widget next to each page's H1 (opt-out via ai_page_actions: false)."""
-        if not self.config.get("ai_page_actions", True):
+        """Inject the AI actions widget and/or agent skill badges next to each page's H1."""
+        ai_page_actions = self.config.get("ai_page_actions", True)
+        agent_skills_enabled = self.config.get("agent_skills", True) and bool(
+            self._skills_config
+        )
+
+        if not ai_page_actions and not agent_skills_enabled:
             return output
 
-        self._ensure_config_loaded(config)
+        skills_for_page = (
+            self._page_skill_map.get(page.file.src_path, [])
+            if agent_skills_enabled
+            else []
+        )
 
-        # Always skip the homepage (root index.md)
-        if page.is_homepage:
-            return output
+        # Determine whether to inject the actions widget for this page
+        inject_widget = ai_page_actions and not page.is_homepage
+        if inject_widget:
+            self._ensure_config_loaded(config)
+            if self._file_utils.is_page_excluded(
+                page.file.src_path,
+                page.meta,
+                skip_basenames=self._skip_basenames,
+                skip_paths=self._skip_paths,
+            ):
+                inject_widget = False
 
-        # Skip excluded pages (driven by llms_config.json + dot-dirs + front matter)
-        if self._file_utils.is_page_excluded(
-            page.file.src_path,
-            page.meta,
-            skip_basenames=self._skip_basenames,
-            skip_paths=self._skip_paths,
-        ):
+        if not inject_widget and not skills_for_page:
             return output
 
         site_url = config.get("site_url", "")
@@ -468,27 +795,23 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         modified = False
 
-        # --- Toggle pages ---
         # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
         # so the derived .md path always matches the co-located artifact path.
         route = page.url.strip("/")
         if route.endswith(".html"):
             route = route[: -len(".html")]
 
+        # --- Actions widget: toggle pages ---
         toggle_containers = md_content.select(".toggle-container")
-        if toggle_containers:
+        if inject_widget and toggle_containers:
             for container in toggle_containers:
-                header_spans = container.select(
-                    ".toggle-header > span[data-variant]"
-                )
+                header_spans = container.select(".toggle-header > span[data-variant]")
                 for span in header_spans:
                     h1 = span.find("h1")
                     if not h1:
                         continue
                     variant = span.get("data-variant", "")
-                    btn = container.select_one(
-                        f'.toggle-btn[data-variant="{variant}"]'
-                    )
+                    btn = container.select_one(f'.toggle-btn[data-variant="{variant}"]')
                     data_filename = btn.get("data-filename", "") if btn else ""
                     if data_filename:
                         segments = route.split("/")
@@ -498,19 +821,33 @@ These AI-ready files do not include any persona or system prompts. They are pure
                     self._wrap_h1(h1, md_path, soup, site_url=site_url)
                     modified = True
 
-        # --- Normal pages (no toggle) ---
-        if not toggle_containers:
+        # --- Actions widget: normal pages (no toggle) ---
+        if inject_widget and not toggle_containers:
             h1 = md_content.find("h1")
             if h1:
                 md_path = f"{route}.md"
                 self._wrap_h1(h1, md_path, soup, site_url=site_url)
                 modified = True
 
+        # --- Agent skill badges ---
+        # Prepended into the page-meta-chips row below the H1, before the actions widget.
+        if skills_for_page:
+            h1 = md_content.find("h1")
+            if h1:
+                badges_html = self._render_skill_badges(skills_for_page, site_url)
+                badge_soup = BeautifulSoup(badges_html, "html.parser")
+                chips_div = h1.find_next_sibling("div", class_="page-meta-chips")
+                if not chips_div:
+                    chips_div = soup.new_tag("div")
+                    chips_div["class"] = "page-meta-chips"
+                    h1.insert_after(chips_div)
+                chips_div.insert(0, badge_soup)
+                modified = True
+
         if not modified:
             return output
 
         return str(soup)
-
 
     # Process will start after site build is complete
     def on_post_build(self, config):
@@ -574,9 +911,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         # Batch-fetch git timestamps in a single subprocess call.
         if has_git:
-            git_timestamps = self.batch_git_last_updated(
-                markdown_files, str(docs_dir)
-            )
+            git_timestamps = self.batch_git_last_updated(markdown_files, str(docs_dir))
         else:
             git_timestamps = {}
 
@@ -679,6 +1014,36 @@ These AI-ready files do not include any persona or system prompts. They are pure
         if self.config.get("ai_resources_page", True):
             self._patch_ai_resources_page(site_dir, config)
 
+        # --- Agent skills file generation ---
+        if self.config.get("agent_skills", True) and self._skills_config:
+            skills = self._skills_config.get("skills", [])
+            if skills:
+                project = self._skills_config.get("project", {})
+                reference_repos = self._skills_config.get("reference_repos", {})
+                skills_output_dir = (
+                    site_dir / self._skills_public_root / self._skills_dir_name
+                )
+                if skills_output_dir.exists():
+                    shutil.rmtree(skills_output_dir)
+                skills_output_dir.mkdir(parents=True, exist_ok=True)
+                log.info(f"[ai_docs] generating {len(skills)} skill file(s)")
+                for skill in skills:
+                    skill_id = skill.get("id", "unknown")
+                    try:
+                        content = self._render_skill(skill, project, reference_repos)
+                        output_path = skills_output_dir / f"{skill_id}.md"
+                        output_path.write_text(content, encoding="utf-8")
+                        log.info(f"[ai_docs] wrote {output_path}")
+                    except Exception as e:
+                        log.error(
+                            f"[ai_docs] failed to generate skill '{skill_id}': {e}"
+                        )
+                self._write_skills_index(skills, project, skills_output_dir)
+            else:
+                log.warning(
+                    "[ai_docs] agent_skills_config loaded but no skills defined"
+                )
+
     # ------------------------------------------------------------------
     # Helper static functions
     # ------------------------------------------------------------------
@@ -712,8 +1077,13 @@ These AI-ready files do not include any persona or system prompts. They are pure
         try:
             result = subprocess.run(
                 [
-                    "git", "log", "--pretty=format:%cI", "--name-only",
-                    "--diff-filter=ACMR", "--", *rel_paths,
+                    "git",
+                    "log",
+                    "--pretty=format:%cI",
+                    "--name-only",
+                    "--diff-filter=ACMR",
+                    "--",
+                    *rel_paths,
                 ],
                 capture_output=True,
                 text=True,
@@ -735,7 +1105,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 current_ts = ""
                 continue
             # Timestamp lines match ISO-8601 format from --pretty=format:%cI.
-            if current_ts == "" and re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", line):
+            if current_ts == "" and re.match(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", line
+            ):
                 current_ts = line
             elif current_ts:
                 # This is a file path — only record the first (most recent) ts.
@@ -1151,7 +1523,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 _MAX_SNIPPET_BYTES = 10 * 1024 * 1024  # 10 MB
                 with urllib_request.urlopen(url, timeout=10) as response:
                     content_length = response.headers.get("Content-Length")
-                    if content_length and content_length.isdigit() and int(content_length) > _MAX_SNIPPET_BYTES:
+                    if (
+                        content_length
+                        and content_length.isdigit()
+                        and int(content_length) > _MAX_SNIPPET_BYTES
+                    ):
                         log.warning(
                             f"[ai_docs] remote snippet too large ({content_length} bytes): {snippet_ref}"
                         )
@@ -1472,7 +1848,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 cats_iter = [cats]
             else:
                 cats_iter = cats
-            if any(AIDocsPlugin.slugify_category(str(c)) == cat_slug for c in cats_iter):
+            if any(
+                AIDocsPlugin.slugify_category(str(c)) == cat_slug for c in cats_iter
+            ):
                 selected.append(page)
         return selected
 
@@ -1790,12 +2168,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
             out_path = categories_dir / f"{cat_slug}-light.md"
             out_path.write_text(content, encoding="utf-8")
-            log.debug(
-                f"[ai_docs] light file {out_path.name}: {len(cat_pages)} pages"
-            )
+            log.debug(f"[ai_docs] light file {out_path.name}: {len(cat_pages)} pages")
 
         log.info(f"[ai_docs] category light files written to {categories_dir}")
-
 
     def build_llms_txt(
         self, pages: list[dict], docs_dir: Path, build_timestamp: str = ""
@@ -1828,9 +2203,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             ) from exc
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        metadata_section = self.format_llms_metadata_section(
-            pages, build_timestamp
-        )
+        metadata_section = self.format_llms_metadata_section(pages, build_timestamp)
         docs_section = self.format_llms_docs_section(
             pages, list(categories_info.keys()), categories_info
         )
@@ -1849,9 +2222,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             docs_section,
         ]
 
-        llms_txt_content = "\n".join(
-            line for line in content_lines if line is not None
-        )
+        llms_txt_content = "\n".join(line for line in content_lines if line is not None)
         out_path.write_text(llms_txt_content, encoding="utf-8")
         log.info(f"[ai_docs] llms.txt written to {out_path}")
 
@@ -1914,4 +2285,3 @@ These AI-ready files do not include any persona or system prompts. They are pure
             lines.extend(grouped[cat])
 
         return "\n".join(lines)
-

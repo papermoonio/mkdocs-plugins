@@ -1,11 +1,10 @@
 import json
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from plugins.agent_skills.plugin import AgentSkillsPlugin
+from plugins.ai_docs.plugin import AIDocsPlugin
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -13,9 +12,16 @@ from plugins.agent_skills.plugin import AgentSkillsPlugin
 
 
 def _make_plugin(**overrides):
-    """Return a plugin instance with a minimal config dict."""
-    plugin = AgentSkillsPlugin()
-    plugin.config = {"agent_skills_config": "agent_skills_config.json", **overrides}
+    """Return an AIDocsPlugin instance with agent skills config set up."""
+    plugin = AIDocsPlugin()
+    plugin.config = {
+        "llms_config": "llms_config.json",
+        "ai_resources_page": True,
+        "ai_page_actions": True,
+        "agent_skills_config": "agent_skills_config.json",
+        "agent_skills": True,
+        **overrides,
+    }
     return plugin
 
 
@@ -414,7 +420,7 @@ class TestRenderSkillSupplementaryContext:
 
 
 class TestRenderSkillMinimal:
-    """Tests that a task with only required fields renders cleanly."""
+    """Tests that a skill with only required fields renders cleanly."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -441,12 +447,12 @@ class TestRenderSkillMinimal:
 
 
 # ---------------------------------------------------------------------------
-# TestWriteIndex
+# TestWriteSkillsIndex
 # ---------------------------------------------------------------------------
 
 
-class TestWriteIndex:
-    """Tests for _write_index JSON generation."""
+class TestWriteSkillsIndex:
+    """Tests for _write_skills_index JSON generation."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -461,7 +467,7 @@ class TestWriteIndex:
                 steps=[{"order": 1, "action": "Go"}],
             ),
         ]
-        self.plugin._write_index(skills, PROJECT, tmp_path)
+        self.plugin._write_skills_index(skills, PROJECT, tmp_path)
         index_path = tmp_path / "index.json"
         assert index_path.exists()
 
@@ -483,12 +489,12 @@ class TestWriteIndex:
 
 
 # ---------------------------------------------------------------------------
-# TestLoadConfig
+# TestLoadSkillsConfig
 # ---------------------------------------------------------------------------
 
 
-class TestLoadConfig:
-    """Tests for _load_config file loading and error handling."""
+class TestLoadSkillsConfig:
+    """Tests for _load_skills_config file loading and error handling."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -498,16 +504,21 @@ class TestLoadConfig:
         config_path = tmp_path / "agent_skills_config.json"
         config_path.write_text(json.dumps(config_data), encoding="utf-8")
 
-        result = self.plugin._load_config(tmp_path)
+        result = self.plugin._load_skills_config(tmp_path)
         assert result == config_data
 
-    def test_returns_none_for_missing_file(self, tmp_path):
-        result = self.plugin._load_config(tmp_path)
-        assert result is None
+    def test_returns_empty_for_missing_file(self, tmp_path):
+        result = self.plugin._load_skills_config(tmp_path)
+        assert not result
 
-    def test_returns_none_for_invalid_json(self, tmp_path):
+    def test_returns_empty_for_invalid_json(self, tmp_path):
         config_path = tmp_path / "agent_skills_config.json"
         config_path.write_text("not valid json {{{", encoding="utf-8")
 
-        result = self.plugin._load_config(tmp_path)
-        assert result is None
+        result = self.plugin._load_skills_config(tmp_path)
+        assert not result
+
+    def test_returns_empty_when_config_filename_not_set(self, tmp_path):
+        plugin = _make_plugin(agent_skills_config="")
+        result = plugin._load_skills_config(tmp_path)
+        assert not result
