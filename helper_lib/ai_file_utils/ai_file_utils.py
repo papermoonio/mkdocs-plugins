@@ -448,6 +448,18 @@ class AIFileUtils:
 
             safe_url = html.escape(url, quote=True)
             escaped_label = html.escape(dropdown_label, quote=True)
+            markdown_icon = (
+                '<svg xmlns="http://www.w3.org/2000/svg"'
+                ' width="24px" height="24px"'
+                ' viewBox="0 0 24 24"'
+                ' class="ai-file-actions-icon"'
+                ' aria-hidden="true">'
+                '<path d="M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6'
+                ' 3.44 6h17.12C21.35 6 22 6.63 22 7.41v9.18c0 .78-.65 1.41-1.44'
+                ' 1.41zM6 15v-4.5l2.5 2.5 2.5-2.5V15h2V9h-2l-2.5 2.5L6 9H4v6h2z'
+                'm11.5 0L20 12h-2V9h-2v3h-2l3.5 4z"/>'
+                '</svg>'
+            )
             trigger_btn = (
                 '<button class="ai-file-actions-btn ai-file-actions-trigger"'
                 f' title="{escaped_label}"'
@@ -457,6 +469,7 @@ class AIFileUtils:
                 ' aria-expanded="false"'
                 ' role="button"'
                 f' data-url="{safe_url}">'
+                f'{markdown_icon}'
                 f'<span class="button-text">{escaped_label}</span>'
                 f"{chevron}"
                 "</button>"
