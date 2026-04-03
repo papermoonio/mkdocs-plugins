@@ -359,14 +359,25 @@ class AIFileUtils:
         site_url: str = "",
         label_replace: dict[str, str] | None = None,
         content: str = "",
+        style: str = "split",
+        dropdown_label: str = "Markdown for LLMs",
+        extra_classes: str = "",
     ) -> str:
         """
-        Generate the HTML for the AI file actions split-button.
+        Generate the HTML for the AI file actions widget.
 
-        The action marked ``primary: true`` in the JSON renders
-        as the left-side button; all other actions render as
-        dropdown items.  The primary action is automatically
-        excluded from the dropdown.
+        Two styles are supported:
+
+        ``"split"`` (default)
+            The action marked ``primary: true`` in the JSON renders as a
+            left-side button; all other actions render as dropdown items.
+            The primary action is automatically excluded from the dropdown.
+
+        ``"dropdown"``
+            A single trigger button labelled ``dropdown_label`` (default
+            ``"Markdown for LLMs"``) opens a menu that contains *all*
+            actions, including the primary one.  No separate copy button
+            is rendered.
 
         Args:
             url: The relative URL of the file to act upon.
@@ -375,12 +386,18 @@ class AIFileUtils:
                      from the dropdown.
             primary_label: Optional label override for the primary
                      button (e.g., "Copy page" vs default "Copy file").
+                     Only used in ``"split"`` style.
             site_url: The base site URL (e.g., "https://docs.polkadot.com/").
                      When provided, ``page_url`` passed to prompt templates
                      will be the fully-qualified URL.
             label_replace: Optional dict of string replacements to apply
                      to dropdown item labels (e.g., ``{"file": "page"}``).
             content: Optional page content for prompt template interpolation.
+            style: Widget style — ``"split"`` or ``"dropdown"``.
+            dropdown_label: Trigger button label used in ``"dropdown"`` style.
+            extra_classes: Additional CSS class(es) to append to the container
+                     div (e.g., ``"ai-file-actions-container--table"``).
+                     Multiple classes can be space-separated.
 
         Returns:
             The HTML string for the component.
@@ -396,10 +413,84 @@ class AIFileUtils:
             page_url=url, filename=filename, content=content, prompt_page_url=full_url
         )
 
-        # Separate primary action from dropdown actions
+        exclude_set = set(exclude) if exclude else set()
+
+        # Build container class string — style modifier is auto-added, then
+        # any caller-supplied extra_classes are appended on top.
+        container_classes = "ai-file-actions-container"
+        if style == "dropdown":
+            container_classes += " ai-file-actions-container--dropdown"
+        if extra_classes:
+            container_classes += f" {extra_classes}"
+
+        chevron = (
+            '<svg xmlns="http://www.w3.org/2000/svg"'
+            ' width="24px" height="24px"'
+            ' viewBox="0 0 24 24"'
+            ' class="ai-file-actions-icon'
+            ' ai-file-actions-chevron"'
+            ' aria-hidden="true">'
+            '<path d="M7 10l5 5 5-5z"/></svg>'
+        )
+
+        # ------------------------------------------------------------------ #
+        # "dropdown" style — single trigger button, all actions in the menu   #
+        # ------------------------------------------------------------------ #
+        if style == "dropdown":
+            menu_items = ""
+            for action in actions:
+                if action.get("id") in exclude_set:
+                    continue
+                if label_replace and "label" in action:
+                    for old, new in label_replace.items():
+                        action["label"] = action["label"].replace(old, new)
+                menu_items += self._render_action_item(action, url)
+
+            safe_url = html.escape(url, quote=True)
+            escaped_label = html.escape(dropdown_label, quote=True)
+            markdown_icon = (
+                '<svg xmlns="http://www.w3.org/2000/svg"'
+                ' width="24px" height="24px"'
+                ' viewBox="0 0 24 24"'
+                ' class="ai-file-actions-icon"'
+                ' aria-hidden="true">'
+                '<path d="M20.56 18H3.44C2.65 18 2 17.37 2 16.59V7.41C2 6.63 2.65 6'
+                ' 3.44 6h17.12C21.35 6 22 6.63 22 7.41v9.18c0 .78-.65 1.41-1.44'
+                ' 1.41zM6 15v-4.5l2.5 2.5 2.5-2.5V15h2V9h-2l-2.5 2.5L6 9H4v6h2z'
+                'm11.5 0L20 12h-2V9h-2v3h-2l3.5 4z"/>'
+                '</svg>'
+            )
+            trigger_btn = (
+                '<button class="ai-file-actions-btn ai-file-actions-trigger"'
+                f' title="{escaped_label}"'
+                ' type="button"'
+                f' aria-label="{escaped_label}"'
+                ' aria-haspopup="true"'
+                ' aria-expanded="false"'
+                ' role="button"'
+                f' data-url="{safe_url}">'
+                f'{markdown_icon}'
+                f'<span class="button-text">{escaped_label}</span>'
+                f"{chevron}"
+                "</button>"
+            )
+            dropdown_menu = (
+                '<div class="ai-file-actions-menu" role="menu">'
+                f"{menu_items}"
+                "</div>"
+            )
+            return (
+                f'<div class="{container_classes}">'
+                f"{trigger_btn}"
+                f"{dropdown_menu}"
+                "</div>"
+            )
+
+        # ------------------------------------------------------------------ #
+        # "split" style (default) — primary copy button + chevron trigger     #
+        # ------------------------------------------------------------------ #
         primary_action = None
         dropdown_actions = []
-        exclude_set = set(exclude) if exclude else set()
 
         for action in actions:
             if action.get("primary"):
@@ -416,15 +507,6 @@ class AIFileUtils:
         )
 
         # Dropdown trigger (right side of split button)
-        chevron = (
-            '<svg xmlns="http://www.w3.org/2000/svg"'
-            ' width="24px" height="24px"'
-            ' viewBox="0 0 24 24"'
-            ' class="ai-file-actions-icon'
-            ' ai-file-actions-chevron"'
-            ' aria-hidden="true">'
-            '<path d="M7 10l5 5 5-5z"/></svg>'
-        )
         dropdown_btn = (
             '<button class="ai-file-actions-btn'
             ' ai-file-actions-trigger"'
@@ -448,7 +530,7 @@ class AIFileUtils:
         )
 
         return (
-            '<div class="ai-file-actions-container">'
+            f'<div class="{container_classes}">'
             f"{copy_btn}"
             f"{dropdown_btn}"
             f"{dropdown_menu}"

@@ -191,6 +191,15 @@ class TogglePagesPlugin(BasePlugin):
         ordered_variants = [canonical] + [
             v for v in variants.keys() if v != canonical
         ]
+
+        # Expose per-variant page_badges to the canonical page so the
+        # template can render badge blocks without the plugin knowing badge types.
+        canonical_page = variants[canonical]["page"]
+        canonical_page.meta["toggle_variant_metas"] = [
+            (v, variants[v]["page"].meta.get("page_badges") or {})
+            for v in ordered_variants
+        ]
+
         for variant in ordered_variants:
             data = variants[variant]
             active_class = "active" if variant == canonical else ""
@@ -234,6 +243,7 @@ class TogglePagesPlugin(BasePlugin):
         {''.join(buttons_html)}
     </div>
   </div>
+  <!-- toggle-badges -->
   <div class="toggle-content">
     {''.join(content_html)}
   </div>
