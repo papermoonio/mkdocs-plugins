@@ -935,3 +935,183 @@ class TestBuildCategoryLight:
         content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
         fm = yaml.safe_load(content.split("---")[1])
         assert fm["page_count"] == 0
+
+
+# ===========================================================================
+# ai_page_actions_anchor
+# ===========================================================================
+
+class TestAiPageActionsAnchor:
+    """Tests for the ai_page_actions_anchor config option."""
+
+    def _make_plugin(self, anchor_class=""):
+        plugin = AIDocsPlugin()
+        plugin.config = {
+            "llms_config": "llms_config.json",
+            "ai_resources_page": True,
+            "ai_page_actions": True,
+            "ai_page_actions_anchor": anchor_class,
+        }
+        plugin._config_loaded = True
+        return plugin
+
+    def _make_page(self, url="guide/", src_path="guide.md"):
+        page = MagicMock()
+        page.is_homepage = False
+        page.file.src_path = src_path
+        page.meta = {}
+        page.url = url
+        return page
+
+    def test_anchor_mode_injects_into_target_element(self):
+        """Widget is appended into the element with the configured class."""
+        plugin = self._make_plugin(anchor_class="page-actions-slot")
+        page = self._make_page()
+        output = (
+            '<div class="md-content">'
+            '<h1>Guide</h1>'
+            '<div class="page-actions-slot"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        slot = soup.select_one(".page-actions-slot")
+        assert slot is not None
+        assert slot.find(attrs={"data-url": True}) is not None
+
+    def test_anchor_mode_does_not_wrap_h1(self):
+        """When anchor class is set, the H1 is not wrapped in h1-ai-actions-wrapper."""
+        plugin = self._make_plugin(anchor_class="page-actions-slot")
+        page = self._make_page()
+        output = (
+            '<div class="md-content">'
+            '<h1>Guide</h1>'
+            '<div class="page-actions-slot"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "h1-ai-actions-wrapper" not in result
+
+    def test_anchor_mode_injects_into_all_matching_elements(self):
+        """Widget is appended into every element with the anchor class."""
+        plugin = self._make_plugin(anchor_class="action-slot")
+        page = self._make_page()
+        output = (
+            '<div class="md-content">'
+            '<div class="action-slot" id="a"></div>'
+            '<div class="action-slot" id="b"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        slots = soup.select(".action-slot")
+        assert len(slots) == 2
+        for slot in slots:
+            assert slot.find(attrs={"data-url": True}) is not None
+
+    def test_anchor_mode_no_match_returns_output_unchanged(self):
+        """When the anchor class is not found, the page is returned unchanged."""
+        plugin = self._make_plugin(anchor_class="nonexistent-slot")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert result == output
+
+    def test_anchor_mode_uses_page_route_for_md_path(self):
+        """The widget data-url is derived from the page route, not a toggle variant."""
+        plugin = self._make_plugin(anchor_class="slot")
+        page = self._make_page(url="api/reference/", src_path="api/reference.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="slot"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        data_url = soup.find(attrs={"data-url": True})["data-url"]
+        assert data_url == "/api/reference.md"
+
+    def test_empty_anchor_falls_back_to_h1_wrapping(self):
+        """When ai_page_actions_anchor is empty, the default H1-wrapping behavior runs."""
+        plugin = self._make_plugin(anchor_class="")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1><p>Content</p></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "h1-ai-actions-wrapper" in result
+
+
+# ===========================================================================
+# ai_page_actions_style
+# ===========================================================================
+
+class TestAiPageActionsStyle:
+    """Tests for the ai_page_actions_style and ai_page_actions_dropdown_label options."""
+
+    def _make_plugin(self, style="split", dropdown_label="Markdown for LLMs"):
+        plugin = AIDocsPlugin()
+        plugin.config = {
+            "llms_config": "llms_config.json",
+            "ai_resources_page": True,
+            "ai_page_actions": True,
+            "ai_page_actions_anchor": "",
+            "ai_page_actions_style": style,
+            "ai_page_actions_dropdown_label": dropdown_label,
+        }
+        plugin._config_loaded = True
+        return plugin
+
+    def _make_page(self, url="guide/", src_path="guide.md"):
+        page = MagicMock()
+        page.is_homepage = False
+        page.file.src_path = src_path
+        page.meta = {}
+        page.url = url
+        return page
+
+    def test_split_style_renders_copy_button(self):
+        """Split style produces the primary copy button outside the dropdown menu."""
+        plugin = self._make_plugin(style="split")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-copy" in result
+
+    def test_split_style_no_dropdown_modifier(self):
+        """Split style does not apply the --dropdown container modifier."""
+        plugin = self._make_plugin(style="split")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-container--dropdown" not in result
+
+    def test_dropdown_style_no_copy_button(self):
+        """Dropdown style does not render a standalone copy button."""
+        plugin = self._make_plugin(style="dropdown")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-copy" not in result
+
+    def test_dropdown_style_container_modifier(self):
+        """Dropdown style applies the --dropdown modifier to the container."""
+        plugin = self._make_plugin(style="dropdown")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-container--dropdown" in result
+
+    def test_dropdown_style_trigger_label(self):
+        """Dropdown style uses the configured dropdown_label on the trigger."""
+        plugin = self._make_plugin(style="dropdown", dropdown_label="AI Tools")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "AI Tools" in result
+
+    def test_dropdown_style_default_label(self):
+        """Dropdown style uses 'Markdown for LLMs' as the default trigger label."""
+        plugin = self._make_plugin(style="dropdown")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "Markdown for LLMs" in result

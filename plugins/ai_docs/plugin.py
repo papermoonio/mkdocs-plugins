@@ -50,6 +50,9 @@ class AIDocsPlugin(BasePlugin):
         ("llms_config", Type(str, default="llms_config.json")),
         ("ai_resources_page", Type(bool, default=True)),
         ("ai_page_actions", Type(bool, default=True)),
+        ("ai_page_actions_anchor", Type(str, default="")),
+        ("ai_page_actions_style", Type(str, default="split")),
+        ("ai_page_actions_dropdown_label", Type(str, default="Markdown for LLMs")),
     )
 
     def __init__(self):
@@ -97,19 +100,27 @@ class AIDocsPlugin(BasePlugin):
             log.warning(f"[ai_docs] Failed to load LLM config: {e}")
             return {}
 
-    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
-        """Wrap an H1 element and the AI actions widget in a flex container."""
-        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
-        url = f"{base_path}/{md_path}"
+    def _build_widget_html(self, url: str, md_path: str, site_url: str) -> str:
+        """Generate the widget HTML using the configured style options."""
+        widget_style = self.config.get("ai_page_actions_style", "split")
+        dropdown_label = self.config.get("ai_page_actions_dropdown_label", "Markdown for LLMs")
         filename = md_path.rsplit("/", 1)[-1]
-
-        widget_html = self._file_utils.generate_dropdown_html(
+        return self._file_utils.generate_dropdown_html(
             url=url,
             filename=filename,
             primary_label="Copy page",
             site_url=site_url,
             label_replace={"file": "page"},
+            style=widget_style,
+            dropdown_label=dropdown_label,
         )
+
+    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
+        """Wrap an H1 element and the AI actions widget in a flex container."""
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        url = f"{base_path}/{md_path}"
+
+        widget_html = self._build_widget_html(url, md_path, site_url)
 
         wrapper = soup.new_tag("div")
         wrapper["class"] = "h1-ai-actions-wrapper"
@@ -117,6 +128,23 @@ class AIDocsPlugin(BasePlugin):
         h1.wrap(wrapper)
         widget = BeautifulSoup(widget_html, "html.parser")
         wrapper.append(widget)
+
+    def _inject_into_anchor(self, anchor_class: str, md_path: str, soup: BeautifulSoup, site_url: str = "") -> bool:
+        """Append the AI actions widget into every element with the given CSS class. Returns True if any were found."""
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        url = f"{base_path}/{md_path}"
+
+        widget_html = self._build_widget_html(url, md_path, site_url)
+
+        targets = soup.select(f".{anchor_class}")
+        if not targets:
+            return False
+
+        for target in targets:
+            widget = BeautifulSoup(widget_html, "html.parser")
+            target.append(widget)
+
+        return True
 
 
     # ------------------------------------------------------------------
@@ -286,18 +314,21 @@ These AI-ready files do not include any persona or system prompts. They are pure
             )
 
         actions_llms = self._file_utils.generate_dropdown_html(
-            url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
+            url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         actions_site_index = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/site-index.json",
             filename="site-index.json",
             site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         actions_full = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
             site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         return make_table([
             "<tr>"
@@ -362,10 +393,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
         url = f"{base_path}{public_root_stripped}/categories/{filename}"
         light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
         actions = self._file_utils.generate_dropdown_html(
-            url=url, filename=filename, site_url=site_url
+            url=url, filename=filename, site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         light_actions = self._file_utils.generate_dropdown_html(
-            url=light_url, filename=light_filename, site_url=site_url
+            url=light_url, filename=light_filename, site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         return make_table([
             "<tr>"
@@ -482,6 +515,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             return output
 
         site_url = config.get("site_url", "")
+        anchor_class = self.config.get("ai_page_actions_anchor", "").strip()
 
         soup = BeautifulSoup(output, "html.parser")
         md_content = soup.select_one(".md-content")
@@ -490,13 +524,25 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         modified = False
 
-        # --- Toggle pages ---
         # Normalize page URL: strip .html suffix (present when use_directory_urls=false)
         # so the derived .md path always matches the co-located artifact path.
         route = page.url.strip("/")
         if route.endswith(".html"):
             route = route[: -len(".html")]
 
+        # --- Anchor-class mode ---
+        # When ai_page_actions_anchor is set, inject the widget into every element
+        # that carries that class rather than wrapping the H1.
+        if anchor_class:
+            md_path = f"{route}.md"
+            modified = self._inject_into_anchor(anchor_class, md_path, soup, site_url=site_url)
+            if not modified:
+                log.debug(
+                    f"[ai_docs] ai_page_actions_anchor '.{anchor_class}' not found on {page.file.src_path}"
+                )
+            return str(soup) if modified else output
+
+        # --- Toggle pages ---
         toggle_containers = md_content.select(".toggle-container")
         if toggle_containers:
             for container in toggle_containers:
