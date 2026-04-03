@@ -492,39 +492,38 @@ class TestAiResourcesPageMarkdown:
     """Tests for on_page_markdown output: static prose and placeholder divs."""
 
     def test_emits_aggregate_placeholder_div(self, tmp_path):
-        """on_page_markdown should include the aggregate table placeholder."""
+        """on_page_markdown should include the aggregate table HTML comment placeholder."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
-        assert '<div id="ai-resources-aggregate-table"></div>' in result
+        assert '<!-- ai-resources-aggregate-table -->' in result
 
     def test_emits_category_placeholder_divs(self, tmp_path):
-        """on_page_markdown should include a placeholder div for each configured category."""
+        """on_page_markdown should include an HTML comment placeholder for each configured category."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
-        assert '<div id="ai-category-basics-table"></div>' in result
+        assert '<!-- ai-category-basics-table -->' in result
 
     def test_emits_static_prose(self, tmp_path):
-        """on_page_markdown should include the overview heading and how-to section."""
+        """on_page_markdown should include the overview heading and access section."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
         assert "# AI Resources" in result
-        assert "## How to Use These Files" in result
         assert "## Access LLM Files" in result
 
     def test_emits_category_headings_for_toc(self, tmp_path):
-        """on_page_markdown should emit ## Categories and per-category ### headings for TOC."""
+        """on_page_markdown should emit ### Category Files and per-category #### headings for TOC."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
-        assert "## Categories" in result
-        assert "### Basics" in result
+        assert "### Category Files" in result
+        assert "#### Basics" in result
 
     def test_no_table_rows_in_markdown(self, tmp_path):
         """on_page_markdown must not contain table rows — those are injected in on_post_build."""
@@ -597,7 +596,7 @@ class TestMCPSection:
         assert "VS Code" in result
         assert "Claude Code CLI" in result
         assert "Codex CLI" in result
-        assert "Claude Desktop" in result
+        assert ":simple-claude: Claude" in result
         # Deeplinks should be generated
         assert "cursor://anysphere.cursor-deeplink" in result
         assert "vscode:mcp/install?" in result
@@ -739,8 +738,8 @@ class TestPatchAiResourcesPage:
     def _base_html(self):
         return (
             '<html><body>'
-            '<div id="ai-resources-aggregate-table"></div>'
-            '<div id="ai-category-basics-table"></div>'
+            '<!-- ai-resources-aggregate-table -->'
+            '<!-- ai-category-basics-table -->'
             '</body></html>'
         )
 
@@ -757,8 +756,8 @@ class TestPatchAiResourcesPage:
         plugin._patch_ai_resources_page(site_dir, config)
 
         result = html_path.read_text(encoding="utf-8")
-        assert '<div id="ai-resources-aggregate-table"></div>' not in result
-        assert '<div id="ai-category-basics-table"></div>' not in result
+        assert '<!-- ai-resources-aggregate-table -->' not in result
+        assert '<!-- ai-category-basics-table -->' not in result
         assert "<table>" in result
         assert "Token Estimate" in result
 
