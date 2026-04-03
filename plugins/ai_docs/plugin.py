@@ -530,49 +530,56 @@ These AI-ready files do not include any persona or system prompts. They are pure
         if route.endswith(".html"):
             route = route[: -len(".html")]
 
-        # --- Anchor-class mode ---
-        # When ai_page_actions_anchor is set, inject the widget into every element
-        # that carries that class rather than wrapping the H1.
-        if anchor_class:
-            md_path = f"{route}.md"
-            modified = self._inject_into_anchor(anchor_class, md_path, soup, site_url=site_url)
-            if not modified:
-                log.debug(
-                    f"[ai_docs] ai_page_actions_anchor '.{anchor_class}' not found on {page.file.src_path}"
-                )
-            return str(soup) if modified else output
-
         # --- Toggle pages ---
         toggle_containers = md_content.select(".toggle-container")
         if toggle_containers:
             for container in toggle_containers:
-                header_spans = container.select(
-                    ".toggle-header > span[data-variant]"
-                )
-                for span in header_spans:
-                    h1 = span.find("h1")
-                    if not h1:
-                        continue
-                    variant = span.get("data-variant", "")
-                    btn = container.select_one(
-                        f'.toggle-btn[data-variant="{variant}"]'
-                    )
-                    data_filename = btn.get("data-filename", "") if btn else ""
+                for btn in container.select(".toggle-btn[data-variant]"):
+                    variant = btn.get("data-variant", "")
+                    data_filename = btn.get("data-filename", "")
                     if data_filename:
                         segments = route.split("/")
                         md_path = "/".join(segments[:-1] + [f"{data_filename}.md"])
                     else:
                         md_path = f"{route}.md"
-                    self._wrap_h1(h1, md_path, soup, site_url=site_url)
-                    modified = True
+
+                    if anchor_class:
+                        # Inject into the per-variant anchor element so each
+                        # variant gets its own correctly-scoped widget.
+                        anchor_el = container.select_one(
+                            f'.{anchor_class}[data-variant="{variant}"]'
+                        )
+                        if anchor_el:
+                            base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+                            url = f"{base_path}/{md_path}"
+                            widget_html = self._build_widget_html(url, md_path, site_url)
+                            anchor_el.append(BeautifulSoup(widget_html, "html.parser"))
+                            modified = True
+                    else:
+                        span = container.select_one(
+                            f'.toggle-header > span[data-variant="{variant}"]'
+                        )
+                        if span:
+                            h1 = span.find("h1")
+                            if h1:
+                                self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                                modified = True
 
         # --- Normal pages (no toggle) ---
         if not toggle_containers:
-            h1 = md_content.find("h1")
-            if h1:
+            if anchor_class:
                 md_path = f"{route}.md"
-                self._wrap_h1(h1, md_path, soup, site_url=site_url)
-                modified = True
+                modified = self._inject_into_anchor(anchor_class, md_path, soup, site_url=site_url)
+                if not modified:
+                    log.debug(
+                        f"[ai_docs] ai_page_actions_anchor '.{anchor_class}' not found on {page.file.src_path}"
+                    )
+            else:
+                h1 = md_content.find("h1")
+                if h1:
+                    md_path = f"{route}.md"
+                    self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                    modified = True
 
         if not modified:
             return output
