@@ -632,6 +632,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
             cleaned_body = self.remove_html_comments(resolved_body)
             if cleaned_body != resolved_body:
                 log.debug(f"[ai_docs] stripped HTML comments in {md_path}")
+            # Remove pymdownx attribute blocks from inline links
+            cleaned_body = self.remove_attribute_syntax(cleaned_body)
             # Convert path to slug and canonical URLs
             rel_path = Path(md_path).relative_to(docs_dir)
             rel_no_ext = str(rel_path.with_suffix(""))
@@ -1256,6 +1258,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
     def remove_html_comments(content: str) -> str:
         """Remove <!-- ... --> comments (multiline)."""
         return re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+
+    @staticmethod
+    def remove_attribute_syntax(content: str) -> str:
+        """Remove pymdownx attribute blocks from inline links e.g. [text](url){target=\_blank}."""
+        return re.sub(r"(?<=\))\s*\{[^}]+\}", "", content)
 
     @staticmethod
     def strip_snippet_section_markers(content: str) -> str:
