@@ -136,7 +136,11 @@ class AIDocsPlugin(BasePlugin):
 
         widget_html = self._build_widget_html(url, md_path, site_url)
 
-        targets = md_content.select(f".{anchor_class}")
+        try:
+            targets = md_content.select(f".{anchor_class}")
+        except Exception:
+            log.warning(f"[ai_docs] Invalid ai_page_actions_anchor selector: '.{anchor_class}'. Skipping injection.")
+            return False
         if not targets:
             return False
 
@@ -515,7 +519,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             return output
 
         site_url = config.get("site_url", "")
-        anchor_class = self.config.get("ai_page_actions_anchor", "").strip()
+        anchor_class = self.config.get("ai_page_actions_anchor", "").strip().lstrip(".")
 
         soup = BeautifulSoup(output, "html.parser")
         md_content = soup.select_one(".md-content")
@@ -546,9 +550,13 @@ These AI-ready files do not include any persona or system prompts. They are pure
                     if anchor_class:
                         # Inject into the per-variant anchor element so each
                         # variant gets its own correctly-scoped widget.
-                        anchor_el = container.select_one(
-                            f'.{anchor_class}[data-variant="{variant}"]'
-                        )
+                        try:
+                            anchor_el = container.select_one(
+                                f'.{anchor_class}[data-variant="{variant}"]'
+                            )
+                        except Exception:
+                            log.warning(f"[ai_docs] Invalid ai_page_actions_anchor selector: '.{anchor_class}'. Skipping injection.")
+                            anchor_el = None
                         if anchor_el:
                             base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
                             url = f"{base_path}/{md_path}"
