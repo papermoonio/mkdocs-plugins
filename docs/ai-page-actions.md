@@ -57,7 +57,7 @@ Every widget shares the base container class. Modifier classes are added automat
 | Class | Present on |
 | :--- | :--- |
 | `.ai-file-actions-container` | Every widget (base class) |
-| `.ai-file-actions-container--dropdown` | Per-page widget when `ai_page_actions_style: dropdown` |
+| `.ai-file-actions-container--dropdown` | Per-page widget rendered in dropdown style (applied by `ai_docs` when `ai_page_actions_style: dropdown`) |
 | `.ai-file-actions-container--table` | Widgets inside the AI resources page tables |
 
 ### Targeting each widget independently
@@ -69,7 +69,7 @@ Every widget shares the base container class. Modifier classes are added automat
 /* Per-page split style only (default) */
 .ai-file-actions-container:not(.ai-file-actions-container--dropdown):not(.ai-file-actions-container--table) { }
 
-/* Per-page dropdown style only */
+/* Per-page dropdown style only (when used via ai_docs with ai_page_actions_style: dropdown) */
 .ai-file-actions-container--dropdown { }
 
 /* Resources table widgets only */
