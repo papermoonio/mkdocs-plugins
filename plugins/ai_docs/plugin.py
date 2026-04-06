@@ -563,6 +563,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
                             widget_html = self._build_widget_html(url, md_path, site_url)
                             anchor_el.append(BeautifulSoup(widget_html, "html.parser"))
                             modified = True
+                        else:
+                            log.debug(
+                                f"[ai_docs] ai_page_actions_anchor '.{anchor_class}[data-variant=\"{variant}\"]' "
+                                f"not found in toggle container on {page.file.src_path}"
+                            )
                     else:
                         span = container.select_one(
                             f'.toggle-header > span[data-variant="{variant}"]'
