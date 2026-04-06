@@ -129,14 +129,14 @@ class AIDocsPlugin(BasePlugin):
         widget = BeautifulSoup(widget_html, "html.parser")
         wrapper.append(widget)
 
-    def _inject_into_anchor(self, anchor_class: str, md_path: str, soup: BeautifulSoup, site_url: str = "") -> bool:
-        """Append the AI actions widget into every element with the given CSS class. Returns True if any were found."""
+    def _inject_into_anchor(self, anchor_class: str, md_path: str, md_content, site_url: str = "") -> bool:
+        """Append the AI actions widget into every element with the given CSS class within .md-content. Returns True if any were found."""
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
         url = f"{base_path}/{md_path}"
 
         widget_html = self._build_widget_html(url, md_path, site_url)
 
-        targets = soup.select(f".{anchor_class}")
+        targets = md_content.select(f".{anchor_class}")
         if not targets:
             return False
 
@@ -569,7 +569,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         if not toggle_containers:
             if anchor_class:
                 md_path = f"{route}.md"
-                modified = self._inject_into_anchor(anchor_class, md_path, soup, site_url=site_url)
+                modified = self._inject_into_anchor(anchor_class, md_path, md_content, site_url=site_url)
                 if not modified:
                     log.debug(
                         f"[ai_docs] ai_page_actions_anchor '.{anchor_class}' not found on {page.file.src_path}"
