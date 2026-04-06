@@ -55,7 +55,7 @@ Always runs when the plugin is enabled. Processes every documentation markdown f
 
 ### AI page actions (`ai_page_actions`)
 
-Injects a split-button dropdown widget next to each page's H1 heading at build time. The widget lets readers copy, download, or open the page's resolved markdown in an LLM tool. Pages listed in `llms_config.json` exclusions, dot-directories, and pages with `hide_ai_actions: true` in their front matter are automatically skipped.
+Injects an AI actions widget (split-button by default, or plain dropdown via `ai_page_actions_style`) next to each page's H1 heading at build time. The widget lets readers copy, download, or open the page's resolved markdown in an LLM tool. Pages listed in `llms_config.json` exclusions, dot-directories, and pages with `hide_ai_actions: true` in their front matter are automatically skipped.
 
 See [AI Page Actions](ai-page-actions.md) for details on exclusion rules, toggle page handling, and styling.
 
