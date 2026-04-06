@@ -1038,6 +1038,100 @@ class TestAiPageActionsAnchor:
         result = plugin.on_post_page(output, page=page, config={"site_url": ""})
         assert "h1-ai-actions-wrapper" in result
 
+    # --- Toggle page + anchor_class tests ---
+
+    def test_toggle_anchor_injects_widget_per_variant_with_data_filename(self):
+        """Each variant's anchor element gets a widget whose data-url matches data-filename."""
+        plugin = self._make_plugin(anchor_class="actions-slot")
+        page = self._make_page(url="runtime/", src_path="runtime.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="stable" data-filename="runtime-stable"></button>'
+            '<button class="toggle-btn" data-variant="latest" data-filename="runtime-latest"></button>'
+            '<div class="actions-slot" data-variant="stable"></div>'
+            '<div class="actions-slot" data-variant="latest"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+
+        stable_slot = soup.select_one('.actions-slot[data-variant="stable"]')
+        latest_slot = soup.select_one('.actions-slot[data-variant="latest"]')
+
+        assert stable_slot is not None
+        assert latest_slot is not None
+
+        stable_widget = stable_slot.find(attrs={"data-url": True})
+        latest_widget = latest_slot.find(attrs={"data-url": True})
+
+        assert stable_widget is not None, "stable slot should have a widget"
+        assert latest_widget is not None, "latest slot should have a widget"
+        assert stable_widget["data-url"] == "/runtime-stable.md"
+        assert latest_widget["data-url"] == "/runtime-latest.md"
+
+    def test_toggle_anchor_falls_back_to_route_when_no_data_filename(self):
+        """When data-filename is absent, the widget data-url falls back to the page route."""
+        plugin = self._make_plugin(anchor_class="actions-slot")
+        page = self._make_page(url="guide/", src_path="guide.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="v1"></button>'
+            '<div class="actions-slot" data-variant="v1"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        widget = soup.select_one('.actions-slot[data-variant="v1"]').find(attrs={"data-url": True})
+        assert widget is not None
+        assert widget["data-url"] == "/guide.md"
+
+    def test_toggle_anchor_no_match_skips_injection(self):
+        """When the anchor class is not found for a variant, no widget is injected."""
+        plugin = self._make_plugin(anchor_class="actions-slot")
+        page = self._make_page(url="guide/", src_path="guide.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="v1" data-filename="guide-v1"></button>'
+            # No matching .actions-slot[data-variant="v1"] present
+            '<div class="other-class" data-variant="v1"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find(attrs={"data-url": True}) is None
+
+    def test_toggle_anchor_does_not_inject_into_other_variants_slot(self):
+        """Each variant's widget only appears in its own anchor element, not another variant's."""
+        plugin = self._make_plugin(anchor_class="slot")
+        page = self._make_page(url="docs/", src_path="docs.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="a" data-filename="docs-a"></button>'
+            '<button class="toggle-btn" data-variant="b" data-filename="docs-b"></button>'
+            '<div class="slot" data-variant="a"></div>'
+            '<div class="slot" data-variant="b"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+
+        slot_a = soup.select_one('.slot[data-variant="a"]')
+        slot_b = soup.select_one('.slot[data-variant="b"]')
+
+        assert slot_a.find(attrs={"data-url": "/docs-a.md"}) is not None
+        assert slot_b.find(attrs={"data-url": "/docs-b.md"}) is not None
+        # Ensure cross-contamination didn't happen
+        assert slot_a.find(attrs={"data-url": "/docs-b.md"}) is None
+        assert slot_b.find(attrs={"data-url": "/docs-a.md"}) is None
+
 
 # ===========================================================================
 # ai_page_actions_style
