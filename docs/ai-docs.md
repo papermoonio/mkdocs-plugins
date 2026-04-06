@@ -92,7 +92,18 @@ plugins:
       ai_page_actions_anchor: my-page-actions
 ```
 
-The plugin then finds every element that has the class `my-page-actions` within `.md-content` and appends the widget into it, leaving the H1 untouched. If no matching element is found on a given page, the page is left unchanged and a debug message is logged. Toggle-page variant handling is not applied in anchor mode — the widget always uses the page's own `.md` path.
+The plugin then finds every element that has the class `my-page-actions` within `.md-content` and appends the widget into it, leaving the H1 untouched. If no matching element is found on a given page, the page is left unchanged and a debug message is logged.
+
+#### Toggle pages
+
+When using `ai_page_actions_anchor` alongside the [`page_toggle` plugin](page-toggle.md), your template must render one anchor element per variant inside the toggle container, each carrying the matching `data-variant` attribute. For example:
+
+```html
+<div class="my-page-actions" data-variant="stable"></div>
+<div class="my-page-actions" data-variant="latest"></div>
+```
+
+A Jinja macro is a convenient way to do this — iterate over your variants and emit the element with the correct `data-variant` for each one.
 
 ### AI resources page (`ai_resources_page`)
 
