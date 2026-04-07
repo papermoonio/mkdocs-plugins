@@ -77,7 +77,7 @@ See [AI Resources Page](ai-resources-page.md) for details on the generated conte
 
 Generates structured, agent-ready skill files from a JSON configuration. Each skill is rendered as a Markdown file with YAML front matter and written to the site output under `ai/skills/`. An accompanying `index.json` summarizes all available skills. This is useful for providing AI coding agents with step-by-step instructions, reference code links, and error recovery guidance.
 
-Skill generation requires `agent_skills_config` to be set. The plugin also injects a badge next to each page's H1 for any documentation page linked to a skill via `source_pages` in the config.
+Skill generation requires `agent_skills_config` to be set. The plugin also injects a widget next to each page's H1 for any documentation page linked to a skill via `source_pages` in the config.
 
 #### `agent_skills_config.json` schema
 
@@ -120,7 +120,7 @@ The configuration file supports the following top-level objects:
     <li>"reference_code": links to a reference repository and lists relevant files with descriptions</li>
     <li>"error_patterns": common errors with "pattern", "cause", and "resolution"</li>
     <li>"supplementary_context": additional documentation pages relevant to the skill</li>
-    <li>"source_pages": list of documentation page paths (relative to the docs directory) that this skill is associated with — used to inject skill badges on those pages</li>
+    <li>"source_pages": list of documentation page paths (relative to the docs directory) that this skill is associated with — used to inject skill widgets on those pages</li>
   </ul>
 </details>
 

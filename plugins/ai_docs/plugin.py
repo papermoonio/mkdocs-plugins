@@ -1,4 +1,5 @@
 import hashlib
+import html
 import ipaddress
 import json
 import os
@@ -150,7 +151,7 @@ class AIDocsPlugin(BasePlugin):
             return {}
 
     _TERMINAL_ICON = (
-        '<svg class="agent-skill-badge__icon" xmlns="http://www.w3.org/2000/svg" '
+        '<svg class="agent-skill-widget__icon" xmlns="http://www.w3.org/2000/svg" '
         'viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">'
         '<path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5'
         "A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0"
@@ -161,26 +162,29 @@ class AIDocsPlugin(BasePlugin):
         'a.75.75 0 0 1 0-1.5Z"></path></svg>'
     )
 
-    def _render_skill_badges(self, skills: list, site_url: str) -> str:
-        """Render the agent skill badge HTML for a list of skills."""
+    def _render_skill_widgets(self, skills: list, site_url: str) -> str:
+        """Render the agent skill widget HTML for a list of skills."""
         items = []
         for skill in skills:
             path = (
                 f"/{self._skills_public_root}/{self._skills_dir_name}/{skill['id']}.md"
             )
             url = f"{site_url}{path}" if site_url else path
+            title = html.escape(skill.get("title", ""))
             items.append(
-                f'<div class="agent-skill-badge">'
+                f'<div class="agent-skill-widget">'
                 f"{self._TERMINAL_ICON}"
-                f'<span class="agent-skill-badge__label">Agent skill</span>'
-                f'<span class="agent-skill-badge__divider" aria-hidden="true"></span>'
-                f'<a href="{url}" class="agent-skill-badge__action"'
-                f' target="_blank" rel="noopener">View</a>'
-                f'<span class="agent-skill-badge__dot" aria-hidden="true">·</span>'
-                f'<a href="{url}" class="agent-skill-badge__action" download>Download</a>'
+                f'<span class="agent-skill-widget__label">Agent skill: {title}</span>'
+                f'<span class="agent-skill-widget__divider" aria-hidden="true"></span>'
+                f'<a href="{url}" class="agent-skill-widget__action"'
+                f' target="_blank" rel="noopener"'
+                f' aria-label="View {title}">View</a>'
+                f'<span class="agent-skill-widget__dot" aria-hidden="true">·</span>'
+                f'<a href="{url}" class="agent-skill-widget__action" download'
+                f' aria-label="Download {title}">Download</a>'
                 f"</div>"
             )
-        return '<div class="agent-skill-badges">' + "".join(items) + "</div>"
+        return '<div class="agent-skill-widgets">' + "".join(items) + "</div>"
 
     def _build_raw_url(
         self, reference_repos: dict, ref_code: dict, file_path: str
@@ -777,7 +781,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
     ) -> Optional[str]:
-        """Inject the AI actions widget and/or agent skill badges next to each page's H1."""
+        """Inject the AI actions widget and/or agent skill widgets next to each page's H1."""
         ai_page_actions = self.config.get("ai_page_actions", True)
         agent_skills_enabled = self.config.get("agent_skills", True) and bool(
             self._skills_config
@@ -850,19 +854,19 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 self._wrap_h1(h1, md_path, soup, site_url=site_url)
                 modified = True
 
-        # --- Agent skill badges ---
+        # --- Agent skill widgets ---
         # Prepended into the page-meta-chips row below the H1, before the actions widget.
         if skills_for_page:
             h1 = md_content.find("h1")
             if h1:
-                badges_html = self._render_skill_badges(skills_for_page, site_url)
-                badge_soup = BeautifulSoup(badges_html, "html.parser")
+                widgets_html = self._render_skill_widgets(skills_for_page, site_url)
+                widget_soup = BeautifulSoup(widgets_html, "html.parser")
                 chips_div = h1.find_next_sibling("div", class_="page-meta-chips")
                 if not chips_div:
                     chips_div = soup.new_tag("div")
                     chips_div["class"] = "page-meta-chips"
                     h1.insert_after(chips_div)
-                chips_div.insert(0, badge_soup)
+                chips_div.insert(0, widget_soup)
                 modified = True
 
         if not modified:
