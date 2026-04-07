@@ -1,11 +1,10 @@
 import json
-from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugins.agent_skills.plugin import AgentSkillsPlugin
+from plugins.ai_docs.plugin import AIDocsPlugin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -13,9 +12,16 @@ from plugins.agent_skills.plugin import AgentSkillsPlugin
 
 
 def _make_plugin(**overrides):
-    """Return a plugin instance with a minimal config dict."""
-    plugin = AgentSkillsPlugin()
-    plugin.config = {"agent_skills_config": "agent_skills_config.json", **overrides}
+    """Return an AIDocsPlugin instance with agent skills config set up."""
+    plugin = AIDocsPlugin()
+    plugin.config = {
+        "llms_config": "llms_config.json",
+        "ai_resources_page": True,
+        "ai_page_actions": True,
+        "agent_skills_config": "agent_skills_config.json",
+        "agent_skills": True,
+        **overrides,
+    }
     return plugin
 
 
@@ -101,9 +107,9 @@ class TestRenderSkillFrontmatter:
         content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
         assert "name: test-skill" in fm
-        assert 'description: "Verify the plugin works"' in fm
-        assert 'title: "Test Skill"' in fm
-        assert 'estimated_steps: "0"' in fm
+        assert "description: Verify the plugin works" in fm
+        assert "title: Test Skill" in fm
+        assert "estimated_steps: 0" in fm
         assert "generated:" in fm
 
     def test_includes_reference_repo_when_present(self):
@@ -132,7 +138,7 @@ class TestRenderSkillFrontmatter:
         task = _minimal_skill(steps=steps)
         content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
-        assert 'estimated_steps: "2"' in fm
+        assert "estimated_steps: 2" in fm
 
     def test_metadata_block_present(self):
         task = _minimal_skill()
@@ -414,7 +420,7 @@ class TestRenderSkillSupplementaryContext:
 
 
 class TestRenderSkillMinimal:
-    """Tests that a task with only required fields renders cleanly."""
+    """Tests that a skill with only required fields renders cleanly."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -441,12 +447,12 @@ class TestRenderSkillMinimal:
 
 
 # ---------------------------------------------------------------------------
-# TestWriteIndex
+# TestWriteSkillsIndex
 # ---------------------------------------------------------------------------
 
 
-class TestWriteIndex:
-    """Tests for _write_index JSON generation."""
+class TestWriteSkillsIndex:
+    """Tests for _write_skills_index JSON generation."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -461,7 +467,7 @@ class TestWriteIndex:
                 steps=[{"order": 1, "action": "Go"}],
             ),
         ]
-        self.plugin._write_index(skills, PROJECT, tmp_path)
+        self.plugin._write_skills_index(skills, PROJECT, tmp_path)
         index_path = tmp_path / "index.json"
         assert index_path.exists()
 
@@ -483,12 +489,112 @@ class TestWriteIndex:
 
 
 # ---------------------------------------------------------------------------
-# TestLoadConfig
+# TestOnConfigSkillsOutputsValidation
 # ---------------------------------------------------------------------------
 
 
-class TestLoadConfig:
-    """Tests for _load_config file loading and error handling."""
+class TestOnConfigSkillsOutputsValidation:
+    """Tests for on_config validation of outputs.public_root and outputs.skills_dir."""
+
+    def _write_skills_config(self, tmp_path, data):
+        """Write agent_skills_config.json and return a minimal MkDocs config dict."""
+        config_path = tmp_path / "agent_skills_config.json"
+        config_path.write_text(json.dumps(data), encoding="utf-8")
+        return {"config_file_path": str(tmp_path / "mkdocs.yml")}
+
+    def _base_config(self, **output_overrides):
+        """Return a minimal skills config dict with the given outputs values."""
+        outputs = {"public_root": "/ai/", "skills_dir": "skills"}
+        outputs.update(output_overrides)
+        return {
+            "project": {"id": "test"},
+            "outputs": outputs,
+            "skills": [_minimal_skill(source_pages=["docs/page.md"])],
+        }
+
+    def test_valid_outputs_sets_instance_vars(self, tmp_path):
+        plugin = _make_plugin()
+        data = self._base_config(public_root="/custom/root/", skills_dir="my-skills")
+        mkdocs_config = self._write_skills_config(tmp_path, data)
+        plugin.on_config(mkdocs_config)
+        assert plugin._skills_public_root == "custom/root"
+        assert plugin._skills_dir_name == "my-skills"
+
+    def test_defaults_applied_when_outputs_key_absent(self, tmp_path):
+        plugin = _make_plugin()
+        data = {"project": {"id": "test"}, "skills": [_minimal_skill()]}
+        mkdocs_config = self._write_skills_config(tmp_path, data)
+        plugin.on_config(mkdocs_config)
+        assert plugin._skills_public_root == "ai"
+        assert plugin._skills_dir_name == "skills"
+
+    def test_page_skill_map_populated_for_valid_config(self, tmp_path):
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(tmp_path, self._base_config())
+        plugin.on_config(mkdocs_config)
+        assert "docs/page.md" in plugin._page_skill_map
+
+    def test_empty_public_root_clears_skills_config(self, tmp_path):
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(
+            tmp_path, self._base_config(public_root="")
+        )
+        plugin.on_config(mkdocs_config)
+        assert not plugin._skills_config
+
+    def test_slash_only_public_root_clears_skills_config(self, tmp_path):
+        # "/" strips to "" — must be treated as empty
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(
+            tmp_path, self._base_config(public_root="/")
+        )
+        plugin.on_config(mkdocs_config)
+        assert not plugin._skills_config
+
+    def test_empty_skills_dir_clears_skills_config(self, tmp_path):
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(
+            tmp_path, self._base_config(skills_dir="")
+        )
+        plugin.on_config(mkdocs_config)
+        assert not plugin._skills_config
+
+    def test_both_empty_clears_skills_config(self, tmp_path):
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(
+            tmp_path, self._base_config(public_root="", skills_dir="")
+        )
+        plugin.on_config(mkdocs_config)
+        assert not plugin._skills_config
+
+    def test_invalid_outputs_do_not_modify_instance_vars(self, tmp_path):
+        # Core invariant: bad values must never be written to _skills_public_root
+        # or _skills_dir_name — they must stay at their __init__ defaults.
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(
+            tmp_path, self._base_config(public_root="", skills_dir="")
+        )
+        plugin.on_config(mkdocs_config)
+        assert plugin._skills_public_root == "ai"
+        assert plugin._skills_dir_name == "skills"
+
+    def test_page_skill_map_empty_when_validation_fails(self, tmp_path):
+        # source_pages must not be mapped if outputs validation fails
+        plugin = _make_plugin()
+        mkdocs_config = self._write_skills_config(
+            tmp_path, self._base_config(public_root="")
+        )
+        plugin.on_config(mkdocs_config)
+        assert plugin._page_skill_map == {}
+
+
+# ---------------------------------------------------------------------------
+# TestLoadSkillsConfig
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSkillsConfig:
+    """Tests for _load_skills_config file loading and error handling."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -498,16 +604,238 @@ class TestLoadConfig:
         config_path = tmp_path / "agent_skills_config.json"
         config_path.write_text(json.dumps(config_data), encoding="utf-8")
 
-        result = self.plugin._load_config(tmp_path)
+        result = self.plugin._load_skills_config(tmp_path)
         assert result == config_data
 
-    def test_returns_none_for_missing_file(self, tmp_path):
-        result = self.plugin._load_config(tmp_path)
-        assert result is None
+    def test_returns_empty_for_missing_file(self, tmp_path):
+        result = self.plugin._load_skills_config(tmp_path)
+        assert not result
 
-    def test_returns_none_for_invalid_json(self, tmp_path):
+    def test_returns_empty_for_invalid_json(self, tmp_path):
         config_path = tmp_path / "agent_skills_config.json"
         config_path.write_text("not valid json {{{", encoding="utf-8")
 
-        result = self.plugin._load_config(tmp_path)
-        assert result is None
+        result = self.plugin._load_skills_config(tmp_path)
+        assert not result
+
+    def test_returns_empty_when_config_filename_not_set(self, tmp_path):
+        plugin = _make_plugin(agent_skills_config="")
+        result = plugin._load_skills_config(tmp_path)
+        assert not result
+
+
+# ---------------------------------------------------------------------------
+# TestOnPostPageSkillWidgetInjection
+# ---------------------------------------------------------------------------
+
+# Minimal rendered page HTML — matches the structure MkDocs produces.
+_PAGE_HTML = '<div class="md-content"><h1>Test Page</h1></div>'
+_PAGE_HTML_WITH_CHIPS = (
+    '<div class="md-content">'
+    "<h1>Test Page</h1>"
+    '<div class="page-meta-chips"><span>existing</span></div>'
+    "</div>"
+)
+
+
+def _make_page(src_path="docs/page.md", url="docs/page"):
+    page = MagicMock()
+    page.file.src_path = src_path
+    page.url = url
+    page.is_homepage = False
+    page.meta = {}
+    return page
+
+
+class TestOnPostPageSkillWidgetInjection:
+    """Integration tests for agent skill widget injection in on_post_page."""
+
+    def setup_method(self):
+        # Disable ai_page_actions so inject_widget is always False — isolates
+        # the skills widget path and avoids any _ensure_config_loaded calls.
+        self.plugin = _make_plugin(ai_page_actions=False)
+        self.plugin._skills_config = {"skills": [_minimal_skill()]}
+        self.plugin._page_skill_map = {
+            "docs/page.md": [{"id": "test-skill", "title": "Test Skill"}]
+        }
+        self.mkdocs_config = {"site_url": "https://docs.example.com"}
+
+    def test_injects_widget_for_mapped_page(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "agent-skill-widget" in result
+
+    def test_widget_contains_skill_title_in_tooltip(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert 'title="Test Skill"' in result
+
+    def test_widget_view_and_download_links_carry_aria_labels(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert 'aria-label="View Test Skill"' in result
+        assert 'aria-label="Download Test Skill"' in result
+
+    def test_creates_chips_div_when_absent(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "page-meta-chips" in result
+
+    def test_prepends_to_existing_chips_div(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML_WITH_CHIPS, page=_make_page(), config=self.mkdocs_config
+        )
+        # Widget must appear before the pre-existing chip content
+        assert result.index("agent-skill-widget") < result.index("existing")
+
+    def test_no_injection_for_unmapped_page(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML,
+            page=_make_page(src_path="docs/other.md"),
+            config=self.mkdocs_config,
+        )
+        assert result == _PAGE_HTML
+
+    def test_no_injection_when_md_content_absent(self):
+        bare_html = "<html><body><h1>No wrapper</h1></body></html>"
+        result = self.plugin.on_post_page(
+            bare_html, page=_make_page(), config=self.mkdocs_config
+        )
+        assert result == bare_html
+
+    def test_no_injection_when_agent_skills_disabled(self):
+        plugin = _make_plugin(ai_page_actions=False, agent_skills=False)
+        result = plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert result == _PAGE_HTML
+
+
+# ---------------------------------------------------------------------------
+# TestOnPostBuildAgentSkills
+# ---------------------------------------------------------------------------
+
+
+def _make_on_post_build_config(tmp_path):
+    """Return a minimal MkDocs config dict with real docs/site dirs in tmp_path."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    site_dir = tmp_path / "site"
+    site_dir.mkdir(exist_ok=True)
+    return {"docs_dir": str(docs_dir), "site_dir": str(site_dir), "site_url": ""}
+
+
+class TestOnPostBuildAgentSkills:
+    """Integration tests for agent skill file generation in on_post_build.
+
+    Non-skills methods are patched out so tests focus on the skills block.
+    subprocess.run is patched to report no git repo, keeping tests hermetic.
+    """
+
+    _PATCH_TARGETS = [
+        "_ensure_config_loaded",
+        "get_all_markdown_files",
+        "build_category_bundles",
+        "build_category_light",
+        "build_llms_txt",
+        "load_yaml",
+    ]
+
+    def _run_build(self, plugin, tmp_path):
+        """Patch all non-skills on_post_build machinery and run the hook."""
+        mkdocs_config = _make_on_post_build_config(tmp_path)
+        patches = [
+            patch.object(
+                plugin, t, return_value=([] if "files" in t or "index" in t else None)
+            )
+            for t in self._PATCH_TARGETS
+        ]
+        patches.append(patch.object(plugin, "build_site_index", return_value=[]))
+        patches.append(patch("subprocess.run", return_value=MagicMock(returncode=1)))
+        plugin.config["ai_resources_page"] = False
+        plugin._llms_config = {}
+
+        ctx = __import__("contextlib").ExitStack()
+        for p in patches:
+            ctx.enter_context(p)
+        with ctx:
+            plugin.on_post_build(mkdocs_config)
+        return Path(mkdocs_config["site_dir"])
+
+    def test_writes_skill_file(self, tmp_path):
+        plugin = _make_plugin()
+        plugin._skills_config = {
+            "project": PROJECT,
+            "skills": [_minimal_skill()],
+            "reference_repos": {},
+        }
+        site_dir = self._run_build(plugin, tmp_path)
+        assert (site_dir / "ai" / "skills" / "test-skill.md").exists()
+
+    def test_writes_index_json(self, tmp_path):
+        plugin = _make_plugin()
+        plugin._skills_config = {
+            "project": PROJECT,
+            "skills": [_minimal_skill()],
+            "reference_repos": {},
+        }
+        site_dir = self._run_build(plugin, tmp_path)
+        index_path = site_dir / "ai" / "skills" / "index.json"
+        assert index_path.exists()
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+        assert len(data["skills"]) == 1
+        assert data["skills"][0]["id"] == "test-skill"
+
+    def test_cleans_output_dir_before_writing(self, tmp_path):
+        plugin = _make_plugin()
+        plugin._skills_config = {
+            "project": PROJECT,
+            "skills": [_minimal_skill()],
+            "reference_repos": {},
+        }
+        # Pre-populate the output dir with a stale file
+        stale_dir = tmp_path / "site" / "ai" / "skills"
+        stale_dir.mkdir(parents=True)
+        stale_file = stale_dir / "stale-skill.md"
+        stale_file.write_text("stale", encoding="utf-8")
+
+        self._run_build(plugin, tmp_path)
+        assert not stale_file.exists()
+
+    def test_index_excludes_failed_skills(self, tmp_path):
+        # A malformed skill (missing objective) should not appear in index.json
+        plugin = _make_plugin()
+        plugin._skills_config = {
+            "project": PROJECT,
+            "skills": [
+                _minimal_skill(),
+                {"id": "broken-skill", "title": "Broken"},  # missing objective
+            ],
+            "reference_repos": {},
+        }
+        site_dir = self._run_build(plugin, tmp_path)
+        index_path = site_dir / "ai" / "skills" / "index.json"
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+        ids = [s["id"] for s in data["skills"]]
+        assert "test-skill" in ids
+        assert "broken-skill" not in ids
+
+    def test_skips_generation_when_skills_list_empty(self, tmp_path):
+        plugin = _make_plugin()
+        plugin._skills_config = {
+            "project": PROJECT,
+            "skills": [],
+            "reference_repos": {},
+        }
+        site_dir = self._run_build(plugin, tmp_path)
+        assert not (site_dir / "ai" / "skills").exists()
+
+    def test_skips_generation_when_skills_config_absent(self, tmp_path):
+        plugin = _make_plugin()
+        plugin._skills_config = {}
+        site_dir = self._run_build(plugin, tmp_path)
+        assert not (site_dir / "ai" / "skills").exists()

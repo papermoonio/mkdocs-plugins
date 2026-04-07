@@ -96,7 +96,7 @@ class TestFeatureFlags:
         output = '<div class="md-content"><h1>Guide</h1><p>Content</p></div>'
         result = plugin.on_post_page(output, page=page, config={"site_url": ""})
         assert result != output
-        assert "h1-ai-actions-wrapper" in result
+        assert "page-meta-chips" in result
 
 
 # ===========================================================================
@@ -528,17 +528,16 @@ class TestAiResourcesPageMarkdown:
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
         assert "# AI Resources" in result
-        assert "## How to Use These Files" in result
         assert "## Access LLM Files" in result
 
     def test_emits_category_headings_for_toc(self, tmp_path):
-        """on_page_markdown should emit ## Categories and per-category ### headings for TOC."""
+        """on_page_markdown should emit the Category Files heading and per-category headings for TOC."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
-        assert "## Categories" in result
-        assert "### Basics" in result
+        assert "### Category Files" in result
+        assert "#### Basics" in result
 
     def test_no_table_rows_in_markdown(self, tmp_path):
         """on_page_markdown must not contain table rows — those are injected in on_post_build."""
