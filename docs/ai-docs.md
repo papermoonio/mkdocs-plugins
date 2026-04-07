@@ -88,8 +88,8 @@ The configuration file supports the following top-level objects:
     - `name`: Display name of the project.
 
 - **`outputs`**
-    - `public_root`: Base output path within the site directory. Default: `"/ai/"`.
-    - `skills_dir`: Subdirectory name for skill files. Default: `"skills"`.
+    - `public_root`: Base output path within the site directory. Default: `"/ai/"`. Must not be empty or resolve to an empty string after stripping slashes — skill generation is skipped if it does.
+    - `skills_dir`: Subdirectory name for skill files. Default: `"skills"`. Must not be empty — skill generation is skipped if it is.
 
 - **`reference_repos`**: A dictionary keyed by repository ID. Each entry contains:
     - `url`: Repository URL for display links.
@@ -116,7 +116,7 @@ For each skill defined in the configuration, the plugin generates:
 - **`{skill_id}.md`** — A Markdown file with YAML front matter aligned to the [Agent Skills specification](https://agentskills.io/specification){target=\_blank}: required `name` (skill ID) and `description` (objective) fields; optional `license` and `compatibility` fields; and a `metadata` block containing the title, step count, reference repo (if applicable), and generation timestamp. The body contains structured sections for prerequisites, environment variables, execution steps, reference code index, error recovery, and supplementary context.
 - **`index.json`** — A JSON index listing all skills with their ID, title, description, filename, and step count, along with project metadata and a generation timestamp.
 
-The output directory (`ai/skills/` by default) is cleaned and recreated on each build to avoid stale files.
+The output directory (`ai/skills/` by default) is cleaned and recreated on each build to avoid stale files. The plugin verifies that the output directory resolves safely under the site directory before deleting it — skill generation is skipped with an error if this check fails.
 
 ## Notes
 
