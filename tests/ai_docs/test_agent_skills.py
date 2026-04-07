@@ -107,9 +107,9 @@ class TestRenderSkillFrontmatter:
         content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
         assert "name: test-skill" in fm
-        assert 'description: "Verify the plugin works"' in fm
-        assert 'title: "Test Skill"' in fm
-        assert 'estimated_steps: "0"' in fm
+        assert 'description: Verify the plugin works' in fm
+        assert 'title: Test Skill' in fm
+        assert 'estimated_steps: 0' in fm
         assert "generated:" in fm
 
     def test_includes_reference_repo_when_present(self):
@@ -138,7 +138,7 @@ class TestRenderSkillFrontmatter:
         task = _minimal_skill(steps=steps)
         content = self.plugin._render_skill(task, PROJECT, {})
         fm = self._frontmatter(content)
-        assert 'estimated_steps: "2"' in fm
+        assert 'estimated_steps: 2' in fm
 
     def test_metadata_block_present(self):
         task = _minimal_skill()
