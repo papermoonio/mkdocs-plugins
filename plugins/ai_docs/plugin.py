@@ -204,28 +204,32 @@ class AIDocsPlugin(BasePlugin):
         repo_id = ref_code.get("repo", "")
         repo_info = reference_repos.get(repo_id, {})
 
-        lines.append("---")
-        lines.append(f"name: {skill['id']}")
-        lines.append(f"description: \"{skill['objective']}\"")
-
+        fm: dict = {
+            "name": skill["id"],
+            "description": skill["objective"],
+        }
         if skill.get("license"):
-            lines.append(f"license: {skill['license']}")
+            fm["license"] = skill["license"]
         if skill.get("compatibility"):
-            lines.append(f"compatibility: {skill['compatibility']}")
-
-        lines.append("metadata:")
-        lines.append(f"  title: \"{skill['title']}\"")
-        lines.append(f"  estimated_steps: \"{len(skill.get('steps', []))}\"")
-        if repo_info:
-            lines.append(f"  reference_repo: {repo_info.get('url', '')}")
+            fm["compatibility"] = skill["compatibility"]
 
         source_pages = skill.get("source_pages", [])
+        metadata: dict = {
+            "title": skill["title"],
+            "estimated_steps": len(skill.get("steps", [])),
+        }
+        if repo_info:
+            metadata["reference_repo"] = repo_info.get("url", "")
         if source_pages:
-            pages_yaml = ", ".join(f'"{p}"' for p in source_pages)
-            lines.append(f"  source_pages: [{pages_yaml}]")
+            metadata["source_pages"] = source_pages
+        metadata["generated"] = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        fm["metadata"] = metadata
 
+        lines.append("---")
         lines.append(
-            f"  generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).rstrip()
         )
         lines.append("---")
         lines.append("")
