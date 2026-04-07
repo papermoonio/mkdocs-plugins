@@ -32,6 +32,7 @@ page_toggle = "plugins.page_toggle.plugin:TogglePagesPlugin"
 ai_resources_page = "plugins.ai_resources_page.plugin:AiResourcesPagePlugin"
 ai_page_actions = "plugins.ai_page_actions.plugin:AiPageActionsPlugin"
 ai_docs = "plugins.ai_docs.plugin:AIDocsPlugin"
+agent_skills = "plugins.agent_skills.plugin:AgentSkillsPlugin"
 link_processor = "plugins.link_processor.plugin:LinkProcessorPlugin"
 snippet_var_resolver = "plugins.snippet_var_resolver.plugin:SnippetVarResolverPlugin"
 
