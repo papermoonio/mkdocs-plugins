@@ -174,7 +174,7 @@ class AIDocsPlugin(BasePlugin):
             items.append(
                 f'<div class="agent-skill-widget">'
                 f"{self._TERMINAL_ICON}"
-                f'<span class="agent-skill-widget__label">Agent skill: {title}</span>'
+                f'<span class="agent-skill-widget__label" title="{title}">Agent skill</span>'
                 f'<span class="agent-skill-widget__divider" aria-hidden="true"></span>'
                 f'<a href="{url}" class="agent-skill-widget__action"'
                 f' target="_blank" rel="noopener"'
