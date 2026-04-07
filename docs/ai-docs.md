@@ -83,46 +83,31 @@ Skill generation requires `agent_skills_config` to be set. The plugin also injec
 
 The configuration file supports the following top-level objects:
 
-<details>
-  <summary>"project"</summary>
-  <ul>
-    <li>"id": internal identifier for the project</li>
-    <li>"name": display name of the project</li>
-  </ul>
-</details>
-<details>
-  <summary>"outputs"</summary>
-  <ul>
-    <li>"public_root": base output path within the site directory (default: "/ai/")</li>
-    <li>"skills_dir": subdirectory name for skill files (default: "skills")</li>
-  </ul>
-</details>
-<details>
-  <summary>"reference_repos"</summary>
-  <p>A dictionary keyed by repository ID. Each entry contains:</p>
-  <ul>
-    <li>"url": repository URL (for display links)</li>
-    <li>"raw_base_url": base URL for fetching raw file content</li>
-  </ul>
-</details>
-<details>
-  <summary>"skills"</summary>
-  <p>An array of skill objects. Each skill supports:</p>
-  <ul>
-    <li>"id": unique skill identifier (used as the output filename and the frontmatter <code>name</code> field)</li>
-    <li>"title": human-readable skill title</li>
-    <li>"objective": short description of what the skill accomplishes (written to frontmatter as <code>description</code>)</li>
-    <li>"license": (optional) license name or file reference, written to frontmatter if present</li>
-    <li>"compatibility": (optional) environment requirements such as required runtimes or network access, written to frontmatter if present</li>
-    <li>"prerequisites": grouped prerequisite items (e.g., "tools", "accounts")</li>
-    <li>"env_vars": environment variables the skill requires, each with "name", "description", and "required" fields</li>
-    <li>"steps": ordered execution steps, each with "order", "action", "description", "commands", "reference_file", and "expected_output"</li>
-    <li>"reference_code": links to a reference repository and lists relevant files with descriptions</li>
-    <li>"error_patterns": common errors with "pattern", "cause", and "resolution"</li>
-    <li>"supplementary_context": additional documentation pages relevant to the skill</li>
-    <li>"source_pages": list of documentation page paths (relative to the docs directory) that this skill is associated with — used to inject skill widgets on those pages</li>
-  </ul>
-</details>
+- **`project`**
+    - `id`: Internal identifier for the project.
+    - `name`: Display name of the project.
+
+- **`outputs`**
+    - `public_root`: Base output path within the site directory. Default: `"/ai/"`.
+    - `skills_dir`: Subdirectory name for skill files. Default: `"skills"`.
+
+- **`reference_repos`**: A dictionary keyed by repository ID. Each entry contains:
+    - `url`: Repository URL for display links.
+    - `raw_base_url`: Base URL for fetching raw file content.
+
+- **`skills`**: An array of skill objects. Each skill supports:
+    - `id`: Unique skill identifier, used as the output filename and the frontmatter `name` field.
+    - `title`: Human-readable skill title.
+    - `objective`: Short description of what the skill accomplishes, written to frontmatter as `description`.
+    - `license`: (Optional) License name or file reference, written to frontmatter if present.
+    - `compatibility`: (Optional) Environment requirements such as required runtimes or network access, written to frontmatter if present.
+    - `prerequisites`: Grouped prerequisite items (for example, `"tools"`, `"accounts"`).
+    - `env_vars`: Environment variables the skill requires, each with `name`, `description`, and `required` fields.
+    - `steps`: Ordered execution steps, each with `order`, `action`, `description`, `commands`, `reference_file`, and `expected_output`.
+    - `reference_code`: Links to a reference repository and lists relevant files with descriptions.
+    - `error_patterns`: Common errors with `pattern`, `cause`, and `resolution`.
+    - `supplementary_context`: Additional documentation pages relevant to the skill.
+    - `source_pages`: List of documentation page paths relative to the docs directory, used to inject skill widgets on those pages.
 
 #### Output
 
