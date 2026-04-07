@@ -1058,6 +1058,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                     shutil.rmtree(skills_output_dir)
                 skills_output_dir.mkdir(parents=True, exist_ok=True)
                 log.info(f"[ai_docs] generating {len(skills)} skill file(s)")
+                rendered_skills = []
                 for skill in skills:
                     skill_id = skill.get("id", "unknown")
                     try:
@@ -1065,11 +1066,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
                         output_path = skills_output_dir / f"{skill_id}.md"
                         output_path.write_text(content, encoding="utf-8")
                         log.info(f"[ai_docs] wrote {output_path}")
+                        rendered_skills.append(skill)
                     except Exception as e:
                         log.error(
                             f"[ai_docs] failed to generate skill '{skill_id}': {e}"
                         )
-                self._write_skills_index(skills, project, skills_output_dir)
+                self._write_skills_index(rendered_skills, project, skills_output_dir)
             else:
                 log.warning(
                     "[ai_docs] agent_skills_config loaded but no skills defined"
