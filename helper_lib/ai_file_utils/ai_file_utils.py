@@ -462,7 +462,6 @@ class AIFileUtils:
             )
             trigger_btn = (
                 '<button class="ai-file-actions-btn ai-file-actions-trigger"'
-                f' title="{escaped_label}"'
                 ' type="button"'
                 f' aria-label="{escaped_label}"'
                 ' aria-haspopup="true"'
