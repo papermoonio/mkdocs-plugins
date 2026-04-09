@@ -191,6 +191,23 @@ class TogglePagesPlugin(BasePlugin):
         ordered_variants = [canonical] + [
             v for v in variants.keys() if v != canonical
         ]
+
+        # Expose per-variant page_badges and page_tests to the canonical page so the
+        # template can render badge/test blocks without the plugin knowing their types.
+        canonical_page = variants[canonical]["page"]
+        canonical_page.meta["toggle_variant_metas"] = [
+            (v, variants[v]["page"].meta.get("page_badges") or {})
+            for v in ordered_variants
+        ]
+        canonical_page.meta["toggle_variant_test_metas"] = [
+            (
+                v,
+                variants[v]["page"].meta.get("page_tests") or {},
+                (variants[v]["page"].meta.get("page_badges") or {}).get("test_workflow"),
+            )
+            for v in ordered_variants
+        ]
+
         for variant in ordered_variants:
             data = variants[variant]
             active_class = "active" if variant == canonical else ""
@@ -215,13 +232,16 @@ class TogglePagesPlugin(BasePlugin):
                 f' data-canonical="{str(variant == canonical).lower()}" data-filename="{esc_filename}">{esc_label}</button>'
             )
 
-            # Content panels
+            # Content panels — inject per-variant tests placeholder before
+            # "Where to Go Next" (or at end) so the template can replace it
+            # with the rendered test block for this variant.
+            panel_html = self._inject_tests_placeholder(data["html"], variant)
             toc_html_attr = escape(data["toc_html"], quote=True)
             content_html.append(
                 f'<div class="toggle-panel {active_class}" '
                 f'data-variant="{esc_variant}" '
                 f'data-toc-html="{toc_html_attr}">'
-                f'{data["html"]}'
+                f'{panel_html}'
                 f"</div>"
             )
 
@@ -234,11 +254,29 @@ class TogglePagesPlugin(BasePlugin):
         {''.join(buttons_html)}
     </div>
   </div>
+  <!-- toggle-badges -->
   <div class="toggle-content">
     {''.join(content_html)}
   </div>
 </div>
 """
+
+    # ------------------------------------------------------------
+    # Inject per-variant tests placeholder into panel HTML
+    # ------------------------------------------------------------
+    def _inject_tests_placeholder(self, html: str, variant: str) -> str:
+        """
+        Insert <!-- toggle-tests-{variant} --> immediately before the
+        'Where to Go Next' h2 section, or append it at the end if that
+        section is absent.  The template replaces each placeholder with
+        the rendered test block for the corresponding variant.
+        """
+        placeholder = f"<!-- toggle-tests-{variant} -->"
+        marker = '<h2 id="where-to-go-next"'
+        idx = html.find(marker)
+        if idx >= 0:
+            return html[:idx] + placeholder + html[idx:]
+        return html + placeholder
 
     # ------------------------------------------------------------
     # Render page TOC in MkDocs sidebar format
