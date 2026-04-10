@@ -8,8 +8,9 @@ Currently included:
 - **[Copy Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/copy-md.md)**: Serve raw Markdown files by copying them directly to your site's build folder.
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
-- **[Instant Preview Compat](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/instant-preview-compat.md)**: Post-process built HTML so Material instant previews start from useful content instead of page-level UI.
 - **[Link Processing](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/link-processor.md)**: Opens external links in a new tab and adds trailing slashes to internal paths at build time.
+- **[Snippet Var Resolver](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/snippet-var-resolver.md)**: Resolve placeholder variables inside snippet content before Markdown rendering.
+- **[Instant Preview Compat](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/instant-preview-compat.md)**: Post-process built HTML so Material instant previews start from useful content instead of page-level UI.
 
 > **Deprecated** (kept for backward compatibility, will be removed in a future major release): [`resolve_md`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md), [`ai_page_actions`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-page-actions.md), [`ai_resources_page`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-resources-page.md). Use `ai_docs` instead.
 
@@ -45,6 +46,7 @@ plugins:
   - link_processor:
       skip_internal_path_prefixes:
         - /api/
+  - snippet_var_resolver
   - instant_preview_compat
 ```
 ## License
