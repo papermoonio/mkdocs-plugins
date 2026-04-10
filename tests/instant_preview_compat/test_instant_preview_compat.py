@@ -57,6 +57,12 @@ def _extract_preview_fragment(html: str, anchor: str | None = None) -> str:
     return "".join(parts)
 
 
+def _root_target_id(html: str) -> str | None:
+    soup = BeautifulSoup(html, "html.parser")
+    node = soup.select_one("article [data-instant-preview-root-target]")
+    return node.get("id") if node is not None else None
+
+
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -69,9 +75,6 @@ class TestInstantPreviewCompat:
             "rewrite_internal_links": True,
         }
 
-    def _start_build(self, tmp_path: Path) -> None:
-        self.plugin.on_pre_build(config={"site_dir": str(tmp_path)})
-
     def _process_page_output(
         self,
         tmp_path: Path,
@@ -81,7 +84,7 @@ class TestInstantPreviewCompat:
         url: str,
         src_path: str,
         meta: dict | None = None,
-    ) -> tuple[str, str]:
+    ) -> str:
         page = _make_page(
             url=url,
             src_path=src_path,
@@ -94,12 +97,9 @@ class TestInstantPreviewCompat:
             config={"site_dir": str(tmp_path)},
         )
         output_path.write_text(processed, encoding="utf-8")
-        relative_output = output_path.relative_to(tmp_path).as_posix()
-        return processed, relative_output
+        return processed
 
-    def test_rewrites_no_hash_and_h1_links_for_ai_action_pages(self, tmp_path):
-        self._start_build(tmp_path)
-
+    def test_keeps_plain_and_h1_links_clean_for_ai_action_pages(self, tmp_path):
         guide_dir = tmp_path / "guide"
         links_dir = tmp_path / "links"
         guide_dir.mkdir()
@@ -121,7 +121,7 @@ class TestInstantPreviewCompat:
             page=guide_page,
             config={"site_url": "https://example.com/"},
         )
-        _, relative_guide = self._process_page_output(
+        processed_guide = self._process_page_output(
             tmp_path,
             output=guide_html,
             output_path=guide_path,
@@ -139,23 +139,28 @@ class TestInstantPreviewCompat:
 
         self.plugin.on_post_build({"site_dir": str(tmp_path)})
 
-        state = self.plugin._states[relative_guide]
-        assert state.root_proxy_id is not None
-
         links_html = _read(links_path)
-        assert f'href="../guide/#{state.root_proxy_id}"' in links_html
+        assert 'href="../guide/"' in links_html
+        assert 'href="../guide/#guide"' in links_html
+        assert "__instant-preview__" not in links_html
 
         guide_html = _read(guide_path)
-        fragment = _extract_preview_fragment(guide_html, state.root_proxy_id)
-        assert "Guide" in fragment
-        assert "Useful intro." in fragment
-        assert "Details" in fragment
-        assert "Deep details." in fragment
-        assert "ai-file-actions-container" not in fragment
+        root_target_id = _root_target_id(guide_html)
+        assert root_target_id is not None
+        assert guide_html.index("data-instant-preview-stash") < guide_html.index('id="guide"')
 
-    def test_rewrites_wrapped_h1_without_touching_other_plugins(self, tmp_path):
-        self._start_build(tmp_path)
+        root_fragment = _extract_preview_fragment(guide_html)
+        h1_fragment = _extract_preview_fragment(guide_html, "guide")
+        assert "Guide" in root_fragment
+        assert "Useful intro." in root_fragment
+        assert "Details" in root_fragment
+        assert "Deep details." in root_fragment
+        assert "ai-file-actions-container" not in root_fragment
+        assert "Guide" in h1_fragment
+        assert root_fragment != h1_fragment
+        assert _root_target_id(processed_guide) == root_target_id
 
+    def test_builds_clean_root_preview_for_wrapped_h1(self, tmp_path):
         guide_dir = tmp_path / "guide"
         links_dir = tmp_path / "links"
         guide_dir.mkdir()
@@ -165,7 +170,7 @@ class TestInstantPreviewCompat:
         links_path = links_dir / "index.html"
 
         self.plugin.config["exclude_selectors"] = [".hero-actions"]
-        _, relative_guide = self._process_page_output(
+        self._process_page_output(
             tmp_path,
             output=_wrap_document(
                 '<div class="hero-shell">'
@@ -185,23 +190,18 @@ class TestInstantPreviewCompat:
         )
 
         links_path.write_text(
-            _wrap_document(
-                '<p><a id="plain" href="../guide/">Guide</a></p>'
-                '<p><a id="h1" href="../guide/#overview">Overview</a></p>'
-            ),
+            _wrap_document('<p><a id="plain" href="../guide/">Guide</a></p>'),
             encoding="utf-8",
         )
 
         self.plugin.on_post_build({"site_dir": str(tmp_path)})
 
-        state = self.plugin._states[relative_guide]
-        assert state.root_proxy_id is not None
-
         links_html = _read(links_path)
-        assert f'href="../guide/#{state.root_proxy_id}"' in links_html
+        assert 'href="../guide/"' in links_html
+        assert "__instant-preview__" not in links_html
 
         guide_html = _read(guide_path)
-        fragment = _extract_preview_fragment(guide_html, state.root_proxy_id)
+        fragment = _extract_preview_fragment(guide_html)
         assert "Overview" in fragment
         assert "Beginner" in fragment
         assert "Passing" in fragment
@@ -210,14 +210,12 @@ class TestInstantPreviewCompat:
         assert "Buttons" not in fragment
 
     def test_hoists_excluded_blocks_for_h2_and_h3_previews(self, tmp_path):
-        self._start_build(tmp_path)
-
         guide_dir = tmp_path / "guide"
         guide_dir.mkdir()
         guide_path = guide_dir / "index.html"
 
         self.plugin.config["exclude_selectors"] = [".status-badge"]
-        processed_html, _ = self._process_page_output(
+        processed_html = self._process_page_output(
             tmp_path,
             output=_wrap_document(
                 '<h1 id="guide">Guide</h1>'
@@ -253,9 +251,7 @@ class TestInstantPreviewCompat:
             is not None
         )
 
-    def test_toggle_pages_support_root_h1_and_variant_heading_previews(self, tmp_path):
-        self._start_build(tmp_path)
-
+    def test_toggle_pages_reconcile_root_preview_without_rewriting_links(self, tmp_path):
         quickstart_dir = tmp_path / "quickstart"
         links_dir = tmp_path / "links"
         quickstart_dir.mkdir()
@@ -267,17 +263,6 @@ class TestInstantPreviewCompat:
         vue_output_path.parent.mkdir()
 
         toggle = TogglePagesPlugin()
-        vue_page = _make_page(
-            url="quickstart-vue/",
-            src_path="quickstart-vue.md",
-            abs_dest_path=str(vue_output_path),
-            meta={
-                "toggle": {
-                    "group": "quickstart",
-                    "variant": "vue",
-                }
-            },
-        )
         canonical_page = _make_page(
             url="quickstart/",
             src_path="quickstart.md",
@@ -290,6 +275,35 @@ class TestInstantPreviewCompat:
                 }
             },
         )
+        vue_page = _make_page(
+            url="quickstart-vue/",
+            src_path="quickstart-vue.md",
+            abs_dest_path=str(vue_output_path),
+            meta={
+                "toggle": {
+                    "group": "quickstart",
+                    "variant": "vue",
+                }
+            },
+        )
+
+        canonical_html = toggle.on_page_content(
+            '<h1 id="quickstart">Quickstart</h1>'
+            "<p>React intro.</p>"
+            '<h2 id="install">Install</h2>'
+            "<p>React install.</p>",
+            page=canonical_page,
+            config={"plugins": {}},
+            files=[],
+        )
+        self._process_page_output(
+            tmp_path,
+            output=_wrap_document(canonical_html),
+            output_path=canonical_path,
+            url="quickstart/",
+            src_path="quickstart.md",
+            meta=canonical_page.meta,
+        )
 
         toggle.on_page_content(
             '<h1 id="quickstart">Quickstart</h1>'
@@ -300,24 +314,8 @@ class TestInstantPreviewCompat:
             config={"plugins": {}},
             files=[],
         )
-        canonical_html = toggle.on_page_content(
-            '<h1 id="quickstart">Quickstart</h1>'
-            "<p>React intro.</p>"
-            '<h2 id="install">Install</h2>'
-            "<p>React install.</p>",
-            page=canonical_page,
-            config={"plugins": {}},
-            files=[],
-        )
-
-        processed_html, relative_canonical = self._process_page_output(
-            tmp_path,
-            output=_wrap_document(canonical_html),
-            output_path=canonical_path,
-            url="quickstart/",
-            src_path="quickstart.md",
-            meta=canonical_page.meta,
-        )
+        vue_output_path.write_text("<html></html>", encoding="utf-8")
+        toggle.on_post_build({"plugins": {}})
 
         links_path.write_text(
             _wrap_document(
@@ -331,18 +329,19 @@ class TestInstantPreviewCompat:
 
         self.plugin.on_post_build({"site_dir": str(tmp_path)})
 
-        state = self.plugin._states[relative_canonical]
-        assert state.root_proxy_id is not None
-
         links_html = _read(links_path)
-        assert f'href="../quickstart/#{state.root_proxy_id}"' in links_html
+        assert 'href="../quickstart/"' in links_html
+        assert 'href="../quickstart/#quickstart"' in links_html
         assert 'href="../quickstart/#install"' in links_html
         assert 'href="../quickstart/#vue-install"' in links_html
+        assert "__instant-preview__" not in links_html
 
-        root_fragment = _extract_preview_fragment(processed_html, state.root_proxy_id)
-        canonical_fragment = _extract_preview_fragment(processed_html, "install")
-        vue_fragment = _extract_preview_fragment(processed_html, "vue-install")
+        quickstart_html = _read(canonical_path)
+        root_fragment = _extract_preview_fragment(quickstart_html)
+        canonical_fragment = _extract_preview_fragment(quickstart_html, "install")
+        vue_fragment = _extract_preview_fragment(quickstart_html, "vue-install")
 
+        assert quickstart_html.count("data-instant-preview-stash") == 1
         assert "Quickstart" in root_fragment
         assert "React intro." in root_fragment
         assert "Install" in root_fragment
@@ -350,4 +349,4 @@ class TestInstantPreviewCompat:
         assert "toggle-buttons" not in root_fragment
         assert "React install." in canonical_fragment
         assert "Vue install." in vue_fragment
-        assert 'id="vue-install"' in processed_html
+        assert 'id="vue-install"' in quickstart_html
