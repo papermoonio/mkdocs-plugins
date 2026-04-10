@@ -15,6 +15,14 @@ It handles three cases:
 Add the plugin to your `mkdocs.yml`:
 
 ```yaml
+site_url: https://example.com
+
+theme:
+  features:
+    - content.tooltips
+    - navigation.instant
+    - navigation.instant.preview
+
 plugins:
   - page_toggle
   - ai_docs
@@ -22,6 +30,8 @@ plugins:
 ```
 
 `instant_preview_compat` should run after other plugins that mutate the final article markup, because it patches the final article structure and may rewrite internal links for preview compatibility.
+
+The plugin only affects Material instant previews. If `site_url` is missing or those `theme.features` are not enabled, the plugin can still patch the built HTML, but no preview tooltip will be shown.
 
 ```yaml
 plugins:
