@@ -7,28 +7,16 @@ from mkdocs.config.defaults import MkDocsConfig
 from mkdocs.plugins import BasePlugin
 from mkdocs.structure.pages import Page
 
-from helper_lib.instant_preview_compat import (
-    PreviewPageState,
-    list_html_files,
-    process_page_html,
-    rewrite_html_links,
-)
+from helper_lib.instant_preview_compat import list_html_files, process_page_html
 
 
 class InstantPreviewCompatPlugin(BasePlugin):
-    """Post-process built HTML so Material instant preview starts at useful content."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._states: dict[str, PreviewPageState] = {}
+    """Patch built HTML so Material instant previews start at useful content."""
 
     config_scheme = (
         ("exclude_selectors", Type(list, default=[])),
         ("rewrite_internal_links", Type(bool, default=True)),
     )
-
-    def on_pre_build(self, *, config: MkDocsConfig) -> None:
-        self._states.clear()
 
     def on_post_page(
         self,
@@ -38,37 +26,26 @@ class InstantPreviewCompatPlugin(BasePlugin):
         config: MkDocsConfig,
     ) -> str:
         output_path = self._resolve_output_path(page, config)
-        processed_html, state = process_page_html(
+        return process_page_html(
             output,
             output_path=output_path,
             exclude_selectors=list(self.config.get("exclude_selectors", [])),
         )
-        if state.has_rewrites:
-            self._states[output_path] = state
-        else:
-            self._states.pop(output_path, None)
-        return processed_html
 
     def on_post_build(self, config: MkDocsConfig) -> None:
-        if not self.config.get("rewrite_internal_links", True):
-            return
-
-        if not self._states:
-            return
-
         site_dir = Path(config["site_dir"]).resolve()
         html_files = list_html_files(site_dir)
 
         for html_path in html_files:
             output_path = html_path.relative_to(site_dir).as_posix()
             original_html = html_path.read_text(encoding="utf-8")
-            rewritten_html = rewrite_html_links(
+            processed_html = process_page_html(
                 original_html,
-                source_path=output_path,
-                states=self._states,
+                output_path=output_path,
+                exclude_selectors=list(self.config.get("exclude_selectors", [])),
             )
-            if rewritten_html != original_html:
-                html_path.write_text(rewritten_html, encoding="utf-8")
+            if processed_html != original_html:
+                html_path.write_text(processed_html, encoding="utf-8")
 
     @staticmethod
     def _resolve_output_path(page: Page, config: MkDocsConfig) -> str:

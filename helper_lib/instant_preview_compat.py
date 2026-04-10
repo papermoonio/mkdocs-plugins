@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import posixpath
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlparse, urlunparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -20,28 +17,18 @@ ROOT_TARGET_ATTR = "data-instant-preview-root-target"
 SECTION_HEADING_ATTR = "data-instant-preview-section-heading"
 
 
-@dataclass
-class PreviewPageState:
-    output_path: str
-    root_proxy_id: str | None = None
-    hash_rewrites: dict[str, str] = field(default_factory=dict)
-
-    @property
-    def has_rewrites(self) -> bool:
-        return self.root_proxy_id is not None or bool(self.hash_rewrites)
-
-
 def process_page_html(
     html: str,
     *,
     output_path: str,
     exclude_selectors: list[str],
-) -> tuple[str, PreviewPageState]:
+) -> str:
     soup = BeautifulSoup(html, "html.parser")
     content_root = _find_content_root(soup)
-    state = PreviewPageState(output_path=output_path)
     if content_root is None:
-        return html, state
+        return html
+
+    _remove_existing_preview_artifacts(content_root)
 
     selectors = [*DEFAULT_EXCLUDE_SELECTORS, *exclude_selectors]
     mark_preview_excluded(content_root, selectors)
@@ -49,104 +36,11 @@ def process_page_html(
 
     if content_root.select_one(".toggle-container"):
         _rewrite_toggle_heading_ids(content_root)
-        _inject_toggle_root_previews(content_root, soup, state, output_path=output_path)
+        _inject_toggle_root_preview(content_root, soup, output_path=output_path)
     else:
-        _inject_standard_root_preview(content_root, soup, state, output_path=output_path)
+        _inject_standard_root_preview(content_root, soup, output_path=output_path)
 
-    return str(soup), state
-
-
-def rewrite_html_links(
-    html: str,
-    *,
-    source_path: str,
-    states: dict[str, PreviewPageState],
-) -> str:
-    if not states:
-        return html
-
-    soup = BeautifulSoup(html, "html.parser")
-    changed = False
-    for link in soup.select("a[href]"):
-        href = link.get("href", "")
-        rewritten = rewrite_link_href(
-            href,
-            source_path=source_path,
-            states=states,
-        )
-        if rewritten and rewritten != href:
-            link["href"] = rewritten
-            changed = True
-
-    return str(soup) if changed else html
-
-
-def rewrite_link_href(
-    href: str,
-    *,
-    source_path: str,
-    states: dict[str, PreviewPageState],
-) -> str | None:
-    parsed = urlparse(href)
-    if parsed.scheme or parsed.netloc:
-        return None
-    if href.startswith(("mailto:", "tel:", "javascript:")):
-        return None
-
-    target_path = resolve_target_output_path(source_path, parsed.path, states)
-    if target_path is None:
-        return None
-
-    state = states.get(target_path)
-    if state is None:
-        return None
-
-    new_fragment: str | None = None
-    if parsed.fragment:
-        new_fragment = state.hash_rewrites.get(parsed.fragment)
-    elif state.root_proxy_id:
-        new_fragment = state.root_proxy_id
-
-    if not new_fragment or new_fragment == parsed.fragment:
-        return None
-
-    rewritten = parsed._replace(fragment=new_fragment)
-    return urlunparse(rewritten)
-
-
-def resolve_target_output_path(
-    source_path: str,
-    href_path: str,
-    states: dict[str, PreviewPageState],
-) -> str | None:
-    if not href_path:
-        return source_path
-
-    if href_path.startswith("/"):
-        candidate = href_path.lstrip("/")
-    else:
-        source_dir = posixpath.dirname(source_path)
-        candidate = posixpath.join(source_dir, href_path)
-
-    normalized = posixpath.normpath(candidate)
-    if normalized in {"", "."}:
-        normalized = "index.html"
-
-    direct_candidates = [normalized]
-    if normalized.endswith("/"):
-        direct_candidates.append(posixpath.join(normalized, "index.html"))
-    elif not normalized.endswith(".html"):
-        if normalized in states:
-            direct_candidates.append(normalized)
-        direct_candidates.append(posixpath.join(normalized, "index.html"))
-        direct_candidates.append(f"{normalized}.html")
-
-    for candidate_path in direct_candidates:
-        clean = candidate_path.lstrip("./")
-        if clean in states:
-            return clean
-
-    return None
+    return str(soup)
 
 
 def mark_preview_excluded(root: BeautifulSoup | Tag, selectors: list[str]) -> None:
@@ -172,14 +66,29 @@ def hoist_leading_preview_excluded(root: BeautifulSoup | Tag) -> None:
         _hoist_in_parent(parent, root)
 
 
+def list_html_files(site_dir: Path) -> list[Path]:
+    return sorted(path for path in site_dir.rglob("*.html") if path.is_file())
+
+
 def _find_content_root(soup: BeautifulSoup) -> Tag | None:
     return soup.select_one("article") or soup.select_one(".md-content")
+
+
+def _remove_existing_preview_artifacts(content_root: Tag) -> None:
+    for stash in content_root.select(f"[{ROOT_STASH_ATTR}]"):
+        stash.decompose()
+
+    for node in content_root.select(f"[{ROOT_TARGET_ATTR}]"):
+        node.attrs.pop(ROOT_TARGET_ATTR, None)
+
+    for node in content_root.select(f"[{SECTION_HEADING_ATTR}]"):
+        node.attrs.pop(SECTION_HEADING_ATTR, None)
+        node.attrs.pop("data-heading-level", None)
 
 
 def _inject_standard_root_preview(
     content_root: Tag,
     soup: BeautifulSoup,
-    state: PreviewPageState,
     *,
     output_path: str,
 ) -> None:
@@ -192,70 +101,51 @@ def _inject_standard_root_preview(
         _iter_siblings_after(title_container),
         soup,
     )
-    target_id = _append_root_preview_target(
+    _append_root_preview_target(
         content_root,
         soup,
         title_heading=h1,
         preview_nodes=preview_nodes,
         seed=f"{output_path}-root",
     )
-    state.root_proxy_id = target_id
-
-    h1_id = h1.get("id")
-    if h1_id:
-        state.hash_rewrites[h1_id] = target_id
 
 
-def _inject_toggle_root_previews(
+def _inject_toggle_root_preview(
     content_root: Tag,
     soup: BeautifulSoup,
-    state: PreviewPageState,
     *,
     output_path: str,
 ) -> None:
-    for container_index, container in enumerate(
-        content_root.select(".toggle-container"),
-        start=1,
-    ):
-        canonical_variant = _get_canonical_variant(container)
-        header_spans = {
-            span.get("data-variant"): span
-            for span in container.select(".toggle-header > span[data-variant]")
-            if span.get("data-variant")
-        }
-        panels = {
-            panel.get("data-variant"): panel
-            for panel in container.select(".toggle-panel[data-variant]")
-            if panel.get("data-variant")
-        }
+    container = content_root.select_one(".toggle-container")
+    if container is None:
+        return
 
-        for variant, panel in panels.items():
-            span = header_spans.get(variant)
-            h1 = span.find("h1") if span is not None else None
-            if h1 is None:
-                continue
+    canonical_variant = _get_canonical_variant(container)
+    if not canonical_variant:
+        return
 
-            preview_nodes = _collect_root_preview_nodes(
-                _iter_children(panel),
-                soup,
-            )
-            target_id = _append_root_preview_target(
-                content_root,
-                soup,
-                title_heading=h1,
-                preview_nodes=preview_nodes,
-                seed=f"{output_path}-toggle-{container_index}-{variant or 'default'}",
-            )
+    header_span = container.select_one(
+        f'.toggle-header > span[data-variant="{canonical_variant}"]'
+    )
+    panel = container.select_one(f'.toggle-panel[data-variant="{canonical_variant}"]')
+    if header_span is None or panel is None:
+        return
 
-            h1_id = h1.get("id")
-            if h1_id:
-                state.hash_rewrites[h1_id] = target_id
+    h1 = header_span.find("h1")
+    if h1 is None:
+        return
 
-            if variant == canonical_variant and state.root_proxy_id is None:
-                state.root_proxy_id = target_id
-
-    if state.root_proxy_id is None and state.hash_rewrites:
-        state.root_proxy_id = next(iter(state.hash_rewrites.values()))
+    preview_nodes = _collect_root_preview_nodes(
+        _iter_children(panel),
+        soup,
+    )
+    _append_root_preview_target(
+        content_root,
+        soup,
+        title_heading=h1,
+        preview_nodes=preview_nodes,
+        seed=f"{output_path}-toggle-{canonical_variant}",
+    )
 
 
 def _find_root_title_container(h1: Tag, content_root: Tag) -> Tag:
@@ -337,7 +227,9 @@ def _build_preview_target_heading(
     target_id: str,
 ) -> Tag:
     clone = _clone_tag_for_preview(title_heading)
-    heading = soup.new_tag(title_heading.name if title_heading.name in HEADING_NAMES else "h1")
+    heading = soup.new_tag(
+        title_heading.name if title_heading.name in HEADING_NAMES else "h1"
+    )
     heading["id"] = target_id
     heading[ROOT_TARGET_ATTR] = ""
 
@@ -426,7 +318,7 @@ def _get_or_create_preview_stash(content_root: Tag, soup: BeautifulSoup) -> Tag:
     stash = soup.new_tag("div")
     stash[ROOT_STASH_ATTR] = ""
     stash["style"] = "display:none"
-    content_root.append(stash)
+    content_root.insert(0, stash)
     return stash
 
 
@@ -539,7 +431,3 @@ def _hoist_in_parent(parent: Tag, root: BeautifulSoup | Tag) -> None:
                 continue
 
             break
-
-
-def list_html_files(site_dir: Path) -> list[Path]:
-    return sorted(path for path in site_dir.rglob("*.html") if path.is_file())
