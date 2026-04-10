@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "papermoon-mkdocs-plugins"
-version = "0.1.0a11"
+version = "0.1.0a12"
 description = "A collection of MkDocs plugins"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,6 +34,7 @@ ai_page_actions = "plugins.ai_page_actions.plugin:AiPageActionsPlugin"
 ai_docs = "plugins.ai_docs.plugin:AIDocsPlugin"
 link_processor = "plugins.link_processor.plugin:LinkProcessorPlugin"
 snippet_var_resolver = "plugins.snippet_var_resolver.plugin:SnippetVarResolverPlugin"
+instant_preview_compat = "plugins.instant_preview_compat.plugin:InstantPreviewCompatPlugin"
 
 
 # Configuration for development tools
