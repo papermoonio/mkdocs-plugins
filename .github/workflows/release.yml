@@ -23,6 +23,11 @@ on:
 # Principle of least privilege — each job declares only what it needs
 permissions: {}
 
+# Prevent concurrent releases from racing on branch/tag/release creation
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   # ---------------------------------------------------------------------------
   # Job 0: Compute the next version from pyproject.toml + bump type
