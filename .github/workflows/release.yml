@@ -149,6 +149,7 @@ jobs:
     needs: compute-version
     outputs:
       pr-number: ${{ steps.wait-merge.outputs.pr-number }}
+      merge-sha: ${{ steps.wait-merge.outputs.merge-sha }}
     steps:
       - name: Generate app token
         id: app-token
@@ -186,11 +187,10 @@ jobs:
             --title "Release v${{ needs.compute-version.outputs.version }}" \
             --body "Bump version to \`${{ needs.compute-version.outputs.version }}\` and publish to PyPI."
 
-      - name: Approve and enable auto-merge
+      - name: Enable auto-merge
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr review "release/v${{ needs.compute-version.outputs.version }}" --approve
           gh pr merge "release/v${{ needs.compute-version.outputs.version }}" --auto --squash
 
       - name: Wait for PR to merge
@@ -203,7 +203,9 @@ jobs:
             echo "Attempt $i/30 — PR state: $STATE"
             if [ "$STATE" = "MERGED" ]; then
               PR_NUMBER=$(gh pr view "release/v${{ needs.compute-version.outputs.version }}" --json number --jq '.number')
+              MERGE_SHA=$(gh pr view "release/v${{ needs.compute-version.outputs.version }}" --json mergeCommit --jq '.mergeCommit.oid')
               echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+              echo "merge-sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             sleep 10
@@ -229,10 +231,10 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: Checkout main (post-merge)
+      - name: Checkout merge commit
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.bump-version.outputs.merge-sha }}
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure git user
