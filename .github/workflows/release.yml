@@ -29,6 +29,8 @@ jobs:
   # ---------------------------------------------------------------------------
   compute-version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
@@ -251,6 +253,8 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs:
       - compute-version
       - create-release
