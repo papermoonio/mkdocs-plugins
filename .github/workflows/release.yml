@@ -15,7 +15,7 @@ on:
           - patch
           - minor
           - major
-      version-override:
+      version_override:
         description: "Exact version (overrides bump type if set)"
         required: false
         type: string
@@ -57,7 +57,7 @@ jobs:
         shell: python
         env:
           INPUT_BUMP: ${{ inputs.bump }}
-          INPUT_VERSION_OVERRIDE: ${{ inputs.version-override }}
+          INPUT_VERSION_OVERRIDE: ${{ inputs.version_override }}
         run: |
           import os, sys, tomllib
           from packaging.version import Version
