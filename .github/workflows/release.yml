@@ -40,12 +40,12 @@ jobs:
       version: ${{ steps.compute.outputs.version }}
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -153,13 +153,13 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
           token: ${{ steps.app-token.outputs.token }}
@@ -206,13 +206,13 @@ jobs:
     steps:
       - name: Generate app token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
       - name: Checkout merge commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.bump-version.outputs.merge-sha }}
           token: ${{ steps.app-token.outputs.token }}
@@ -247,12 +247,12 @@ jobs:
       - create-release
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: v${{ needs.compute-version.outputs.version }}
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -262,7 +262,7 @@ jobs:
           python -m build
 
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-package-distributions
           path: dist/*
@@ -282,7 +282,7 @@ jobs:
       id-token: write
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-package-distributions
           path: dist/
@@ -302,7 +302,7 @@ jobs:
       contents: write
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-package-distributions
           path: dist/
