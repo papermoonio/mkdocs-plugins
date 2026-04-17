@@ -50,6 +50,32 @@ The plugin loads `llms_config.json` from the project root (the directory contain
 
 The widget uses the same CSS classes as the table widget (`ai-file-actions.css`). The H1 wrapper layout is controlled by `.h1-ai-actions-wrapper`, which includes mobile responsive styles that stack the H1 and widget vertically on small screens.
 
+### CSS classes
+
+Every widget shares the base container class. Modifier classes are added automatically based on context, giving you clean CSS selectors for each placement:
+
+| Class | Present on |
+| :--- | :--- |
+| `.ai-file-actions-container` | Every widget (base class) |
+| `.ai-file-actions-container--dropdown` | Per-page widget rendered in dropdown style (applied by `ai_docs` when `ai_page_actions_style: dropdown`) |
+| `.ai-file-actions-container--table` | Widgets inside the AI resources page tables |
+
+### Targeting each widget independently
+
+```css
+/* All widgets */
+.ai-file-actions-container { }
+
+/* Per-page split style only (default) */
+.ai-file-actions-container:not(.ai-file-actions-container--dropdown):not(.ai-file-actions-container--table) { }
+
+/* Per-page dropdown style only (when used via ai_docs with ai_page_actions_style: dropdown) */
+.ai-file-actions-container--dropdown { }
+
+/* Resources table widgets only */
+.ai-file-actions-container--table { }
+```
+
 ## Client-Side Behavior
 
 The widget relies on `ai-file-actions.js` for all client-side interactions (copy, download, dropdown toggle, keyboard navigation, analytics). No additional JavaScript is needed.

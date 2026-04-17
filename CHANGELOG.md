@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0a11
+
+### New Features
+
+#### `ai_docs` — Configurable page actions style and anchor
+
+Three new configuration options are available under the `ai_docs` plugin:
+
+- **`ai_page_actions_anchor`**: A CSS class name that scopes where the per-page AI actions widget is injected. When set, the plugin looks for an element with that class inside the toggle container (matched by `data-variant`) rather than wrapping the H1. Useful when the template renders its own anchor slots.
+- **`ai_page_actions_style`**: Controls the widget presentation. Accepts `"split"` (default, a primary button with a dropdown arrow) or `"dropdown"` (a single button that opens a full dropdown menu).
+- **`ai_page_actions_dropdown_label`**: Sets the label text shown on the dropdown trigger button when `ai_page_actions_style` is `"dropdown"`.
+
+### Bug Fixes
+
+#### `ai_docs` — `{target=\_blank}` stripped from resolved markdown output
+
+Resolved markdown files no longer contain `{target=\_blank}` attribute syntax. This attribute is unnecessary in plain markdown output, and when the `.jsonl` bundle is serialised via `json.dumps` the JSON spec requires every backslash to be escaped — turning `\_blank` in the source into `\\_blank` in the file. Removing the attribute at resolution time eliminates the escaping issue entirely.
+
 ## 0.1.0a10
 
 ### Bug Fixes

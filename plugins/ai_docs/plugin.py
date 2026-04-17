@@ -50,8 +50,11 @@ class AIDocsPlugin(BasePlugin):
         ("llms_config", Type(str, default="llms_config.json")),
         ("ai_resources_page", Type(bool, default=True)),
         ("ai_page_actions", Type(bool, default=True)),
+        ("ai_page_actions_anchor", Type(str, default="")),
+        ("ai_page_actions_style", Type(str, default="split")),
+        ("ai_page_actions_dropdown_label", Type(str, default="Markdown for LLMs")),
         ("agent_skills_config", Type(str, default="")),
-        ("agent_skills", Type(bool, default=True)),
+        ("agent_skills", Type(bool, default=True))
     )
 
     def __init__(self):
@@ -105,30 +108,55 @@ class AIDocsPlugin(BasePlugin):
             log.warning(f"[ai_docs] Failed to load LLM config: {e}")
             return {}
 
-    def _wrap_h1(
-        self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = ""
-    ) -> None:
-        """Append the AI actions widget to the page-meta-chips row below the H1."""
-        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
-        url = f"{base_path}/{md_path}"
+    def _build_widget_html(self, url: str, md_path: str, site_url: str) -> str:
+        """Generate the widget HTML using the configured style options."""
+        widget_style = self.config.get("ai_page_actions_style", "split")
+        dropdown_label = self.config.get("ai_page_actions_dropdown_label", "Markdown for LLMs")
         filename = md_path.rsplit("/", 1)[-1]
-
-        widget_html = self._file_utils.generate_dropdown_html(
+        return self._file_utils.generate_dropdown_html(
             url=url,
             filename=filename,
             primary_label="Copy page",
             site_url=site_url,
             label_replace={"file": "page"},
+            style=widget_style,
+            dropdown_label=dropdown_label,
         )
 
-        chips_div = h1.find_next_sibling("div", class_="page-meta-chips")
-        if not chips_div:
-            chips_div = soup.new_tag("div")
-            chips_div["class"] = "page-meta-chips"
-            h1.insert_after(chips_div)
+    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
+        """Wrap an H1 element and the AI actions widget in a flex container."""
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        url = f"{base_path}/{md_path}"
 
+        widget_html = self._build_widget_html(url, md_path, site_url)
+
+        wrapper = soup.new_tag("div")
+        wrapper["class"] = "h1-ai-actions-wrapper"
+
+        h1.wrap(wrapper)
         widget = BeautifulSoup(widget_html, "html.parser")
-        chips_div.append(widget)
+        wrapper.append(widget)
+
+    def _inject_into_anchor(self, anchor_class: str, md_path: str, md_content, site_url: str = "") -> bool:
+        """Append the AI actions widget into every element with the given CSS class within .md-content. Returns True if any were found."""
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        url = f"{base_path}/{md_path}"
+
+        widget_html = self._build_widget_html(url, md_path, site_url)
+
+        try:
+            targets = md_content.select(f".{anchor_class}")
+        except Exception:
+            log.warning(f"[ai_docs] Invalid ai_page_actions_anchor selector: '.{anchor_class}'. Skipping injection.")
+            return False
+        if not targets:
+            return False
+
+        for target in targets:
+            widget = BeautifulSoup(widget_html, "html.parser")
+            target.append(widget)
+
+        return True
 
     # ------------------------------------------------------------------
     # Agent skills helpers
@@ -599,18 +627,21 @@ These AI-ready files do not include any persona or system prompts. They are pure
             )
 
         actions_llms = self._file_utils.generate_dropdown_html(
-            url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url
+            url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         actions_site_index = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/site-index.json",
             filename="site-index.json",
             site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         actions_full = self._file_utils.generate_dropdown_html(
             url=f"{base_path}{public_root_stripped}/llms-full.jsonl",
             filename="llms-full.jsonl",
             exclude=["view-markdown"],
             site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         return make_table(
             [
@@ -685,10 +716,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
         url = f"{base_path}{public_root_stripped}/categories/{filename}"
         light_url = f"{base_path}{public_root_stripped}/categories/{light_filename}"
         actions = self._file_utils.generate_dropdown_html(
-            url=url, filename=filename, site_url=site_url
+            url=url, filename=filename, site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         light_actions = self._file_utils.generate_dropdown_html(
-            url=light_url, filename=light_filename, site_url=site_url
+            url=light_url, filename=light_filename, site_url=site_url,
+            extra_classes="ai-file-actions-container--table",
         )
         return make_table(
             [
@@ -830,6 +863,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             return output
 
         site_url = config.get("site_url", "")
+        anchor_class = self.config.get("ai_page_actions_anchor", "").strip().lstrip(".")
 
         soup = BeautifulSoup(output, "html.parser")
         md_content = soup.select_one(".md-content")
@@ -844,53 +878,71 @@ These AI-ready files do not include any persona or system prompts. They are pure
         if route.endswith(".html"):
             route = route[: -len(".html")]
 
-        # --- Actions widget: toggle pages ---
+        # --- Toggle pages ---
         toggle_containers = md_content.select(".toggle-container")
-        if inject_widget and toggle_containers:
+        if toggle_containers:
             for container in toggle_containers:
-                header_spans = container.select(".toggle-header > span[data-variant]")
-                for span in header_spans:
-                    h1 = span.find("h1")
-                    if not h1:
-                        continue
-                    variant = span.get("data-variant", "")
-                    btn = container.select_one(f'.toggle-btn[data-variant="{variant}"]')
-                    data_filename = btn.get("data-filename", "") if btn else ""
+                for btn in container.select(".toggle-btn[data-variant]"):
+                    variant = btn.get("data-variant", "")
+                    data_filename = btn.get("data-filename", "")
                     if data_filename:
                         segments = route.split("/")
                         md_path = "/".join(segments[:-1] + [f"{data_filename}.md"])
                     else:
                         md_path = f"{route}.md"
+
+                    if anchor_class:
+                        # Inject into the per-variant anchor element so each
+                        # variant gets its own correctly-scoped widget.
+                        try:
+                            anchor_el = container.select_one(
+                                f'.{anchor_class}[data-variant="{variant}"]'
+                            )
+                        except Exception:
+                            log.warning(f"[ai_docs] Invalid ai_page_actions_anchor selector: '.{anchor_class}'. Skipping injection.")
+                            anchor_el = None
+                        if anchor_el:
+                            base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+                            url = f"{base_path}/{md_path}"
+                            widget_html = self._build_widget_html(url, md_path, site_url)
+                            anchor_el.append(BeautifulSoup(widget_html, "html.parser"))
+                            modified = True
+                        else:
+                            log.debug(
+                                f"[ai_docs] ai_page_actions_anchor '.{anchor_class}[data-variant=\"{variant}\"]' "
+                                f"not found in toggle container on {page.file.src_path}"
+                            )
+                    else:
+                        span = container.select_one(
+                            f'.toggle-header > span[data-variant="{variant}"]'
+                        )
+                        if span:
+                            h1 = span.find("h1")
+                            if h1:
+                                self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                                modified = True
+
+        # --- Normal pages (no toggle) ---
+        if not toggle_containers:
+            if anchor_class:
+                md_path = f"{route}.md"
+                modified = self._inject_into_anchor(anchor_class, md_path, md_content, site_url=site_url)
+                if not modified:
+                    log.debug(
+                        f"[ai_docs] ai_page_actions_anchor '.{anchor_class}' not found on {page.file.src_path}"
+                    )
+            else:
+                h1 = md_content.find("h1")
+                if h1:
+                    md_path = f"{route}.md"
                     self._wrap_h1(h1, md_path, soup, site_url=site_url)
                     modified = True
-
-        # --- Actions widget: normal pages (no toggle) ---
-        if inject_widget and not toggle_containers:
-            h1 = md_content.find("h1")
-            if h1:
-                md_path = f"{route}.md"
-                self._wrap_h1(h1, md_path, soup, site_url=site_url)
-                modified = True
-
-        # --- Agent skill widgets ---
-        # Prepended into the page-meta-chips row below the H1, before the actions widget.
-        if skills_for_page:
-            h1 = md_content.find("h1")
-            if h1:
-                widgets_html = self._render_skill_widgets(skills_for_page, site_url)
-                widget_soup = BeautifulSoup(widgets_html, "html.parser")
-                chips_div = h1.find_next_sibling("div", class_="page-meta-chips")
-                if not chips_div:
-                    chips_div = soup.new_tag("div")
-                    chips_div["class"] = "page-meta-chips"
-                    h1.insert_after(chips_div)
-                chips_div.insert(0, widget_soup)
-                modified = True
 
         if not modified:
             return output
 
         return str(soup)
+    
 
     # Process will start after site build is complete
     def on_post_build(self, config):

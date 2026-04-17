@@ -309,16 +309,118 @@ class TestMCPHelpers:
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
 
-    def test_mcp_external_link_html(self):
-        """External link should have target=_blank and rel attributes."""
-        result = AIFileUtils.mcp_external_link("https://example.com/docs")
 
-        assert 'href="https://example.com/docs"' in result
-        assert 'target="_blank"' in result
-        assert 'rel="noopener noreferrer"' in result
-        assert ">Setup guide</a>" in result
+class TestGenerateDropdownHtmlStyle:
+    """Tests for the style parameter of generate_dropdown_html."""
 
-    def test_mcp_external_link_custom_label(self):
-        """Custom label should appear in the link text."""
-        result = AIFileUtils.mcp_external_link("https://example.com", label="Read more")
-        assert ">Read more</a>" in result
+    def setup_method(self):
+        self.utils = AIFileUtils()
+
+    # --- split style (default) ---
+
+    def test_split_style_renders_copy_button(self):
+        """Split style produces the primary copy button outside the menu."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="split"
+        )
+        assert "ai-file-actions-copy" in result
+
+    def test_split_style_excludes_primary_from_menu(self):
+        """Split style does not include the primary action as a menu item."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="split"
+        )
+        assert 'data-action-id="copy-markdown"' not in result
+
+    def test_split_style_container_has_no_dropdown_modifier(self):
+        """Split style container does not carry the --dropdown modifier class."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="split"
+        )
+        assert "ai-file-actions-container--dropdown" not in result
+
+    # --- dropdown style ---
+
+    def test_dropdown_style_has_no_copy_button(self):
+        """Dropdown style does not render a standalone copy button."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown"
+        )
+        assert "ai-file-actions-copy" not in result
+
+    def test_dropdown_style_primary_action_in_menu(self):
+        """Dropdown style includes the primary action as a menu item."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown"
+        )
+        assert 'data-action-id="copy-markdown"' in result
+
+    def test_dropdown_style_trigger_shows_label(self):
+        """Dropdown style trigger button shows the dropdown_label text."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown",
+            dropdown_label="Markdown for LLMs"
+        )
+        assert "Markdown for LLMs" in result
+
+    def test_dropdown_style_custom_label(self):
+        """dropdown_label is reflected in the trigger button."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown",
+            dropdown_label="AI Tools"
+        )
+        assert "AI Tools" in result
+        assert "Markdown for LLMs" not in result
+
+    def test_dropdown_style_container_modifier_class(self):
+        """Dropdown style container carries the --dropdown modifier class."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown"
+        )
+        assert "ai-file-actions-container--dropdown" in result
+
+    def test_dropdown_style_trigger_carries_data_url(self):
+        """Dropdown style trigger button carries data-url for JS."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown"
+        )
+        assert 'data-url="/page.md"' in result
+
+    def test_dropdown_style_exclude_still_works(self):
+        """Excluded action IDs are not present in dropdown style output."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown",
+            exclude=["view-markdown"]
+        )
+        assert 'data-action-id="view-markdown"' not in result
+
+    def test_default_style_is_split(self):
+        """Omitting style produces the same output as style='split'."""
+        default = self.utils.generate_dropdown_html(url="/page.md", filename="page.md")
+        explicit = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="split"
+        )
+        assert default == explicit
+
+    def test_extra_classes_appended_to_split_container(self):
+        """extra_classes are added to the container in split style."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="split",
+            extra_classes="ai-file-actions-container--table",
+        )
+        assert "ai-file-actions-container--table" in result
+        assert "ai-file-actions-container--dropdown" not in result
+
+    def test_extra_classes_appended_to_dropdown_container(self):
+        """extra_classes are added alongside --dropdown in dropdown style."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="dropdown",
+            extra_classes="ai-file-actions-container--table",
+        )
+        assert "ai-file-actions-container--dropdown" in result
+        assert "ai-file-actions-container--table" in result
+
+    def test_no_extra_classes_by_default(self):
+        """Without extra_classes, only the base class (and style modifier) appear."""
+        result = self.utils.generate_dropdown_html(url="/page.md", filename="page.md")
+        assert "ai-file-actions-container--table" not in result

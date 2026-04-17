@@ -506,23 +506,23 @@ class TestAiResourcesPageMarkdown:
     """Tests for on_page_markdown output: static prose and placeholder divs."""
 
     def test_emits_aggregate_placeholder_div(self, tmp_path):
-        """on_page_markdown should include the aggregate table placeholder."""
+        """on_page_markdown should include the aggregate table HTML comment placeholder."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
-        assert '<div id="ai-resources-aggregate-table"></div>' in result
+        assert '<!-- ai-resources-aggregate-table -->' in result
 
     def test_emits_category_placeholder_divs(self, tmp_path):
-        """on_page_markdown should include a placeholder div for each configured category."""
+        """on_page_markdown should include an HTML comment placeholder for each configured category."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
         result = plugin.on_page_markdown("", page=page, config=config, files=[])
-        assert '<div id="ai-category-basics-table"></div>' in result
+        assert '<!-- ai-category-basics-table -->' in result
 
     def test_emits_static_prose(self, tmp_path):
-        """on_page_markdown should include the overview heading and how-to section."""
+        """on_page_markdown should include the overview heading and access section."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
@@ -610,7 +610,7 @@ class TestMCPSection:
         assert "VS Code" in result
         assert "Claude Code CLI" in result
         assert "Codex CLI" in result
-        assert "Claude Desktop" in result
+        assert ":simple-claude: Claude" in result
         # Deeplinks should be generated
         assert "cursor://anysphere.cursor-deeplink" in result
         assert "vscode:mcp/install?" in result
@@ -752,8 +752,8 @@ class TestPatchAiResourcesPage:
     def _base_html(self):
         return (
             '<html><body>'
-            '<div id="ai-resources-aggregate-table"></div>'
-            '<div id="ai-category-basics-table"></div>'
+            '<!-- ai-resources-aggregate-table -->'
+            '<!-- ai-category-basics-table -->'
             '</body></html>'
         )
 
@@ -770,8 +770,8 @@ class TestPatchAiResourcesPage:
         plugin._patch_ai_resources_page(site_dir, config)
 
         result = html_path.read_text(encoding="utf-8")
-        assert '<div id="ai-resources-aggregate-table"></div>' not in result
-        assert '<div id="ai-category-basics-table"></div>' not in result
+        assert '<!-- ai-resources-aggregate-table -->' not in result
+        assert '<!-- ai-category-basics-table -->' not in result
         assert "<table>" in result
         assert "Token Estimate" in result
 
@@ -948,3 +948,277 @@ class TestBuildCategoryLight:
         content = (ai_root / "categories" / "basics-light.md").read_text(encoding="utf-8")
         fm = yaml.safe_load(content.split("---")[1])
         assert fm["page_count"] == 0
+
+
+# ===========================================================================
+# ai_page_actions_anchor
+# ===========================================================================
+
+class TestAiPageActionsAnchor:
+    """Tests for the ai_page_actions_anchor config option."""
+
+    def _make_plugin(self, anchor_class=""):
+        plugin = AIDocsPlugin()
+        plugin.config = {
+            "llms_config": "llms_config.json",
+            "ai_resources_page": True,
+            "ai_page_actions": True,
+            "ai_page_actions_anchor": anchor_class,
+        }
+        plugin._config_loaded = True
+        return plugin
+
+    def _make_page(self, url="guide/", src_path="guide.md"):
+        page = MagicMock()
+        page.is_homepage = False
+        page.file.src_path = src_path
+        page.meta = {}
+        page.url = url
+        return page
+
+    def test_anchor_mode_injects_into_target_element(self):
+        """Widget is appended into the element with the configured class."""
+        plugin = self._make_plugin(anchor_class="page-actions-slot")
+        page = self._make_page()
+        output = (
+            '<div class="md-content">'
+            '<h1>Guide</h1>'
+            '<div class="page-actions-slot"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        slot = soup.select_one(".page-actions-slot")
+        assert slot is not None
+        assert slot.find(attrs={"data-url": True}) is not None
+
+    def test_anchor_mode_does_not_wrap_h1(self):
+        """When anchor class is set, the H1 is not wrapped in h1-ai-actions-wrapper."""
+        plugin = self._make_plugin(anchor_class="page-actions-slot")
+        page = self._make_page()
+        output = (
+            '<div class="md-content">'
+            '<h1>Guide</h1>'
+            '<div class="page-actions-slot"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "h1-ai-actions-wrapper" not in result
+
+    def test_anchor_mode_injects_into_all_matching_elements(self):
+        """Widget is appended into every element with the anchor class."""
+        plugin = self._make_plugin(anchor_class="action-slot")
+        page = self._make_page()
+        output = (
+            '<div class="md-content">'
+            '<div class="action-slot" id="a"></div>'
+            '<div class="action-slot" id="b"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        slots = soup.select(".action-slot")
+        assert len(slots) == 2
+        for slot in slots:
+            assert slot.find(attrs={"data-url": True}) is not None
+
+    def test_anchor_mode_no_match_returns_output_unchanged(self):
+        """When the anchor class is not found, the page is returned unchanged."""
+        plugin = self._make_plugin(anchor_class="nonexistent-slot")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert result == output
+
+    def test_anchor_mode_uses_page_route_for_md_path(self):
+        """The widget data-url is derived from the page route, not a toggle variant."""
+        plugin = self._make_plugin(anchor_class="slot")
+        page = self._make_page(url="api/reference/", src_path="api/reference.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="slot"></div>'
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        data_url = soup.find(attrs={"data-url": True})["data-url"]
+        assert data_url == "/api/reference.md"
+
+    def test_empty_anchor_falls_back_to_h1_wrapping(self):
+        """When ai_page_actions_anchor is empty, the default H1-wrapping behavior runs."""
+        plugin = self._make_plugin(anchor_class="")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1><p>Content</p></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "h1-ai-actions-wrapper" in result
+
+    # --- Toggle page + anchor_class tests ---
+
+    def test_toggle_anchor_injects_widget_per_variant_with_data_filename(self):
+        """Each variant's anchor element gets a widget whose data-url matches data-filename."""
+        plugin = self._make_plugin(anchor_class="actions-slot")
+        page = self._make_page(url="runtime/", src_path="runtime.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="stable" data-filename="runtime-stable"></button>'
+            '<button class="toggle-btn" data-variant="latest" data-filename="runtime-latest"></button>'
+            '<div class="actions-slot" data-variant="stable"></div>'
+            '<div class="actions-slot" data-variant="latest"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+
+        stable_slot = soup.select_one('.actions-slot[data-variant="stable"]')
+        latest_slot = soup.select_one('.actions-slot[data-variant="latest"]')
+
+        assert stable_slot is not None
+        assert latest_slot is not None
+
+        stable_widget = stable_slot.find(attrs={"data-url": True})
+        latest_widget = latest_slot.find(attrs={"data-url": True})
+
+        assert stable_widget is not None, "stable slot should have a widget"
+        assert latest_widget is not None, "latest slot should have a widget"
+        assert stable_widget["data-url"] == "/runtime-stable.md"
+        assert latest_widget["data-url"] == "/runtime-latest.md"
+
+    def test_toggle_anchor_falls_back_to_route_when_no_data_filename(self):
+        """When data-filename is absent, the widget data-url falls back to the page route."""
+        plugin = self._make_plugin(anchor_class="actions-slot")
+        page = self._make_page(url="guide/", src_path="guide.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="v1"></button>'
+            '<div class="actions-slot" data-variant="v1"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        widget = soup.select_one('.actions-slot[data-variant="v1"]').find(attrs={"data-url": True})
+        assert widget is not None
+        assert widget["data-url"] == "/guide.md"
+
+    def test_toggle_anchor_no_match_skips_injection(self):
+        """When the anchor class is not found for a variant, no widget is injected."""
+        plugin = self._make_plugin(anchor_class="actions-slot")
+        page = self._make_page(url="guide/", src_path="guide.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="v1" data-filename="guide-v1"></button>'
+            # No matching .actions-slot[data-variant="v1"] present
+            '<div class="other-class" data-variant="v1"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+        assert soup.find(attrs={"data-url": True}) is None
+
+    def test_toggle_anchor_does_not_inject_into_other_variants_slot(self):
+        """Each variant's widget only appears in its own anchor element, not another variant's."""
+        plugin = self._make_plugin(anchor_class="slot")
+        page = self._make_page(url="docs/", src_path="docs.md")
+        output = (
+            '<div class="md-content">'
+            '<div class="toggle-container">'
+            '<button class="toggle-btn" data-variant="a" data-filename="docs-a"></button>'
+            '<button class="toggle-btn" data-variant="b" data-filename="docs-b"></button>'
+            '<div class="slot" data-variant="a"></div>'
+            '<div class="slot" data-variant="b"></div>'
+            "</div>"
+            "</div>"
+        )
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        soup = BeautifulSoup(result, "html.parser")
+
+        slot_a = soup.select_one('.slot[data-variant="a"]')
+        slot_b = soup.select_one('.slot[data-variant="b"]')
+
+        assert slot_a.find(attrs={"data-url": "/docs-a.md"}) is not None
+        assert slot_b.find(attrs={"data-url": "/docs-b.md"}) is not None
+        # Ensure cross-contamination didn't happen
+        assert slot_a.find(attrs={"data-url": "/docs-b.md"}) is None
+        assert slot_b.find(attrs={"data-url": "/docs-a.md"}) is None
+
+
+# ===========================================================================
+# ai_page_actions_style
+# ===========================================================================
+
+class TestAiPageActionsStyle:
+    """Tests for the ai_page_actions_style and ai_page_actions_dropdown_label options."""
+
+    def _make_plugin(self, style="split", dropdown_label="Markdown for LLMs"):
+        plugin = AIDocsPlugin()
+        plugin.config = {
+            "llms_config": "llms_config.json",
+            "ai_resources_page": True,
+            "ai_page_actions": True,
+            "ai_page_actions_anchor": "",
+            "ai_page_actions_style": style,
+            "ai_page_actions_dropdown_label": dropdown_label,
+        }
+        plugin._config_loaded = True
+        return plugin
+
+    def _make_page(self, url="guide/", src_path="guide.md"):
+        page = MagicMock()
+        page.is_homepage = False
+        page.file.src_path = src_path
+        page.meta = {}
+        page.url = url
+        return page
+
+    def test_split_style_renders_copy_button(self):
+        """Split style produces the primary copy button outside the dropdown menu."""
+        plugin = self._make_plugin(style="split")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-copy" in result
+
+    def test_split_style_no_dropdown_modifier(self):
+        """Split style does not apply the --dropdown container modifier."""
+        plugin = self._make_plugin(style="split")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-container--dropdown" not in result
+
+    def test_dropdown_style_no_copy_button(self):
+        """Dropdown style does not render a standalone copy button."""
+        plugin = self._make_plugin(style="dropdown")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-copy" not in result
+
+    def test_dropdown_style_container_modifier(self):
+        """Dropdown style applies the --dropdown modifier to the container."""
+        plugin = self._make_plugin(style="dropdown")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "ai-file-actions-container--dropdown" in result
+
+    def test_dropdown_style_trigger_label(self):
+        """Dropdown style uses the configured dropdown_label on the trigger."""
+        plugin = self._make_plugin(style="dropdown", dropdown_label="AI Tools")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "AI Tools" in result
+
+    def test_dropdown_style_default_label(self):
+        """Dropdown style uses 'Markdown for LLMs' as the default trigger label."""
+        plugin = self._make_plugin(style="dropdown")
+        page = self._make_page()
+        output = '<div class="md-content"><h1>Guide</h1></div>'
+        result = plugin.on_post_page(output, page=page, config={"site_url": ""})
+        assert "Markdown for LLMs" in result

@@ -42,6 +42,9 @@ plugins:
 | `llms_config` | `string` | `llms_config.json` | Path to the LLM config file, relative to `mkdocs.yml`. |
 | `ai_resources_page` | `bool` | `true` | Generate the AI resources page from `ai-resources.md`. Set to `false` to disable. |
 | `ai_page_actions` | `bool` | `true` | Inject the per-page AI actions widget next to each H1. Set to `false` to disable. |
+| `ai_page_actions_anchor` | `string` | `""` | CSS class name of the element(s) to append the widget into instead of wrapping the H1. When set, the default H1-wrapping behavior is replaced — see [Custom anchor](#custom-anchor). |
+| `ai_page_actions_style` | `string` | `"split"` | Widget layout style. `"split"` renders a copy button left of the dropdown arrow; `"dropdown"` renders a single labelled button with all actions inside — see [Widget style](#widget-style). |
+| `ai_page_actions_dropdown_label` | `string` | `"Markdown for LLMs"` | Trigger button label when `ai_page_actions_style` is `"dropdown"`. |
 | `agent_skills_config` | `string` | _(empty)_ | Path to the agent skills config file, relative to `mkdocs.yml`. Agent skill generation is disabled when this is not set. |
 | `agent_skills` | `bool` | `true` | Enable or disable agent skill generation independently. Only applies when `agent_skills_config` is set. |
 | `enabled` | `bool` | `true` | Disable the entire plugin (all features). Supports `!ENV` for environment-based toggling. |
@@ -63,9 +66,55 @@ Always runs when the plugin is enabled. Processes every documentation markdown f
 
 ### AI page actions (`ai_page_actions`)
 
-Injects a split-button dropdown widget next to each page's H1 heading at build time. The widget lets readers copy, download, or open the page's resolved markdown in an LLM tool. Pages listed in `llms_config.json` exclusions, dot-directories, and pages with `hide_ai_actions: true` in their front matter are automatically skipped.
+Injects an AI actions widget (split-button by default, or plain dropdown via `ai_page_actions_style`) next to each page's H1 heading at build time. The widget lets readers copy, download, or open the page's resolved markdown in an LLM tool. Pages listed in `llms_config.json` exclusions, dot-directories, and pages with `hide_ai_actions: true` in their front matter are automatically skipped.
 
 See [AI Page Actions](ai-page-actions.md) for details on exclusion rules, toggle page handling, and styling.
+
+#### Widget style
+
+The widget supports two layout styles, controlled by `ai_page_actions_style`.
+
+**`split`** (default) — a copy button sits to the left of a chevron trigger that opens the dropdown:
+
+```yaml
+plugins:
+  - ai_docs:
+      ai_page_actions_style: split   # default, same as omitting the option
+```
+
+**`dropdown`** — a single labelled button opens a menu that contains all actions, including copy. No separate copy button is rendered outside the menu:
+
+```yaml
+plugins:
+  - ai_docs:
+      ai_page_actions_style: dropdown
+      ai_page_actions_dropdown_label: Markdown for LLMs   # default
+```
+
+The container gets the additional CSS class `ai-file-actions-container--dropdown` so you can style the two modes independently. Resources table widgets always carry `ai-file-actions-container--table`. See [Styling](ai-page-actions.md#styling) for the full class reference and CSS examples.
+
+#### Custom anchor
+
+By default, the widget is placed by wrapping the H1 in a `<div class="h1-ai-actions-wrapper">` flex container. If your theme or custom layout already has a dedicated slot for page-level actions, you can redirect the widget there instead:
+
+```yaml
+plugins:
+  - ai_docs:
+      ai_page_actions_anchor: my-page-actions
+```
+
+The plugin then finds every element that has the class `my-page-actions` within `.md-content` and appends the widget into it, leaving the H1 untouched. If no matching element is found on a given page, the page is left unchanged and a debug message is logged.
+
+#### Toggle pages
+
+When using `ai_page_actions_anchor` alongside the [`page_toggle` plugin](page-toggle.md), your template must render one anchor element per variant inside the toggle container, each carrying the matching `data-variant` attribute. For example:
+
+```html
+<div class="my-page-actions" data-variant="stable"></div>
+<div class="my-page-actions" data-variant="latest"></div>
+```
+
+A Jinja macro is a convenient way to do this — iterate over your variants and emit the element with the correct `data-variant` for each one.
 
 ### AI resources page (`ai_resources_page`)
 
