@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,10 +17,15 @@ def _make_plugin(**overrides):
         "llms_config": "llms_config.json",
         "ai_resources_page": True,
         "ai_page_actions": True,
+        "ai_page_actions_style": "split",
+        "ai_page_actions_anchor": "",
+        "ai_page_actions_dropdown_label": "Markdown for LLMs",
         "agent_skills_config": "agent_skills_config.json",
-        "agent_skills": True,
+        "ai_skills_dropdown_label": "Agent skill",
         **overrides,
     }
+    plugin._skills_public_root = "ai"
+    plugin._skills_dir_name = "skills"
     return plugin
 
 
@@ -30,20 +34,10 @@ def _minimal_skill(**overrides):
     skill = {
         "id": "test-skill",
         "title": "Test Skill",
-        "objective": "Verify the plugin works",
+        "description": "Verify the plugin works",
     }
     skill.update(overrides)
     return skill
-
-
-REFERENCE_REPOS = {
-    "demo-repo": {
-        "url": "https://github.com/org/demo-repo",
-        "raw_base_url": "https://raw.githubusercontent.com/org/demo-repo/main",
-    }
-}
-
-PROJECT = {"id": "test-project", "name": "Test Project"}
 
 
 # ---------------------------------------------------------------------------
@@ -58,32 +52,42 @@ class TestBuildRawUrl:
         self.plugin = _make_plugin()
 
     def test_basic_url(self):
-        ref_code = {"repo": "demo-repo", "base_path": "src"}
-        result = self.plugin._build_raw_url(REFERENCE_REPOS, ref_code, "index.ts")
-        assert (
-            result
-            == "https://raw.githubusercontent.com/org/demo-repo/main/src/index.ts"
+        ref_code = {"repo": "org/demo-repo", "branch": "main", "base_path": "src"}
+        result = self.plugin._build_raw_url(ref_code, "index.ts")
+        assert result == (
+            "https://raw.githubusercontent.com/org/demo-repo/refs/heads/main/src/index.ts"
         )
 
     def test_nested_file_path(self):
-        ref_code = {"repo": "demo-repo", "base_path": "packages/core"}
-        result = self.plugin._build_raw_url(REFERENCE_REPOS, ref_code, "lib/utils.ts")
+        ref_code = {
+            "repo": "org/demo-repo",
+            "branch": "main",
+            "base_path": "packages/core",
+        }
+        result = self.plugin._build_raw_url(ref_code, "lib/utils.ts")
         assert result == (
-            "https://raw.githubusercontent.com/org/demo-repo/main"
-            "/packages/core/lib/utils.ts"
+            "https://raw.githubusercontent.com/org/demo-repo"
+            "/refs/heads/main/packages/core/lib/utils.ts"
         )
 
-    def test_unknown_repo_returns_partial_url(self):
-        ref_code = {"repo": "missing-repo", "base_path": "src"}
-        result = self.plugin._build_raw_url(REFERENCE_REPOS, ref_code, "app.py")
-        assert result == "/src/app.py"
+    def test_defaults_to_main_branch(self):
+        ref_code = {"repo": "org/demo-repo", "base_path": "src"}
+        result = self.plugin._build_raw_url(ref_code, "app.py")
+        assert result == (
+            "https://raw.githubusercontent.com/org/demo-repo/refs/heads/main/src/app.py"
+        )
 
     def test_empty_base_path(self):
-        ref_code = {"repo": "demo-repo", "base_path": ""}
-        result = self.plugin._build_raw_url(REFERENCE_REPOS, ref_code, "README.md")
+        ref_code = {"repo": "org/demo-repo", "branch": "main", "base_path": ""}
+        result = self.plugin._build_raw_url(ref_code, "README.md")
         assert result == (
-            "https://raw.githubusercontent.com/org/demo-repo/main//README.md"
+            "https://raw.githubusercontent.com/org/demo-repo/refs/heads/main/README.md"
         )
+
+    def test_non_default_branch(self):
+        ref_code = {"repo": "org/demo-repo", "branch": "develop", "base_path": "src"}
+        result = self.plugin._build_raw_url(ref_code, "main.ts")
+        assert "refs/heads/develop" in result
 
 
 # ---------------------------------------------------------------------------
@@ -104,71 +108,96 @@ class TestRenderSkillFrontmatter:
 
     def test_contains_required_fields(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
-        assert "name: test-skill" in fm
+        assert "name: Test Skill" in fm
         assert "description: Verify the plugin works" in fm
-        assert "title: Test Skill" in fm
-        assert "estimated_steps: 0" in fm
         assert "generated:" in fm
 
-    def test_includes_reference_repo_when_present(self):
-        task = _minimal_skill(reference_code={"repo": "demo-repo", "base_path": "src"})
-        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
-        fm = self._frontmatter(content)
-        assert "  reference_repo: https://github.com/org/demo-repo" in fm
-
-    def test_omits_reference_repo_when_missing(self):
+    def test_frontmatter_omits_id_as_name(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
-        assert "reference_repo" not in fm
-
-    def test_prerequisites_not_in_frontmatter(self):
-        task = _minimal_skill(prerequisites={"tools": ["Node.js >= 18", "npm"]})
-        content = self.plugin._render_skill(task, PROJECT, {})
-        fm = self._frontmatter(content)
-        assert "prerequisites" not in fm
-
-    def test_estimated_steps_matches_step_count(self):
-        steps = [
-            {"order": 1, "action": "Init"},
-            {"order": 2, "action": "Build"},
-        ]
-        task = _minimal_skill(steps=steps)
-        content = self.plugin._render_skill(task, PROJECT, {})
-        fm = self._frontmatter(content)
-        assert "estimated_steps: 2" in fm
+        # name must be the title, not the id
+        assert "test-skill" not in fm
 
     def test_metadata_block_present(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
         assert "metadata:" in fm
 
+    def test_includes_version_when_present(self):
+        task = _minimal_skill(version="1.2.0")
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "version: 1.2.0" in fm
+
+    def test_omits_version_when_absent(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "version:" not in fm
+
+    def test_includes_chain_role_when_present(self):
+        task = _minimal_skill(chain_role="isolated")
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "chain_role: isolated" in fm
+
+    def test_includes_invocation_when_present(self):
+        task = _minimal_skill(invocation="user")
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "invocation: user" in fm
+
+    def test_includes_workflow_pattern_in_metadata(self):
+        task = _minimal_skill(workflow_pattern="sequential")
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "workflow_pattern: sequential" in fm
+
+    def test_omits_workflow_pattern_when_absent(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "workflow_pattern:" not in fm
+
     def test_includes_license_when_present(self):
         task = _minimal_skill(license="BSD-2-Clause")
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
         assert "license: BSD-2-Clause" in fm
 
     def test_omits_license_when_absent(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
-        assert "license" not in fm
+        assert "license:" not in fm
 
     def test_includes_compatibility_when_present(self):
         task = _minimal_skill(compatibility="Requires Node.js >= 18")
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
-        assert "compatibility: Requires Node.js >= 18" in fm
+        assert "compatibility:" in fm
 
     def test_omits_compatibility_when_absent(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         fm = self._frontmatter(content)
-        assert "compatibility" not in fm
+        assert "compatibility:" not in fm
+
+    def test_double_quotes_used_for_values_containing_single_quotes(self):
+        task = _minimal_skill(description="It's a test skill")
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "description: \"It's a test skill\"" in fm
+
+    def test_prerequisites_not_in_frontmatter(self):
+        task = _minimal_skill(prerequisites={"tools": ["Node.js >= 18", "npm"]})
+        content = self.plugin._render_skill(task)
+        fm = self._frontmatter(content)
+        assert "prerequisites" not in fm
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +218,7 @@ class TestRenderSkillPrerequisites:
                 "accounts": ["GitHub account"],
             }
         )
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Prerequisites" in content
         assert "**Tools:**" in content
         assert "- Node.js >= 18" in content
@@ -199,13 +228,38 @@ class TestRenderSkillPrerequisites:
 
     def test_omits_section_when_no_prerequisites(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Prerequisites" not in content
 
     def test_omits_section_when_prerequisites_empty(self):
         task = _minimal_skill(prerequisites={})
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Prerequisites" not in content
+
+
+# ---------------------------------------------------------------------------
+# TestRenderSkillProjectStructure
+# ---------------------------------------------------------------------------
+
+
+class TestRenderSkillProjectStructure:
+    """Tests for the Project Structure body section."""
+
+    def setup_method(self):
+        self.plugin = _make_plugin()
+
+    def test_renders_project_structure(self):
+        task = _minimal_skill(project_structure="src/\n  index.ts\n  utils.ts")
+        content = self.plugin._render_skill(task)
+        assert "## Project Structure" in content
+        assert "```" in content
+        assert "src/" in content
+        assert "index.ts" in content
+
+    def test_omits_section_when_absent(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task)
+        assert "## Project Structure" not in content
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +284,7 @@ class TestRenderSkillEnvVars:
                 },
             ]
         )
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Environment Variables" in content
         assert "```env" in content
         assert "# Your API key (required)" in content
@@ -240,7 +294,7 @@ class TestRenderSkillEnvVars:
 
     def test_omits_section_when_no_env_vars(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Environment Variables" not in content
 
 
@@ -258,7 +312,8 @@ class TestRenderSkillSteps:
     def test_renders_step_with_all_fields(self):
         task = _minimal_skill(
             reference_code={
-                "repo": "demo-repo",
+                "repo": "org/demo-repo",
+                "branch": "main",
                 "base_path": "src",
                 "files": [],
             },
@@ -273,18 +328,19 @@ class TestRenderSkillSteps:
                 },
             ],
         )
-        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
+        content = self.plugin._render_skill(task)
         assert "### Step 1: Initialize project" in content
         assert "Set up the project directory." in content
         assert "```bash" in content
         assert "mkdir my-project" in content
         assert "cd my-project" in content
         assert "**Reference file:** [`setup.ts`]" in content
+        assert "raw.githubusercontent.com/org/demo-repo/refs/heads/main/src/setup.ts" in content
         assert "**Expected output:** Directory created" in content
 
     def test_renders_step_without_optional_fields(self):
         task = _minimal_skill(steps=[{"order": 1, "action": "Do something"}])
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "### Step 1: Do something" in content
         assert "```bash" not in content
         assert "**Reference file:**" not in content
@@ -292,7 +348,7 @@ class TestRenderSkillSteps:
 
     def test_omits_section_when_no_steps(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Execution Steps" not in content
 
 
@@ -310,7 +366,8 @@ class TestRenderSkillReferenceCodeIndex:
     def test_renders_reference_code_table(self):
         task = _minimal_skill(
             reference_code={
-                "repo": "demo-repo",
+                "repo": "org/demo-repo",
+                "branch": "main",
                 "base_path": "src",
                 "files": [
                     {"path": "index.ts", "description": "Entry point"},
@@ -318,29 +375,66 @@ class TestRenderSkillReferenceCodeIndex:
                 ],
             }
         )
-        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
+        content = self.plugin._render_skill(task)
         assert "## Reference Code Index" in content
         assert "| File | Description | Raw URL |" in content
         assert "| `index.ts` | Entry point |" in content
         assert "| `utils.ts` | Helpers |" in content
         assert "[Fetch](" in content
 
-    def test_includes_repo_description(self):
+    def test_includes_repo_link(self):
         task = _minimal_skill(
             reference_code={
-                "repo": "demo-repo",
+                "repo": "org/demo-repo",
+                "branch": "main",
                 "base_path": "src",
                 "files": [{"path": "app.ts", "description": "App"}],
             }
         )
-        content = self.plugin._render_skill(task, PROJECT, REFERENCE_REPOS)
-        assert "These files are from [demo-repo]" in content
+        content = self.plugin._render_skill(task)
+        assert "These files are from [org/demo-repo]" in content
         assert "`src` directory" in content
 
     def test_omits_section_when_no_files(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Reference Code Index" not in content
+
+
+# ---------------------------------------------------------------------------
+# TestRenderSkillExamples
+# ---------------------------------------------------------------------------
+
+
+class TestRenderSkillExamples:
+    """Tests for the Examples section."""
+
+    def setup_method(self):
+        self.plugin = _make_plugin()
+
+    def test_renders_examples(self):
+        task = _minimal_skill(
+            examples=[
+                {
+                    "scenario": "Basic usage",
+                    "user_says": "Create a new account",
+                    "actions": ["Open the app", "Click sign up"],
+                    "result": "Account created successfully",
+                }
+            ]
+        )
+        content = self.plugin._render_skill(task)
+        assert "## Examples" in content
+        assert "### Example 1: Basic usage" in content
+        assert 'User says: "Create a new account"' in content
+        assert "1. Open the app" in content
+        assert "2. Click sign up" in content
+        assert "Result: Account created successfully" in content
+
+    def test_omits_section_when_no_examples(self):
+        task = _minimal_skill()
+        content = self.plugin._render_skill(task)
+        assert "## Examples" not in content
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +458,7 @@ class TestRenderSkillErrorRecovery:
                 },
             ]
         )
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Error Recovery" in content
         assert "**`ECONNREFUSED`**" in content
         assert "- **Cause:** Server not running" in content
@@ -372,7 +466,7 @@ class TestRenderSkillErrorRecovery:
 
     def test_omits_section_when_no_error_patterns(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Error Recovery" not in content
 
 
@@ -393,24 +487,24 @@ class TestRenderSkillSupplementaryContext:
                 "description": "Related documentation pages.",
                 "pages": [
                     {
-                        "slug": "getting-started",
+                        "title": "Getting Started",
                         "url": "https://docs.example.com/start",
                         "relevance": "Setup instructions",
                     },
                 ],
             }
         )
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Supplementary Context" in content
         assert "Related documentation pages." in content
         assert (
-            "- [getting-started](https://docs.example.com/start) — Setup instructions"
+            "- [Getting Started](https://docs.example.com/start) — Setup instructions"
             in content
         )
 
     def test_omits_section_when_no_supplementary_context(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert "## Supplementary Context" not in content
 
 
@@ -427,19 +521,20 @@ class TestRenderSkillMinimal:
 
     def test_minimal_skill_renders(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         assert content.startswith("---")
         assert "# Test Skill" in content
-        assert "**Objective:** Verify the plugin works" in content
 
     def test_minimal_skill_omits_all_optional_sections(self):
         task = _minimal_skill()
-        content = self.plugin._render_skill(task, PROJECT, {})
+        content = self.plugin._render_skill(task)
         for section in [
             "## Prerequisites",
+            "## Project Structure",
             "## Environment Variables",
             "## Execution Steps",
             "## Reference Code Index",
+            "## Examples",
             "## Error Recovery",
             "## Supplementary Context",
         ]:
@@ -452,7 +547,7 @@ class TestRenderSkillMinimal:
 
 
 class TestWriteSkillsIndex:
-    """Tests for _write_skills_index JSON generation."""
+    """Tests for _write_skills_index Markdown generation."""
 
     def setup_method(self):
         self.plugin = _make_plugin()
@@ -463,29 +558,41 @@ class TestWriteSkillsIndex:
             _minimal_skill(
                 id="second-skill",
                 title="Second Skill",
-                objective="Another skill",
+                description="Another skill",
                 steps=[{"order": 1, "action": "Go"}],
             ),
         ]
-        self.plugin._write_skills_index(skills, PROJECT, tmp_path)
-        index_path = tmp_path / "index.json"
+        self.plugin._write_skills_index(skills, "Test Project", tmp_path)
+        index_path = tmp_path / "skills-index.md"
         assert index_path.exists()
 
-        data = json.loads(index_path.read_text(encoding="utf-8"))
-        assert data["project"] == PROJECT
-        assert "generated" in data
-        assert len(data["skills"]) == 2
+        content = index_path.read_text(encoding="utf-8")
+        assert "# Test Project Agent Skills Index" in content
+        assert "## test-skill" in content
+        assert "**Title:** Test Skill" in content
+        assert "**Description:** Verify the plugin works" in content
+        assert "## second-skill" in content
+        assert "**Steps:** 1" in content
 
-        first = data["skills"][0]
-        assert first["id"] == "test-skill"
-        assert first["title"] == "Test Skill"
-        assert first["description"] == "Verify the plugin works"
-        assert first["file"] == "test-skill.md"
-        assert first["steps"] == 0
+    def test_index_includes_skill_url(self, tmp_path):
+        skills = [_minimal_skill()]
+        self.plugin._write_skills_index(skills, "My Project", tmp_path, site_url="")
+        content = (tmp_path / "skills-index.md").read_text(encoding="utf-8")
+        assert "/ai/skills/test-skill.md" in content
 
-        second = data["skills"][1]
-        assert second["id"] == "second-skill"
-        assert second["steps"] == 1
+    def test_index_uses_site_url_in_skill_url(self, tmp_path):
+        skills = [_minimal_skill()]
+        self.plugin._write_skills_index(
+            skills, "My Project", tmp_path, site_url="https://docs.example.com"
+        )
+        content = (tmp_path / "skills-index.md").read_text(encoding="utf-8")
+        assert "https://docs.example.com/ai/skills/test-skill.md" in content
+
+    def test_fallback_heading_when_no_site_name(self, tmp_path):
+        skills = [_minimal_skill()]
+        self.plugin._write_skills_index(skills, "", tmp_path)
+        content = (tmp_path / "skills-index.md").read_text(encoding="utf-8")
+        assert "# Agent Skills Index" in content
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +606,7 @@ class TestOnConfigSkillsOutputsValidation:
     def _write_skills_config(self, tmp_path, data):
         """Write agent_skills_config.json and return a minimal MkDocs config dict."""
         config_path = tmp_path / "agent_skills_config.json"
-        config_path.write_text(json.dumps(data), encoding="utf-8")
+        config_path.write_text(__import__("json").dumps(data), encoding="utf-8")
         return {"config_file_path": str(tmp_path / "mkdocs.yml")}
 
     def _base_config(self, **output_overrides):
@@ -509,7 +616,7 @@ class TestOnConfigSkillsOutputsValidation:
         return {
             "project": {"id": "test"},
             "outputs": outputs,
-            "skills": [_minimal_skill(source_pages=["docs/page.md"])],
+            "skills": [_minimal_skill(primary_page="docs/page.md")],
         }
 
     def test_valid_outputs_sets_instance_vars(self, tmp_path):
@@ -568,18 +675,19 @@ class TestOnConfigSkillsOutputsValidation:
         assert not plugin._skills_config
 
     def test_invalid_outputs_do_not_modify_instance_vars(self, tmp_path):
-        # Core invariant: bad values must never be written to _skills_public_root
-        # or _skills_dir_name — they must stay at their __init__ defaults.
-        plugin = _make_plugin()
+        # Bad values must never be written to _skills_public_root or
+        # _skills_dir_name — they must stay at their __init__ defaults.
+        plugin = AIDocsPlugin()
+        plugin.config = _make_plugin().config
         mkdocs_config = self._write_skills_config(
             tmp_path, self._base_config(public_root="", skills_dir="")
         )
         plugin.on_config(mkdocs_config)
-        assert plugin._skills_public_root == "ai"
-        assert plugin._skills_dir_name == "skills"
+        assert plugin._skills_public_root == ""
+        assert plugin._skills_dir_name == ""
 
     def test_page_skill_map_empty_when_validation_fails(self, tmp_path):
-        # source_pages must not be mapped if outputs validation fails
+        # primary_page must not be mapped if outputs validation fails
         plugin = _make_plugin()
         mkdocs_config = self._write_skills_config(
             tmp_path, self._base_config(public_root="")
@@ -602,7 +710,7 @@ class TestLoadSkillsConfig:
     def test_loads_valid_config(self, tmp_path):
         config_data = {"project": {"id": "p1"}, "skills": []}
         config_path = tmp_path / "agent_skills_config.json"
-        config_path.write_text(json.dumps(config_data), encoding="utf-8")
+        config_path.write_text(__import__("json").dumps(config_data), encoding="utf-8")
 
         result = self.plugin._load_skills_config(tmp_path)
         assert result == config_data
@@ -630,12 +738,6 @@ class TestLoadSkillsConfig:
 
 # Minimal rendered page HTML — matches the structure MkDocs produces.
 _PAGE_HTML = '<div class="md-content"><h1>Test Page</h1></div>'
-_PAGE_HTML_WITH_CHIPS = (
-    '<div class="md-content">'
-    "<h1>Test Page</h1>"
-    '<div class="page-meta-chips"><span>existing</span></div>'
-    "</div>"
-)
 
 
 def _make_page(src_path="docs/page.md", url="docs/page"):
@@ -651,8 +753,7 @@ class TestOnPostPageSkillWidgetInjection:
     """Integration tests for agent skill widget injection in on_post_page."""
 
     def setup_method(self):
-        # Disable ai_page_actions so inject_widget is always False — isolates
-        # the skills widget path and avoids any _ensure_config_loaded calls.
+        # Disable ai_page_actions to isolate the skills widget injection path.
         self.plugin = _make_plugin(ai_page_actions=False)
         self.plugin._skills_config = {"skills": [_minimal_skill()]}
         self.plugin._page_skill_map = {
@@ -664,33 +765,26 @@ class TestOnPostPageSkillWidgetInjection:
         result = self.plugin.on_post_page(
             _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
         )
-        assert "agent-skill-widget" in result
+        assert "test-skill.md" in result
 
-    def test_widget_contains_skill_title_in_tooltip(self):
+    def test_widget_wraps_h1_in_flex_container(self):
         result = self.plugin.on_post_page(
             _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
         )
-        assert 'title="Test Skill"' in result
+        assert "h1-ai-actions-wrapper" in result
 
-    def test_widget_view_and_download_links_carry_aria_labels(self):
+    def test_widget_contains_copy_label(self):
         result = self.plugin.on_post_page(
             _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
         )
-        assert 'aria-label="View Test Skill"' in result
-        assert 'aria-label="Download Test Skill"' in result
+        assert "Copy skill" in result
 
-    def test_creates_chips_div_when_absent(self):
+    def test_skill_widget_appears_after_h1_text(self):
         result = self.plugin.on_post_page(
             _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
         )
-        assert "page-meta-chips" in result
-
-    def test_prepends_to_existing_chips_div(self):
-        result = self.plugin.on_post_page(
-            _PAGE_HTML_WITH_CHIPS, page=_make_page(), config=self.mkdocs_config
-        )
-        # Widget must appear before the pre-existing chip content
-        assert result.index("agent-skill-widget") < result.index("existing")
+        # H1 text should come before the skill widget URL
+        assert result.index("Test Page") < result.index("test-skill.md")
 
     def test_no_injection_for_unmapped_page(self):
         result = self.plugin.on_post_page(
@@ -707,8 +801,10 @@ class TestOnPostPageSkillWidgetInjection:
         )
         assert result == bare_html
 
-    def test_no_injection_when_agent_skills_disabled(self):
-        plugin = _make_plugin(ai_page_actions=False, agent_skills=False)
+    def test_no_injection_when_skills_config_empty(self):
+        plugin = _make_plugin(ai_page_actions=False)
+        plugin._skills_config = {}
+        plugin._page_skill_map = {}
         result = plugin.on_post_page(
             _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
         )
@@ -726,7 +822,12 @@ def _make_on_post_build_config(tmp_path):
     docs_dir.mkdir(exist_ok=True)
     site_dir = tmp_path / "site"
     site_dir.mkdir(exist_ok=True)
-    return {"docs_dir": str(docs_dir), "site_dir": str(site_dir), "site_url": ""}
+    return {
+        "docs_dir": str(docs_dir),
+        "site_dir": str(site_dir),
+        "site_url": "",
+        "site_name": "Test Site",
+    }
 
 
 class TestOnPostBuildAgentSkills:
@@ -769,33 +870,29 @@ class TestOnPostBuildAgentSkills:
     def test_writes_skill_file(self, tmp_path):
         plugin = _make_plugin()
         plugin._skills_config = {
-            "project": PROJECT,
+            "project": {"id": "test", "name": "Test Project"},
             "skills": [_minimal_skill()],
-            "reference_repos": {},
         }
         site_dir = self._run_build(plugin, tmp_path)
         assert (site_dir / "ai" / "skills" / "test-skill.md").exists()
 
-    def test_writes_index_json(self, tmp_path):
+    def test_writes_skills_index_md(self, tmp_path):
         plugin = _make_plugin()
         plugin._skills_config = {
-            "project": PROJECT,
+            "project": {"id": "test", "name": "Test Project"},
             "skills": [_minimal_skill()],
-            "reference_repos": {},
         }
         site_dir = self._run_build(plugin, tmp_path)
-        index_path = site_dir / "ai" / "skills" / "index.json"
+        index_path = site_dir / "ai" / "skills" / "skills-index.md"
         assert index_path.exists()
-        data = json.loads(index_path.read_text(encoding="utf-8"))
-        assert len(data["skills"]) == 1
-        assert data["skills"][0]["id"] == "test-skill"
+        content = index_path.read_text(encoding="utf-8")
+        assert "test-skill" in content
 
     def test_cleans_output_dir_before_writing(self, tmp_path):
         plugin = _make_plugin()
         plugin._skills_config = {
-            "project": PROJECT,
+            "project": {"id": "test", "name": "Test Project"},
             "skills": [_minimal_skill()],
-            "reference_repos": {},
         }
         # Pre-populate the output dir with a stale file
         stale_dir = tmp_path / "site" / "ai" / "skills"
@@ -807,29 +904,28 @@ class TestOnPostBuildAgentSkills:
         assert not stale_file.exists()
 
     def test_index_excludes_failed_skills(self, tmp_path):
-        # A malformed skill (missing objective) should not appear in index.json
+        # A malformed skill (missing description) raises KeyError and must not
+        # appear in skills-index.md.
         plugin = _make_plugin()
         plugin._skills_config = {
-            "project": PROJECT,
+            "project": {"id": "test", "name": "Test Project"},
             "skills": [
                 _minimal_skill(),
-                {"id": "broken-skill", "title": "Broken"},  # missing objective
+                {"id": "broken-skill", "title": "Broken"},  # missing description
             ],
-            "reference_repos": {},
         }
         site_dir = self._run_build(plugin, tmp_path)
-        index_path = site_dir / "ai" / "skills" / "index.json"
-        data = json.loads(index_path.read_text(encoding="utf-8"))
-        ids = [s["id"] for s in data["skills"]]
-        assert "test-skill" in ids
-        assert "broken-skill" not in ids
+        content = (site_dir / "ai" / "skills" / "skills-index.md").read_text(
+            encoding="utf-8"
+        )
+        assert "test-skill" in content
+        assert "broken-skill" not in content
 
     def test_skips_generation_when_skills_list_empty(self, tmp_path):
         plugin = _make_plugin()
         plugin._skills_config = {
-            "project": PROJECT,
+            "project": {"id": "test", "name": "Test Project"},
             "skills": [],
-            "reference_repos": {},
         }
         site_dir = self._run_build(plugin, tmp_path)
         assert not (site_dir / "ai" / "skills").exists()

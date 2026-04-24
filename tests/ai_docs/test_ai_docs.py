@@ -96,7 +96,7 @@ class TestFeatureFlags:
         output = '<div class="md-content"><h1>Guide</h1><p>Content</p></div>'
         result = plugin.on_post_page(output, page=page, config={"site_url": ""})
         assert result != output
-        assert "page-meta-chips" in result
+        assert "h1-ai-actions-wrapper" in result
 
 
 # ===========================================================================
