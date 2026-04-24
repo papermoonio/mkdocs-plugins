@@ -47,7 +47,8 @@ class _SkillYamlDumper(yaml.SafeDumper):
     pass
 
 def _skill_str_representer(dumper, data):
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
+    style = '"' if "'" in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
 
 _SkillYamlDumper.add_representer(str, _skill_str_representer)
 
