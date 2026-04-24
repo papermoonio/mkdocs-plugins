@@ -935,3 +935,143 @@ class TestOnPostBuildAgentSkills:
         plugin._skills_config = {}
         site_dir = self._run_build(plugin, tmp_path)
         assert not (site_dir / "ai" / "skills").exists()
+
+
+# ---------------------------------------------------------------------------
+# TestBuildSkillWidgetHtml
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSkillWidgetHtml:
+    """Tests for _build_skill_widget_html — widget HTML generation."""
+
+    def setup_method(self):
+        self.skill = {"id": "test-skill", "title": "Test Skill"}
+
+    def test_split_style_renders_copy_button(self):
+        plugin = _make_plugin(ai_page_actions_style="split")
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert "ai-file-actions-copy" in html
+
+    def test_split_style_no_dropdown_modifier(self):
+        plugin = _make_plugin(ai_page_actions_style="split")
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert "ai-file-actions-container--dropdown" not in html
+
+    def test_dropdown_style_renders_label(self):
+        plugin = _make_plugin(
+            ai_page_actions_style="dropdown",
+            ai_skills_dropdown_label="My Skill Label",
+        )
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert "My Skill Label" in html
+
+    def test_dropdown_style_container_modifier(self):
+        plugin = _make_plugin(ai_page_actions_style="dropdown")
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert "ai-file-actions-container--dropdown" in html
+
+    def test_dropdown_style_default_label(self):
+        plugin = _make_plugin(ai_page_actions_style="dropdown")
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert "Agent skill" in html
+
+    def test_skill_url_uses_public_root_and_dir(self):
+        plugin = _make_plugin()  # _skills_public_root="ai", _skills_dir_name="skills"
+        html = plugin._build_skill_widget_html({"id": "my-skill", "title": "My"}, site_url="")
+        assert "/ai/skills/my-skill.md" in html
+
+    def test_skill_url_with_site_url_subpath(self):
+        plugin = _make_plugin()
+        html = plugin._build_skill_widget_html(
+            {"id": "my-skill", "title": "My"}, site_url="https://example.com/docs/"
+        )
+        assert "/docs/ai/skills/my-skill.md" in html
+
+
+# ---------------------------------------------------------------------------
+# TestOnPostPageBothWidgets
+# ---------------------------------------------------------------------------
+
+
+class TestOnPostPageBothWidgets:
+    """Tests for pages where both the LLMs widget and skills widget are injected."""
+
+    def setup_method(self):
+        self.plugin = _make_plugin(ai_page_actions=True, ai_page_actions_style="split")
+        self.plugin._config_loaded = True
+        self.plugin._skills_config = {"skills": [_minimal_skill()]}
+        self.plugin._page_skill_map = {
+            "docs/page.md": [{"id": "test-skill", "title": "Test Skill"}]
+        }
+        self.mkdocs_config = {"site_url": ""}
+
+    def test_both_widgets_present(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "Copy page" in result    # LLMs widget primary_label
+        assert "Copy skill" in result   # skills widget primary_label
+
+    def test_two_widget_containers_rendered(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert result.count("ai-file-actions-container") >= 2
+
+    def test_llms_widget_url_is_page_md(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(url="docs/page"), config=self.mkdocs_config
+        )
+        assert "docs/page.md" in result
+
+    def test_skills_widget_url_is_skill_md(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "ai/skills/test-skill.md" in result
+
+
+# ---------------------------------------------------------------------------
+# TestOnPostPageAnchorWithSkills
+# ---------------------------------------------------------------------------
+
+
+class TestOnPostPageAnchorWithSkills:
+    """Tests for skills widget injection when ai_page_actions_anchor is set."""
+
+    _HTML_WITH_SLOT = (
+        '<div class="md-content">'
+        "<h1>Test Page</h1>"
+        '<div class="page-slot"></div>'
+        "</div>"
+    )
+
+    def setup_method(self):
+        self.plugin = _make_plugin(
+            ai_page_actions=False, ai_page_actions_anchor="page-slot"
+        )
+        self.plugin._skills_config = {"skills": [_minimal_skill()]}
+        self.plugin._page_skill_map = {
+            "docs/page.md": [{"id": "test-skill", "title": "Test Skill"}]
+        }
+        self.mkdocs_config = {"site_url": ""}
+
+    def test_injects_skill_widget_into_anchor(self):
+        result = self.plugin.on_post_page(
+            self._HTML_WITH_SLOT, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "test-skill.md" in result
+
+    def test_does_not_wrap_h1(self):
+        result = self.plugin.on_post_page(
+            self._HTML_WITH_SLOT, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "h1-ai-actions-wrapper" not in result
+
+    def test_no_injection_when_anchor_not_found(self):
+        html = '<div class="md-content"><h1>Test Page</h1></div>'
+        result = self.plugin.on_post_page(
+            html, page=_make_page(), config=self.mkdocs_config
+        )
+        assert result == html
