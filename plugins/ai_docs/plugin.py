@@ -43,6 +43,15 @@ SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$"
 SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
 
 
+class _SkillYamlDumper(yaml.SafeDumper):
+    pass
+
+def _skill_str_representer(dumper, data):
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='"')
+
+_SkillYamlDumper.add_representer(str, _skill_str_representer)
+
+
 # Define plugin class
 class AIDocsPlugin(BasePlugin):
     # Define value for `llms_config` in the project mkdocs.yml file
@@ -54,7 +63,7 @@ class AIDocsPlugin(BasePlugin):
         ("ai_page_actions_style", Type(str, default="split")),
         ("ai_page_actions_dropdown_label", Type(str, default="Markdown for LLMs")),
         ("agent_skills_config", Type(str, default="")),
-        ("agent_skills", Type(bool, default=True))
+        ("ai_skills_dropdown_label", Type(str, default="Agent skills")),
     )
 
     def __init__(self):
@@ -75,8 +84,8 @@ class AIDocsPlugin(BasePlugin):
         # Agent skills vars
         self._skills_config: dict = {}
         self._page_skill_map: dict = {}
-        self._skills_public_root: str = "ai"
-        self._skills_dir_name: str = "skills"
+        self._skills_public_root: str = ""
+        self._skills_dir_name: str = ""
 
     # ------------------------------------------------------------------
     # Internal functions
@@ -121,28 +130,64 @@ class AIDocsPlugin(BasePlugin):
             label_replace={"file": "page"},
             style=widget_style,
             dropdown_label=dropdown_label,
+            icon="markdown",
         )
 
-    def _wrap_h1(self, h1: Tag, md_path: str, soup: BeautifulSoup, site_url: str = "") -> None:
-        """Wrap an H1 element and the AI actions widget in a flex container."""
+    def _build_skill_widget_html(self, skill: dict, site_url: str) -> str:
+        """Generate the widget HTML for a single agent skill using the configured style."""
+        widget_style = self.config.get("ai_page_actions_style", "split")
+        base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
+        skill_id = skill["id"]
+        md_path = f"{self._skills_public_root}/{self._skills_dir_name}/{skill_id}.md"
+        url = f"{base_path}/{md_path}"
+        return self._file_utils.generate_dropdown_html(
+            url=url,
+            filename=f"{skill_id}.md",
+            primary_label="Copy skill",
+            site_url=site_url,
+            style=widget_style,
+            dropdown_label=self.config.get("ai_skills_dropdown_label", "Agent skill"),
+            icon="terminal",
+        )
+
+    def _wrap_h1(
+        self,
+        h1: Tag,
+        md_path: str,
+        soup: BeautifulSoup,
+        site_url: str = "",
+        inject_llms: bool = True,
+        skills: list = None,
+    ) -> None:
+        """Wrap an H1 element and the AI actions widget(s) in a flex container."""
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
         url = f"{base_path}/{md_path}"
-
-        widget_html = self._build_widget_html(url, md_path, site_url)
 
         wrapper = soup.new_tag("div")
         wrapper["class"] = "h1-ai-actions-wrapper"
-
         h1.wrap(wrapper)
-        widget = BeautifulSoup(widget_html, "html.parser")
-        wrapper.append(widget)
 
-    def _inject_into_anchor(self, anchor_class: str, md_path: str, md_content, site_url: str = "") -> bool:
-        """Append the AI actions widget into every element with the given CSS class within .md-content. Returns True if any were found."""
+        if inject_llms:
+            widget_html = self._build_widget_html(url, md_path, site_url)
+            wrapper.append(BeautifulSoup(widget_html, "html.parser"))
+
+        if skills:
+            for skill in skills:
+                skill_html = self._build_skill_widget_html(skill, site_url)
+                wrapper.append(BeautifulSoup(skill_html, "html.parser"))
+
+    def _inject_into_anchor(
+        self,
+        anchor_class: str,
+        md_path: str,
+        md_content,
+        site_url: str = "",
+        inject_llms: bool = True,
+        skills: list = None,
+    ) -> bool:
+        """Append AI actions widget(s) into every element with the given CSS class within .md-content. Returns True if any were found."""
         base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
         url = f"{base_path}/{md_path}"
-
-        widget_html = self._build_widget_html(url, md_path, site_url)
 
         try:
             targets = md_content.select(f".{anchor_class}")
@@ -152,9 +197,15 @@ class AIDocsPlugin(BasePlugin):
         if not targets:
             return False
 
+        llms_html = self._build_widget_html(url, md_path, site_url) if inject_llms else ""
+
         for target in targets:
-            widget = BeautifulSoup(widget_html, "html.parser")
-            target.append(widget)
+            if inject_llms:
+                target.append(BeautifulSoup(llms_html, "html.parser"))
+            if skills:
+                for skill in skills:
+                    skill_html = self._build_skill_widget_html(skill, site_url)
+                    target.append(BeautifulSoup(skill_html, "html.parser"))
 
         return True
 
@@ -178,91 +229,50 @@ class AIDocsPlugin(BasePlugin):
             log.error(f"[ai_docs] failed to load agent_skills_config: {e}")
             return {}
 
-    _TERMINAL_ICON = (
-        '<svg class="agent-skill-widget__icon" xmlns="http://www.w3.org/2000/svg" '
-        'viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">'
-        '<path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5'
-        "A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0"
-        "-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0"
-        "-.25-.25ZM7.25 8a.749.749 0 0 1-.22.53l-2.25 2.25a.749.749 0 0 1-1.275-.326"
-        ".749.749 0 0 1 .215-.734L5.44 8 3.72 6.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1"
-        ".734.215l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5h3a.75.75 0 0 1 0 1.5h-3"
-        'a.75.75 0 0 1 0-1.5Z"></path></svg>'
-    )
+    def _build_raw_url(self, ref_code: dict, file_path: str) -> str:
+        """Build a raw GitHub URL for direct AI fetching of a reference file."""
+        repo = ref_code.get("repo", "").strip("/")
+        branch = ref_code.get("branch", "main")
+        base_path = ref_code.get("base_path", "").strip("/")
+        parts = [p for p in [base_path, file_path] if p]
+        path = "/".join(parts)
+        return f"https://raw.githubusercontent.com/{repo}/refs/heads/{branch}/{path}"
 
-    def _render_skill_widgets(self, skills: list, site_url: str) -> str:
-        """Render the agent skill widget HTML for a list of skills."""
-        items = []
-        for skill in skills:
-            path = (
-                f"/{self._skills_public_root}/{self._skills_dir_name}/{skill['id']}.md"
-            )
-            url = f"{site_url}{path}" if site_url else path
-            title = html.escape(skill.get("title", ""))
-            items.append(
-                f'<div class="agent-skill-widget">'
-                f"{self._TERMINAL_ICON}"
-                f'<span class="agent-skill-widget__label" title="{title}">Agent skill</span>'
-                f'<span class="agent-skill-widget__divider" aria-hidden="true"></span>'
-                f'<a href="{url}" class="agent-skill-widget__action"'
-                f' target="_blank" rel="noopener"'
-                f' aria-label="View {title}">View</a>'
-                f'<span class="agent-skill-widget__dot" aria-hidden="true">·</span>'
-                f'<a href="{url}" class="agent-skill-widget__action" download'
-                f' aria-label="Download {title}">Download</a>'
-                f"</div>"
-            )
-        return '<div class="agent-skill-widgets">' + "".join(items) + "</div>"
-
-    def _build_raw_url(
-        self, reference_repos: dict, ref_code: dict, file_path: str
-    ) -> str:
-        """Build a raw URL for a reference file."""
-        repo_id = ref_code.get("repo", "")
-        repo_info = reference_repos.get(repo_id, {})
-        raw_base = repo_info.get("raw_base_url", "")
-        base_path = ref_code.get("base_path", "")
-        return f"{raw_base}/{base_path}/{file_path}"
-
-    def _render_skill(self, skill: dict, project: dict, reference_repos: dict) -> str:
+    def _render_skill(self, skill: dict) -> str:
         """Render a single skill as a markdown string with YAML frontmatter."""
         lines = []
 
         ref_code = skill.get("reference_code", {})
-        repo_id = ref_code.get("repo", "")
-        repo_info = reference_repos.get(repo_id, {})
 
         fm: dict = {
-            "name": skill["id"],
-            "description": skill["objective"],
+            "name": skill["title"],
+            "description": skill["description"],
         }
+        if skill.get("version"):
+            fm["version"] = skill["version"]
+        if skill.get("chain_role"):
+            fm["chain_role"] = skill["chain_role"]
+        if skill.get("invocation"):
+            fm["invocation"] = skill["invocation"]
         if skill.get("license"):
             fm["license"] = skill["license"]
         if skill.get("compatibility"):
             fm["compatibility"] = skill["compatibility"]
 
-        source_pages = skill.get("source_pages", [])
-        metadata: dict = {
-            "title": skill["title"],
-            "estimated_steps": len(skill.get("steps", [])),
-        }
-        if repo_info:
-            metadata["reference_repo"] = repo_info.get("url", "")
-        if source_pages:
-            metadata["source_pages"] = source_pages
+        metadata: dict = {}
+        if skill.get("workflow_pattern"):
+            metadata["workflow_pattern"] = skill["workflow_pattern"]
         metadata["generated"] = datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
         fm["metadata"] = metadata
 
         lines.append("---")
-        lines.append(yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).rstrip())
+        lines.append(yaml.dump(fm, Dumper=_SkillYamlDumper, sort_keys=False, allow_unicode=True, width=float("inf")).rstrip())
         lines.append("---")
         lines.append("")
 
         lines.append(f"# {skill['title']}")
-        lines.append("")
-        lines.append(f"**Objective:** {skill['objective']}")
         lines.append("")
 
         prereqs = skill.get("prerequisites", {})
@@ -274,6 +284,15 @@ class AIDocsPlugin(BasePlugin):
                 for item in items:
                     lines.append(f"- {item}")
                 lines.append("")
+
+        project_structure = skill.get("project_structure", "")
+        if project_structure:
+            lines.append("## Project Structure")
+            lines.append("")
+            lines.append("```")
+            lines.append(project_structure)
+            lines.append("```")
+            lines.append("")
 
         env_vars = skill.get("env_vars", [])
         if env_vars:
@@ -314,14 +333,8 @@ class AIDocsPlugin(BasePlugin):
 
                 ref_file = step.get("reference_file")
                 if ref_file:
-                    raw_url = self._build_raw_url(reference_repos, ref_code, ref_file)
+                    raw_url = self._build_raw_url(ref_code, ref_file)
                     lines.append(f"**Reference file:** [`{ref_file}`]({raw_url})")
-                    lines.append("")
-                    lines.append("Fetch this file for use in your project.")
-                    lines.append("")
-                    lines.append(
-                        "See the Reference Code Index below for a description of what this file does."
-                    )
                     lines.append("")
 
                 expected = step.get("expected_output")
@@ -333,9 +346,11 @@ class AIDocsPlugin(BasePlugin):
         if files:
             lines.append("## Reference Code Index")
             lines.append("")
-            if repo_info:
+            repo_id = ref_code.get("repo", "").strip("/")
+            repo_url = f"https://github.com/{repo_id}" if repo_id else ""
+            if repo_url:
                 lines.append(
-                    f"These files are from [{repo_id}]({repo_info.get('url', '')}) "
+                    f"These files are from [{repo_id}]({repo_url}) "
                     f"(`{ref_code.get('base_path', '')}` directory). "
                     f"Fetch them as needed — do not download all files upfront."
                 )
@@ -346,9 +361,29 @@ class AIDocsPlugin(BasePlugin):
             for file_entry in files:
                 path = file_entry["path"]
                 desc = file_entry.get("description", "")
-                raw_url = self._build_raw_url(reference_repos, ref_code, path)
+                raw_url = self._build_raw_url(ref_code, path)
                 lines.append(f"| `{path}` | {desc} | [Fetch]({raw_url}) |")
             lines.append("")
+
+        examples = skill.get("examples", [])
+        if examples:
+            lines.append("## Examples")
+            lines.append("")
+            for i, example in enumerate(examples, start=1):
+                lines.append(f"### Example {i}: {example.get('scenario', '')}")
+                lines.append("")
+                lines.append(f"User says: \"{example.get('user_says', '')}\"")
+                lines.append("")
+                actions = example.get("actions", [])
+                if actions:
+                    lines.append("Actions:")
+                    lines.append("")
+                    for j, action in enumerate(actions, start=1):
+                        lines.append(f"{j}. {action}")
+                    lines.append("")
+                if example.get("result"):
+                    lines.append(f"Result: {example['result']}")
+                    lines.append("")
 
         error_patterns = skill.get("error_patterns", [])
         if error_patterns:
@@ -367,40 +402,43 @@ class AIDocsPlugin(BasePlugin):
             lines.append(supp.get("description", ""))
             lines.append("")
             for p in supp.get("pages", []):
-                slug = p.get("slug", "")
+                title = p.get("title", "")
                 url = p.get("url", "")
                 relevance = p.get("relevance", "")
-                lines.append(f"- [{slug}]({url}) — {relevance}")
+                lines.append(f"- [{title}]({url}) — {relevance}")
             lines.append("")
 
         return "\n".join(lines)
 
     def _write_skills_index(
-        self, skills: list, project: dict, skills_output_dir: Path
+        self, skills: list, site_name: str, skills_output_dir: Path, site_url: str = ""
     ) -> None:
-        """Write index.json summarising all skills to the skills output directory."""
-        index = {
-            "project": project,
-            "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "skills": [],
-        }
-        for skill in skills:
-            entry = {
-                "id": skill["id"],
-                "title": skill["title"],
-                "description": skill["objective"],
-                "file": f"{skill['id']}.md",
-                "steps": len(skill.get("steps", [])),
-            }
-            source_pages = skill.get("source_pages", [])
-            if source_pages:
-                entry["source_pages"] = source_pages
-            index["skills"].append(entry)
-
-        index_path = skills_output_dir / "index.json"
-        index_path.write_text(
-            json.dumps(index, indent=2, ensure_ascii=False), encoding="utf-8"
+        """Write skills-index.md summarising all skills to the skills output directory."""
+        project_name = site_name
+        generated = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        skills_base_url = (
+            f"{site_url.rstrip('/')}/{self._skills_public_root}/{self._skills_dir_name}"
+            if site_url
+            else f"/{self._skills_public_root}/{self._skills_dir_name}"
         )
+
+        lines = []
+        lines.append(f"# {project_name} Agent Skills Index" if project_name else "# Agent Skills Index")
+        lines.append("")
+        lines.append(f"Generated: {generated}")
+        lines.append("")
+        for skill in skills:
+            url = f"{skills_base_url}/{skill['id']}.md"
+            lines.append(f"## {skill['id']}")
+            lines.append("")
+            lines.append(f"**Title:** {skill['title']}  ")
+            lines.append(f"**Description:** {skill['description']}  ")
+            lines.append(f"**Steps:** {len(skill.get('steps', []))}  ")
+            lines.append(f"**URL:** {url}")
+            lines.append("")
+
+        index_path = skills_output_dir / "skills-index.md"
+        index_path.write_text("\n".join(lines), encoding="utf-8")
         log.info(f"[ai_docs] wrote skill index: {index_path}")
 
     # ------------------------------------------------------------------
@@ -409,9 +447,6 @@ class AIDocsPlugin(BasePlugin):
 
     def on_config(self, config):
         """Load agent_skills_config and build page-to-skill reverse mapping."""
-        if not self.config.get("agent_skills", True):
-            return config
-
         agent_skills_config_path = self.config.get("agent_skills_config", "")
         if not agent_skills_config_path:
             return config
@@ -441,40 +476,29 @@ class AIDocsPlugin(BasePlugin):
         self._skills_dir_name = skills_dir
 
         for skill in self._skills_config.get("skills", []):
-            for page_path in skill.get("source_pages", []):
+            page_path = skill.get("primary_page", "")
+            if page_path:
                 self._page_skill_map.setdefault(page_path, []).append(
                     {"id": skill["id"], "title": skill["title"]}
                 )
 
         return config
 
-    def _generate_mcp_section(
-        self, project_name: str, mcp_name: str, mcp_url: str
-    ) -> str:
+    def _generate_mcp_section(self, project_name: str, mcp_name: str, mcp_url: str) -> str:
         """Return the full MCP Markdown section (heading, intro, table)."""
         utils = self._file_utils
 
-        cursor_btn = utils.mcp_install_button(
-            utils.build_cursor_deeplink(mcp_name, mcp_url)
-        )
-        vscode_btn = utils.mcp_install_button(
-            utils.build_vscode_deeplink(mcp_name, mcp_url)
-        )
-        claude_cmd = utils.mcp_copy_code(
-            f"claude mcp add --transport http {mcp_name} {mcp_url}"
-        )
+        cursor_icon = utils.twemoji_icon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"></path></svg>')
+        cursor_btn = utils.mcp_install_button(utils.build_cursor_deeplink(mcp_name, mcp_url), "Cursor", html_icon=cursor_icon)
+        vscode_btn = utils.mcp_install_button(utils.build_vscode_deeplink(mcp_name, mcp_url), ":material-microsoft-visual-studio-code: VS Code")
+        claude_cmd = utils.mcp_copy_code(f"claude mcp add --transport http {mcp_name} {mcp_url}")
         codex_cmd = utils.mcp_copy_code(f"codex mcp add {mcp_name} --url {mcp_url}")
         claude_desktop_btn = utils.mcp_install_button(
-            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server",
-            ":simple-claude: Claude",
+            "https://modelcontextprotocol.io/docs/develop/connect-remote-servers#connecting-to-a-remote-mcp-server", ":simple-claude: Claude"
         )
-        chatgpt_icon = utils.twemoji_icon(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0L4.1 14.3A4.501 4.501 0 0 1 2.34 7.896zm16.597 3.855l-5.843-3.375 2.02-1.164a.076.076 0 0 1 .071 0l4.724 2.727a4.5 4.5 0 0 1-.676 8.123v-5.68a.79.79 0 0 0-.396-.63zm2.007-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.723-2.727a4.5 4.5 0 0 1 6.689 4.661zm-12.73 4.28l-2.02-1.167a.08.08 0 0 1-.038-.057V6.197a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.62 5.585a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>'
-        )
+        chatgpt_icon = utils.twemoji_icon('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0L4.1 14.3A4.501 4.501 0 0 1 2.34 7.896zm16.597 3.855l-5.843-3.375 2.02-1.164a.076.076 0 0 1 .071 0l4.724 2.727a4.5 4.5 0 0 1-.676 8.123v-5.68a.79.79 0 0 0-.396-.63zm2.007-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.723-2.727a4.5 4.5 0 0 1 6.689 4.661zm-12.73 4.28l-2.02-1.167a.08.08 0 0 1-.038-.057V6.197a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.62 5.585a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>')
         chatgpt_desktop_btn = utils.mcp_install_button(
-            "https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt-beta",
-            "ChatGPT",
-            html_icon=chatgpt_icon,
+            "https://help.openai.com/en/articles/12584461-developer-mode-and-mcp-apps-in-chatgpt-beta", "ChatGPT", html_icon=chatgpt_icon
         )
         return f"""## Connect via MCP
 
@@ -512,7 +536,8 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
 !!! note
     For Claude Code, add `--scope user` to make the MCP server available across all projects.
 """
-
+    
+    
     def on_page_markdown(self, markdown, page, config, files):
         """
         Add an AI Resources page at /ai-resources.md with links to the LLM files and category bundles.
@@ -594,8 +619,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
         public_root_stripped: str,
         site_url: str,
         aggregate_tokens: dict[str, int],
+        skills_index_url: str = "",
     ) -> str:
-        """Render the aggregate AI resources table (llms.txt, site-index.json, llms-full.jsonl)."""
+        """Render the aggregate AI resources table (llms.txt, site-index.json, llms-full.jsonl, and optionally the skills index)."""
 
         def th(text: str) -> str:
             return f"<th>{text}</th>"
@@ -643,32 +669,46 @@ These AI-ready files do not include any persona or system prompts. They are pure
             site_url=site_url,
             extra_classes="ai-file-actions-container--table",
         )
-        return make_table(
-            [
+        rows = [
+            "<tr>"
+            + td('<code style="white-space: nowrap;">llms.txt</code>')
+            + td(
+                "Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format."
+            )
+            + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)))
+            + td(actions_llms)
+            + "</tr>",
+            "<tr>"
+            + td('<code style="white-space: nowrap;">site-index.json</code>')
+            + td(
+                "Lightweight site index of JSON objects (one per page) with metadata and content previews."
+            )
+            + td(fmt_tokens(aggregate_tokens.get("site_index", 0)))
+            + td(actions_site_index)
+            + "</tr>",
+            "<tr>"
+            + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
+            + td("Full content of documentation site enhanced with metadata.")
+            + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)))
+            + td(actions_full)
+            + "</tr>",
+        ]
+        if skills_index_url:
+            actions_skills_index = self._file_utils.generate_dropdown_html(
+                url=skills_index_url,
+                filename="skills-index.md",
+                site_url=site_url,
+                extra_classes="ai-file-actions-container--table",
+            )
+            rows.append(
                 "<tr>"
-                + td('<code style="white-space: nowrap;">llms.txt</code>')
-                + td(
-                    "Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format."
-                )
-                + td(fmt_tokens(aggregate_tokens.get("llms_txt", 0)))
-                + td(actions_llms)
-                + "</tr>",
-                "<tr>"
-                + td('<code style="white-space: nowrap;">site-index.json</code>')
-                + td(
-                    "Lightweight site index of JSON objects (one per page) with metadata and content previews."
-                )
-                + td(fmt_tokens(aggregate_tokens.get("site_index", 0)))
-                + td(actions_site_index)
-                + "</tr>",
-                "<tr>"
-                + td('<code style="white-space: nowrap;">llms-full.jsonl</code>')
-                + td("Full content of documentation site enhanced with metadata.")
-                + td(fmt_tokens(aggregate_tokens.get("llms_full", 0)))
-                + td(actions_full)
-                + "</tr>",
-            ]
-        )
+                + td('<code style="white-space: nowrap;">skills-index.md</code>')
+                + td("Index of all agent skills with metadata and links to individual skill files.")
+                + td(fmt_tokens(aggregate_tokens.get("skills_index", 0)))
+                + td(actions_skills_index)
+                + "</tr>"
+            )
+        return make_table(rows)
 
     def _build_category_table_html(
         self,
@@ -786,12 +826,21 @@ These AI-ready files do not include any persona or system prompts. They are pure
                     fm, _ = self.split_front_matter(path.read_text(encoding="utf-8"))
                     target[cat_id] = int(fm.get("token_estimate", 0) or 0)
 
-        # Read token estimates for the three aggregate artifact files from their content
+        # Read token estimates for the aggregate artifact files from their content
         aggregate_tokens = {
             "llms_txt": _file_tokens(site_dir / "llms.txt"),
             "site_index": _file_tokens(site_dir / public_root / "site-index.json"),
             "llms_full": _file_tokens(site_dir / public_root / "llms-full.jsonl"),
         }
+        skills_index_url = ""
+        if self._skills_config:
+            skills_index_file = (
+                site_dir / self._skills_public_root / self._skills_dir_name / "skills-index.md"
+            )
+            aggregate_tokens["skills_index"] = _file_tokens(skills_index_file)
+            skills_index_url = (
+                f"{base_path}/{self._skills_public_root}/{self._skills_dir_name}/skills-index.md"
+            )
 
         page_html = html_path.read_text(encoding="utf-8")
 
@@ -803,7 +852,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
             )
             return
         aggregate_html = self._build_aggregate_table_html(
-            base_path, public_root_stripped, site_url, aggregate_tokens
+            base_path, public_root_stripped, site_url, aggregate_tokens,
+            skills_index_url=skills_index_url,
         )
         page_html = page_html.replace(aggregate_placeholder, aggregate_html, 1)
 
@@ -834,9 +884,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
     ) -> Optional[str]:
         """Inject the AI actions widget and/or agent skill widgets next to each page's H1."""
         ai_page_actions = self.config.get("ai_page_actions", True)
-        agent_skills_enabled = self.config.get("agent_skills", True) and bool(
-            self._skills_config
-        )
+        agent_skills_enabled = bool(self._skills_config)
 
         if not ai_page_actions and not agent_skills_enabled:
             return output
@@ -904,8 +952,13 @@ These AI-ready files do not include any persona or system prompts. They are pure
                         if anchor_el:
                             base_path = urlparse(site_url).path.rstrip("/") if site_url else ""
                             url = f"{base_path}/{md_path}"
-                            widget_html = self._build_widget_html(url, md_path, site_url)
-                            anchor_el.append(BeautifulSoup(widget_html, "html.parser"))
+                            if inject_widget:
+                                widget_html = self._build_widget_html(url, md_path, site_url)
+                                anchor_el.append(BeautifulSoup(widget_html, "html.parser"))
+                            if skills_for_page:
+                                for skill in skills_for_page:
+                                    skill_html = self._build_skill_widget_html(skill, site_url)
+                                    anchor_el.append(BeautifulSoup(skill_html, "html.parser"))
                             modified = True
                         else:
                             log.debug(
@@ -919,14 +972,22 @@ These AI-ready files do not include any persona or system prompts. They are pure
                         if span:
                             h1 = span.find("h1")
                             if h1:
-                                self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                                self._wrap_h1(
+                                    h1, md_path, soup, site_url=site_url,
+                                    inject_llms=inject_widget,
+                                    skills=skills_for_page,
+                                )
                                 modified = True
 
         # --- Normal pages (no toggle) ---
         if not toggle_containers:
             if anchor_class:
                 md_path = f"{route}.md"
-                modified = self._inject_into_anchor(anchor_class, md_path, md_content, site_url=site_url)
+                modified = self._inject_into_anchor(
+                    anchor_class, md_path, md_content, site_url=site_url,
+                    inject_llms=inject_widget,
+                    skills=skills_for_page,
+                )
                 if not modified:
                     log.debug(
                         f"[ai_docs] ai_page_actions_anchor '.{anchor_class}' not found on {page.file.src_path}"
@@ -935,7 +996,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 h1 = md_content.find("h1")
                 if h1:
                     md_path = f"{route}.md"
-                    self._wrap_h1(h1, md_path, soup, site_url=site_url)
+                    self._wrap_h1(
+                        h1, md_path, soup, site_url=site_url,
+                        inject_llms=inject_widget,
+                        skills=skills_for_page,
+                    )
                     modified = True
 
         if not modified:
@@ -1106,17 +1171,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
         self.build_category_light(enriched, ai_root, build_timestamp)
         # Build llms.txt for downstream LLM usage directly into the site output
         self.build_llms_txt(ai_pages, site_dir, build_timestamp)
-        # Inject resources table with token estimates into the built ai-resources HTML
-        # (must run after all artifact files are written so their sizes can be estimated)
-        if self.config.get("ai_resources_page", True):
-            self._patch_ai_resources_page(site_dir, config)
 
         # --- Agent skills file generation ---
-        if self.config.get("agent_skills", True) and self._skills_config:
+        # Must run before _patch_ai_resources_page so skills-index.md exists for token estimation
+        if self._skills_config:
             skills = self._skills_config.get("skills", [])
             if skills:
-                project = self._skills_config.get("project", {})
-                reference_repos = self._skills_config.get("reference_repos", {})
                 skills_output_dir = (
                     site_dir / self._skills_public_root / self._skills_dir_name
                 )
@@ -1138,7 +1198,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 for skill in skills:
                     skill_id = skill.get("id", "unknown")
                     try:
-                        content = self._render_skill(skill, project, reference_repos)
+                        content = self._render_skill(skill)
                         output_path = skills_output_dir / f"{skill_id}.md"
                         output_path.write_text(content, encoding="utf-8")
                         log.info(f"[ai_docs] wrote {output_path}")
@@ -1147,11 +1207,18 @@ These AI-ready files do not include any persona or system prompts. They are pure
                         log.error(
                             f"[ai_docs] failed to generate skill '{skill_id}': {e}"
                         )
-                self._write_skills_index(rendered_skills, project, skills_output_dir)
+                site_url = config.get("site_url", "")
+                site_name = config.get("site_name", "")
+                self._write_skills_index(rendered_skills, site_name, skills_output_dir, site_url=site_url)
             else:
                 log.warning(
                     "[ai_docs] agent_skills_config loaded but no skills defined"
                 )
+
+        # Inject resources table with token estimates into the built ai-resources HTML
+        # (must run after all artifact files, including skills-index.md, are written)
+        if self.config.get("ai_resources_page", True):
+            self._patch_ai_resources_page(site_dir, config)
 
     # ------------------------------------------------------------------
     # Helper static functions

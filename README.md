@@ -10,7 +10,6 @@ Currently included:
 - **[Copy Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/copy-md.md)**: Serve raw Markdown files by copying them directly to your site's build folder.
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
-- **[Agent Skills](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/agent-skills.md)**: Generate structured, agent-ready skill files from a JSON configuration.
 - **[Link Processing](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/link-processor.md)**: Opens external links in a new tab and adds trailing slashes to internal paths at build time.
 
 > **Deprecated** (kept for backward compatibility, will be removed in a future major release): [`resolve_md`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/resolve-md.md), [`ai_page_actions`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-page-actions.md), [`ai_resources_page`](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-resources-page.md). Use `ai_docs` instead.

@@ -45,8 +45,8 @@ plugins:
 | `ai_page_actions_anchor` | `string` | `""` | CSS class name of the element(s) to append the widget into instead of wrapping the H1. When set, the default H1-wrapping behavior is replaced — see [Custom anchor](#custom-anchor). |
 | `ai_page_actions_style` | `string` | `"split"` | Widget layout style. `"split"` renders a copy button left of the dropdown arrow; `"dropdown"` renders a single labelled button with all actions inside — see [Widget style](#widget-style). |
 | `ai_page_actions_dropdown_label` | `string` | `"Markdown for LLMs"` | Trigger button label when `ai_page_actions_style` is `"dropdown"`. |
-| `agent_skills_config` | `string` | _(empty)_ | Path to the agent skills config file, relative to `mkdocs.yml`. Agent skill generation is disabled when this is not set. |
-| `agent_skills` | `bool` | `true` | Enable or disable agent skill generation independently. Only applies when `agent_skills_config` is set. |
+| `agent_skills_config` | `string` | _(empty)_ | Path to the agent skills config file, relative to `mkdocs.yml`. Agent skill generation is enabled when this is set and the file exists. |
+| `ai_skills_dropdown_label` | `string` | `"Agent skill"` | Trigger button label for the skills widget when `ai_page_actions_style` is `"dropdown"`. |
 | `enabled` | `bool` | `true` | Disable the entire plugin (all features). Supports `!ENV` for environment-based toggling. |
 
 The `llms_config` file controls content filtering, category definitions, and output paths. See [Resolve Markdown](resolve-md.md#-configuration) for a full breakdown of the `llms_config.json` schema.
@@ -122,11 +122,11 @@ Automatically generates the content for a page named `ai-resources.md`, replacin
 
 See [AI Resources Page](ai-resources-page.md) for details on the generated content and `llms_config.json` requirements.
 
-### Agent skills (`agent_skills`)
+### Agent skills
 
-Generates structured, agent-ready skill files from a JSON configuration. Each skill is rendered as a Markdown file with YAML front matter and written to the site output under `ai/skills/`. An accompanying `index.json` summarizes all available skills. This is useful for providing AI coding agents with step-by-step instructions, reference code links, and error recovery guidance.
+Generates structured, agent-ready skill files from a JSON configuration. Each skill is rendered as a Markdown file with YAML front matter and written to the site output under `ai/skills/`. An accompanying `skills-index.md` summarizes all available skills and is surfaced in the aggregate table on the AI Resources page. This is useful for providing AI coding agents with step-by-step instructions, reference code links, and error recovery guidance.
 
-Skill generation requires `agent_skills_config` to be set. The plugin also injects a widget next to each page's H1 for any documentation page linked to a skill via `source_pages` in the config.
+Skill generation is enabled when `agent_skills_config` is set and the file exists. The plugin also injects a skills widget (using a terminal icon) next to the Markdown for LLMs widget on the documentation page linked to each skill via `primary_page`.
 
 #### `agent_skills_config.json` schema
 
@@ -134,36 +134,38 @@ The configuration file supports the following top-level objects:
 
 - **`project`**
     - `id`: Internal identifier for the project.
-    - `name`: Display name of the project.
+    - `name`: Display name used in the skills index heading (falls back to `site_name` from `mkdocs.yml`).
 
 - **`outputs`**
-    - `public_root`: Base output path within the site directory. Default: `"/ai/"`. Must not be empty or resolve to an empty string after stripping slashes — skill generation is skipped if it does.
+    - `public_root`: Base output path within the site directory. Default: `"/ai/"`. Must not be empty — skill generation is skipped if it is.
     - `skills_dir`: Subdirectory name for skill files. Default: `"skills"`. Must not be empty — skill generation is skipped if it is.
 
-- **`reference_repos`**: A dictionary keyed by repository ID. Each entry contains:
-    - `url`: Repository URL for display links.
-    - `raw_base_url`: Base URL for fetching raw file content.
-
 - **`skills`**: An array of skill objects. Each skill supports:
-    - `id`: Unique skill identifier, used as the output filename and the frontmatter `name` field.
-    - `title`: Human-readable skill title.
-    - `objective`: Short description of what the skill accomplishes, written to frontmatter as `description`.
-    - `license`: (Optional) License name or file reference, written to frontmatter if present.
-    - `compatibility`: (Optional) Environment requirements such as required runtimes or network access, written to frontmatter if present.
-    - `prerequisites`: Grouped prerequisite items (for example, `"tools"`, `"accounts"`).
+    - `id`: Unique skill identifier, used as the output filename (`{id}.md`).
+    - `title`: Human-readable skill title, written to frontmatter as `name`.
+    - `description`: Agent-targeted description including trigger phrases and output summary, written to frontmatter as `description`.
+    - `version`: (Optional) Skill version string.
+    - `chain_role`: (Optional) Role in a skill chain (e.g., `"isolated"`, `"upstream"`).
+    - `invocation`: (Optional) How the skill is triggered (e.g., `"user"`, `"agent"`).
+    - `workflow_pattern`: (Optional) Execution pattern (e.g., `"sequential"`), written into the `metadata` frontmatter block.
+    - `license`: (Optional) License identifier, written to frontmatter if present.
+    - `compatibility`: (Optional) Environment requirements, written to frontmatter if present.
+    - `primary_page`: Path to the documentation page (relative to the docs directory) where the skill widget is injected. One page per skill.
+    - `project_structure`: (Optional) Directory tree string rendered as a fenced code block in `## Project Structure`.
+    - `prerequisites`: Grouped prerequisite items (for example, `"runtime"`, `"tools"`).
     - `env_vars`: Environment variables the skill requires, each with `name`, `description`, and `required` fields.
     - `steps`: Ordered execution steps, each with `order`, `action`, `description`, `commands`, `reference_file`, and `expected_output`.
-    - `reference_code`: Links to a reference repository and lists relevant files with descriptions.
+    - `reference_code`: Reference repository info with `repo` (GitHub owner/repo), `branch`, `base_path`, and `files`. Raw fetch URLs are constructed automatically as `raw.githubusercontent.com` links.
+    - `examples`: Usage scenarios, each with `scenario`, `user_says`, `actions` (list), and `result`. Rendered as `## Examples`.
     - `error_patterns`: Common errors with `pattern`, `cause`, and `resolution`.
-    - `supplementary_context`: Additional documentation pages relevant to the skill.
-    - `source_pages`: List of documentation page paths relative to the docs directory, used to inject skill widgets on those pages.
+    - `supplementary_context`: Additional documentation pages relevant to the skill, with `description` and a `pages` list.
 
 #### Output
 
 For each skill defined in the configuration, the plugin generates:
 
-- **`{skill_id}.md`** — A Markdown file with YAML front matter aligned to the [Agent Skills specification](https://agentskills.io/specification){target=\_blank}: required `name` (skill ID) and `description` (objective) fields; optional `license` and `compatibility` fields; and a `metadata` block containing the title, step count, reference repo (if applicable), and generation timestamp. The body contains structured sections for prerequisites, environment variables, execution steps, reference code index, error recovery, and supplementary context.
-- **`index.json`** — A JSON index listing all skills with their ID, title, description, filename, and step count, along with project metadata and a generation timestamp.
+- **`{skill_id}.md`** — A Markdown file with YAML front matter containing `name` (title), `description`, and optional `version`, `chain_role`, `invocation`, `license`, `compatibility`, and `metadata` (with `workflow_pattern` and `generated` timestamp). The body contains structured sections for description, project structure, prerequisites, environment variables, execution steps, reference code index, examples, error recovery, and supplementary context.
+- **`skills-index.md`** — A Markdown index with one `##` section per skill, listing title, description, step count, and raw URL. Optimized for LLM consumption. Linked from the AI Resources page aggregate table.
 
 The output directory (`ai/skills/` by default) is cleaned and recreated on each build to avoid stale files. The plugin verifies that the output directory resolves safely under the site directory before deleting it — skill generation is skipped with an error if this check fails.
 
@@ -172,5 +174,5 @@ The output directory (`ai/skills/` by default) is cleaned and recreated on each 
 - All features share a single `llms_config.json` load — the file is read once per build and cached.
 - Disabling `ai_resources_page` or `ai_page_actions` skips only those hooks; artifact generation always runs.
 - Agent skill generation is independent of the other features and only runs when `agent_skills_config` is set.
-- Reference file URLs in skill output are constructed automatically from `reference_repos` and `reference_code` configuration, pointing to raw file content for easy agent retrieval.
+- Reference file URLs in skill output are constructed automatically from `reference_code.repo` and `reference_code.branch`, pointing to raw `githubusercontent.com` content for direct agent fetching.
 - The plugin registers under the `ai_docs` entry point. The deprecated `resolve_md`, `ai_page_actions`, and `ai_resources_page` entry points remain registered and functional until removed.
