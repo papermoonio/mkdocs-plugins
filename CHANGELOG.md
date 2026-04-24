@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.1.0a13
+
+### New Features
+
+#### `ai_docs` — Agent skills
+
+Generates structured, agent-ready skill files from a JSON configuration. Set `agent_skills_config` in your `mkdocs.yml` to enable:
+
+```yaml
+plugins:
+  - ai_docs:
+      agent_skills_config: agent_skills_config.json
+```
+
+For each skill defined in the config, the plugin writes a `{skill_id}.md` file to `ai/skills/` with YAML front matter and structured Markdown sections. An accompanying `skills-index.md` lists all skills and is surfaced in the aggregate table on the AI Resources page.
+
+**Skill front matter** includes `name` (title), `description`, and optionally `version`, `chain_role`, `invocation`, `license`, `compatibility`, and a `metadata` block with `workflow_pattern` and `generated` timestamp.
+
+**Rendered body sections** (each conditional on the skill config):
+
+- `## Description`
+- `## Project Structure` — fenced code block from `project_structure`
+- `## Prerequisites`
+- `## Environment Variables`
+- `## Execution Steps`
+- `## Reference Code Index`
+- `## Examples` — numbered subsections with trigger phrase, action list, and result
+- `## Error Recovery`
+- `## Supplementary Context`
+
+**Page widget injection:** each skill maps to a single documentation page via `primary_page`. The plugin injects a skills dropdown widget on that page alongside the Markdown for LLMs widget.
+
+**New configuration options:**
+
+- **`agent_skills_config`**: Path to the skills config JSON, relative to `mkdocs.yml`. Skills are enabled when this is set and the file exists.
+- **`ai_skills_dropdown_label`**: Label text for the skills dropdown trigger button. Defaults to `"Agent skill"`.
+
 ## 0.1.0a11
 
 ### New Features
