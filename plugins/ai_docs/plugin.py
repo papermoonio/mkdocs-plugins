@@ -930,6 +930,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
         # --- Toggle pages ---
         toggle_containers = md_content.select(".toggle-container")
         if toggle_containers:
+            # Derive the directory of the canonical src path for variant src lookups
+            src_dir = "/".join(page.file.src_path.replace("\\", "/").split("/")[:-1])
+
             for container in toggle_containers:
                 for btn in container.select(".toggle-btn[data-variant]"):
                     variant = btn.get("data-variant", "")
@@ -937,8 +940,17 @@ These AI-ready files do not include any persona or system prompts. They are pure
                     if data_filename:
                         segments = route.split("/")
                         md_path = "/".join(segments[:-1] + [f"{data_filename}.md"])
+                        # Look up skills for this specific variant's source page
+                        variant_src = f"{src_dir}/{data_filename}.md" if src_dir else f"{data_filename}.md"
+                        variant_skills = (
+                            self._page_skill_map.get(variant_src, [])
+                            if agent_skills_enabled
+                            else []
+                        )
                     else:
                         md_path = f"{route}.md"
+                        # Canonical variant — use the skills already resolved for this page
+                        variant_skills = skills_for_page
 
                     if anchor_class:
                         # Inject into the per-variant anchor element so each
@@ -956,8 +968,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
                             if inject_widget:
                                 widget_html = self._build_widget_html(url, md_path, site_url)
                                 anchor_el.append(BeautifulSoup(widget_html, "html.parser"))
-                            if skills_for_page:
-                                for skill in skills_for_page:
+                            if variant_skills:
+                                for skill in variant_skills:
                                     skill_html = self._build_skill_widget_html(skill, site_url)
                                     anchor_el.append(BeautifulSoup(skill_html, "html.parser"))
                             modified = True
@@ -976,7 +988,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                                 self._wrap_h1(
                                     h1, md_path, soup, site_url=site_url,
                                     inject_llms=inject_widget,
-                                    skills=skills_for_page,
+                                    skills=variant_skills,
                                 )
                                 modified = True
 
