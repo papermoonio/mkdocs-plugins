@@ -20,8 +20,8 @@ For each skill defined in the config, the plugin writes a `{skill_id}.md` file t
 
 **Rendered body sections** (each conditional on the skill config):
 
-- `## Project Structure` — fenced code block from `project_structure`
 - `## Prerequisites`
+- `## Project Structure`
 - `## Environment Variables`
 - `## Execution Steps`
 - `## Reference Code Index`
