@@ -1,5 +1,4 @@
 import hashlib
-import html
 import ipaddress
 import json
 import os
