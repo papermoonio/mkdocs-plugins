@@ -64,7 +64,7 @@ class AIDocsPlugin(BasePlugin):
         ("ai_page_actions_style", Type(str, default="split")),
         ("ai_page_actions_dropdown_label", Type(str, default="Markdown for LLMs")),
         ("agent_skills_config", Type(str, default="")),
-        ("ai_skills_dropdown_label", Type(str, default="Agent skills")),
+        ("ai_skills_dropdown_label", Type(str, default="Agent skill")),
     )
 
     def __init__(self):
