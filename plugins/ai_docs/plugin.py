@@ -837,10 +837,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
             skills_index_file = (
                 site_dir / self._skills_public_root / self._skills_dir_name / "skills-index.md"
             )
-            aggregate_tokens["skills_index"] = _file_tokens(skills_index_file)
-            skills_index_url = (
-                f"{base_path}/{self._skills_public_root}/{self._skills_dir_name}/skills-index.md"
-            )
+            if skills_index_file.exists():
+                aggregate_tokens["skills_index"] = _file_tokens(skills_index_file)
+                skills_index_url = (
+                    f"{base_path}/{self._skills_public_root}/{self._skills_dir_name}/skills-index.md"
+                )
 
         page_html = html_path.read_text(encoding="utf-8")
 
