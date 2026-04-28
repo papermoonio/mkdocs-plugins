@@ -164,7 +164,7 @@ The configuration file supports the following top-level objects:
 
 For each skill defined in the configuration, the plugin generates:
 
-- **`{skill_id}.md`** — A Markdown file with YAML front matter containing `name` (title), `description`, and optional `version`, `chain_role`, `invocation`, `license`, `compatibility`, and `metadata` (with `workflow_pattern` and `generated` timestamp). The body contains structured sections for description, project structure, prerequisites, environment variables, execution steps, reference code index, examples, error recovery, and supplementary context.
+- **`{skill_id}.md`** — A Markdown file with YAML front matter containing `name` (title), `description`, and optional `version`, `chain_role`, `invocation`, `license`, `compatibility`, and `metadata` (with `workflow_pattern` and `generated` timestamp). The body contains structured sections for project structure, prerequisites, environment variables, execution steps, reference code index, examples, error recovery, and supplementary context.
 - **`skills-index.md`** — A Markdown index with one `##` section per skill, listing title, description, step count, and raw URL. Optimized for LLM consumption. Linked from the AI Resources page aggregate table.
 
 The output directory (`ai/skills/` by default) is cleaned and recreated on each build to avoid stale files. The plugin verifies that the output directory resolves safely under the site directory before deleting it — skill generation is skipped with an error if this check fails.
