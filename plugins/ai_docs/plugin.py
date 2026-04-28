@@ -1189,7 +1189,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
                         f"safely nested under site_dir '{site_dir}' — "
                         "skipping skill generation"
                     )
-                    return
+                    self._skills_config = {}
+                    skills = []
                 if skills_output_dir.exists():
                     shutil.rmtree(skills_output_dir)
                 skills_output_dir.mkdir(parents=True, exist_ok=True)
