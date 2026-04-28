@@ -132,10 +132,6 @@ Skill generation is enabled when `agent_skills_config` is set and the file exist
 
 The configuration file supports the following top-level objects:
 
-- **`project`**
-    - `id`: Internal identifier for the project.
-    - `name`: Display name used in the skills index heading (falls back to `site_name` from `mkdocs.yml`).
-
 - **`outputs`**
     - `public_root`: Base output path within the site directory. Default: `"/ai/"`. Must not be empty — skill generation is skipped if it is.
     - `skills_dir`: Subdirectory name for skill files. Default: `"skills"`. Must not be empty — skill generation is skipped if it is.
