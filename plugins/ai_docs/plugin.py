@@ -1194,8 +1194,8 @@ These AI-ready files do not include any persona or system prompts. They are pure
                     site_dir / self._skills_public_root / self._skills_dir_name
                 )
                 if (
-                    skills_output_dir == site_dir
-                    or not skills_output_dir.is_relative_to(site_dir)
+                    skills_output_dir.resolve() == site_dir.resolve()
+                    or not skills_output_dir.resolve().is_relative_to(site_dir.resolve())
                 ):
                     log.error(
                         f"[ai_docs] skills_output_dir '{skills_output_dir}' is not "
