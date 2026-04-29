@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a14
+
+### Bug Fixes
+
+#### `ai_docs` — Skip empty prerequisite groups and env vars
+
+Prerequisite groups with empty arrays (e.g. `network: []`) are no longer rendered as empty sections.
+
 ## 0.1.0a13
 
 ### New Features
