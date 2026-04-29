@@ -531,7 +531,7 @@ class TestAiResourcesPageMarkdown:
         assert "## Access LLM Files" in result
 
     def test_emits_category_headings_for_toc(self, tmp_path):
-        """on_page_markdown should emit ### Category Files and per-category #### headings for TOC."""
+        """on_page_markdown should emit the Category Files heading and per-category headings for TOC."""
         plugin = _make_plugin()
         config = _make_mkdocs_config(tmp_path)
         page = _make_page(src_path="ai-resources.md")
@@ -680,6 +680,27 @@ class TestBuildAggregateTableHtml:
         """Table should include 'Token Estimate' column."""
         table = self._make_table(tmp_path, "https://docs.example.com/")
         assert "Token Estimate" in table
+
+    def test_includes_skills_index_row_when_url_provided(self, tmp_path):
+        """Passing skills_index_url adds a skills-index.md row to the table."""
+        plugin = _make_plugin()
+        config = _make_mkdocs_config(tmp_path, site_url="https://docs.example.com/")
+        plugin._ensure_config_loaded(config)
+        table = plugin._build_aggregate_table_html(
+            "",
+            "/ai",
+            "https://docs.example.com/",
+            aggregate_tokens={"skills_index": 2500},
+            skills_index_url="/ai/skills/skills-index.md",
+        )
+        assert "skills-index.md" in table
+        assert "2,500" in table
+        assert "Index of all agent skills" in table
+
+    def test_omits_skills_index_row_when_no_url(self, tmp_path):
+        """Without skills_index_url the table has exactly 3 artifact rows."""
+        table = self._make_table(tmp_path, "https://docs.example.com/")
+        assert "skills-index.md" not in table
 
 # ===========================================================================
 # _build_category_table_html — URL and token estimate correctness
@@ -839,6 +860,73 @@ class TestPatchAiResourcesPage:
 
         result = html_path.read_text(encoding="utf-8")
         assert "<table>" in result
+
+    def test_includes_skills_index_row_when_skills_configured(self, tmp_path):
+        """When _skills_config is set, the aggregate table includes a skills-index.md row."""
+        plugin = _make_plugin()
+        config = _make_mkdocs_config(tmp_path, site_url="https://docs.example.com/")
+        plugin._ensure_config_loaded(config)
+        plugin._skills_config = {"skills": []}
+        plugin._skills_public_root = "ai"
+        plugin._skills_dir_name = "skills"
+
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        self._write_html(html_path, self._base_html())
+
+        skills_index = site_dir / "ai" / "skills" / "skills-index.md"
+        skills_index.parent.mkdir(parents=True)
+        skills_index.write_text("# Skills Index\n\n" + "word " * 500, encoding="utf-8")
+
+        plugin._patch_ai_resources_page(site_dir, config)
+
+        result = html_path.read_text(encoding="utf-8")
+        assert "skills-index.md" in result
+
+    def test_reads_skills_index_token_estimate(self, tmp_path):
+        """The skills-index.md token estimate is estimated from file content and displayed."""
+        plugin = _make_plugin()
+        config = _make_mkdocs_config(tmp_path, site_url="https://docs.example.com/")
+        plugin._ensure_config_loaded(config)
+        plugin._skills_config = {"skills": []}
+        plugin._skills_public_root = "ai"
+        plugin._skills_dir_name = "skills"
+
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        self._write_html(html_path, self._base_html())
+
+        skills_index = site_dir / "ai" / "skills" / "skills-index.md"
+        skills_index.parent.mkdir(parents=True)
+        skills_index.write_text("word " * 1000, encoding="utf-8")
+
+        plugin._patch_ai_resources_page(site_dir, config)
+
+        result = html_path.read_text(encoding="utf-8")
+        soup = BeautifulSoup(result, "html.parser")
+        skills_row = next(
+            (row for row in soup.find_all("tr") if "skills-index.md" in str(row)),
+            None,
+        )
+        assert skills_row is not None
+        token_cell = skills_row.find_all("td")[2]
+        assert token_cell.get_text() != "—"
+
+    def test_omits_skills_index_row_when_skills_not_configured(self, tmp_path):
+        """Without _skills_config the aggregate table has no skills-index.md row."""
+        plugin = _make_plugin()
+        config = _make_mkdocs_config(tmp_path, site_url="https://docs.example.com/")
+        plugin._ensure_config_loaded(config)
+        # _skills_config is {} by default
+
+        site_dir = tmp_path / "site"
+        html_path = site_dir / "ai-resources" / "index.html"
+        self._write_html(html_path, self._base_html())
+
+        plugin._patch_ai_resources_page(site_dir, config)
+
+        result = html_path.read_text(encoding="utf-8")
+        assert "skills-index.md" not in result
 
 
 # ===========================================================================

@@ -4,7 +4,9 @@ A collection of custom [MkDocs](https://www.mkdocs.org/) plugins designed to ext
 
 Currently included:
 
-- **[AI Docs](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-docs.md)**: Unified AI documentation plugin. Generates AI-ready artifacts (resolved markdown, category bundles, site index, `llms.txt`), injects a per-page actions widget, and generates an AI resources page.
+- **[AI Docs](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/ai-docs.md)**: Unified AI documentation plugin. 
+    - Generates AI-ready artifacts (resolved markdown, category bundles, site index, `llms.txt`), injects a per-page actions widget, and generates an AI resources page. 
+    - Generates structured, agent-ready skill files from a JSON configuration.
 - **[Copy Markdown](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/copy-md.md)**: Serve raw Markdown files by copying them directly to your site's build folder.
 - **[Minify](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/minify.md)**: Minify HTML, JS, and CSS files globally or by scope to optimize your site's performance.
 - **[Page Toggle](https://github.com/papermoonio/mkdocs-plugins/blob/main/docs/page-toggle.md)**: Create variant pages for the same content and display them with an interactive toggle interface.
@@ -33,6 +35,7 @@ Enable one or more plugins in your `mkdocs.yml`:
 plugins:
   - ai_docs:
       llms_config: llms_config.json
+      agent_skills_config: agent_skills_config.json
   - copy_md:
       source_dir: docs/.example
       target_dir: example
