@@ -280,6 +280,8 @@ class AIDocsPlugin(BasePlugin):
             lines.append("## Prerequisites")
             lines.append("")
             for group_name, items in prereqs.items():
+                if not items:
+                    continue
                 lines.append(f"**{group_name.replace('_', ' ').title()}:**")
                 for item in items:
                     lines.append(f"- {item}")
