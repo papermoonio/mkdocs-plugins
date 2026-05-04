@@ -363,6 +363,7 @@ class AIFileUtils:
         dropdown_label: str = "Markdown for LLMs",
         extra_classes: str = "",
         icon: str = "",
+        trigger_accessory_html: str = "",
     ) -> str:
         """
         Generate the HTML for the AI file actions widget.
@@ -399,6 +400,10 @@ class AIFileUtils:
             extra_classes: Additional CSS class(es) to append to the container
                      div (e.g., ``"ai-file-actions-container--table"``).
                      Multiple classes can be space-separated.
+            trigger_accessory_html: Optional trusted HTML fragment inserted
+                     inside the trigger button, immediately before the
+                     chevron. Useful for skill-specific indicators such as a
+                     warning icon with tooltip.
 
         Returns:
             The HTML string for the component.
@@ -487,6 +492,7 @@ class AIFileUtils:
                 f' data-url="{safe_url}">'
                 f'{trigger_icon_html}'
                 f'<span class="button-text">{escaped_label}</span>'
+                f"{trigger_accessory_html}"
                 f"{chevron}"
                 "</button>"
             )
@@ -532,6 +538,7 @@ class AIFileUtils:
             ' aria-haspopup="true"'
             ' aria-expanded="false"'
             ' role="button">'
+            f"{trigger_accessory_html}"
             f"{chevron}"
             "</button>"
         )
