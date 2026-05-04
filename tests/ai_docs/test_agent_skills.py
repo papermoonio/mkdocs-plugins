@@ -1031,6 +1031,13 @@ class TestOnPostPageBothWidgets:
         )
         assert "ai/skills/test-skill.md" in result
 
+    def test_skills_widget_renders_warning_indicator_and_tooltip(self):
+        result = self.plugin.on_post_page(
+            _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
+        )
+        assert "ai-skill-warning-indicator" in result
+        assert "This function is experimental and may have issues" in result
+
 
 # ---------------------------------------------------------------------------
 # TestOnPostPageAnchorWithSkills
