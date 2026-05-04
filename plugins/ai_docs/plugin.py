@@ -1,5 +1,4 @@
 import hashlib
-import html
 import ipaddress
 import json
 import os
@@ -142,7 +141,7 @@ class AIDocsPlugin(BasePlugin):
         skill_id = skill["id"]
         md_path = f"{self._skills_public_root}/{self._skills_dir_name}/{skill_id}.md"
         url = f"{base_path}/{md_path}"
-        widget_html = self._file_utils.generate_dropdown_html(
+        return self._file_utils.generate_dropdown_html(
             url=url,
             filename=f"{skill_id}.md",
             primary_label="Copy skill",
@@ -150,28 +149,7 @@ class AIDocsPlugin(BasePlugin):
             style=widget_style,
             dropdown_label=self.config.get("ai_skills_dropdown_label", "Agent skill"),
             icon="terminal",
-        )
-        warning_html = self._build_skill_warning_html()
-        return (
-            '<div class="ai-skill-widget"'
-            ' style="display:inline-flex;align-items:center;gap:0.35em;">'
-            f"{widget_html}"
-            f"{warning_html}"
-            "</div>"
-        )
-
-    def _build_skill_warning_html(self) -> str:
-        """Render the experimental warning indicator for a skill widget trigger."""
-        safe_tooltip = html.escape(SKILL_WARNING_TOOLTIP, quote=True)
-        icon_svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg"'
-            ' width="16px" height="16px"'
-            ' viewBox="0 0 16 16"'
-            ' class="ai-file-actions-icon ai-skill-warning-icon"'
-            ' aria-hidden="true">'
-            '<path fill="currentColor" fill-rule="evenodd"'
-            ' d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>'
-            "</svg>"
+            trigger_title=SKILL_WARNING_TOOLTIP,
         )
         return (
             '<span class="ai-skill-warning-indicator"'
