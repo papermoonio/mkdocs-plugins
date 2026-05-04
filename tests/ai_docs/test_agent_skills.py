@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugins.ai_docs.plugin import AIDocsPlugin
+from plugins.ai_docs.plugin import AIDocsPlugin, SKILL_WARNING_TOOLTIP
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1036,7 +1036,7 @@ class TestOnPostPageBothWidgets:
             _PAGE_HTML, page=_make_page(), config=self.mkdocs_config
         )
         assert "ai-skill-warning-indicator" in result
-        assert "This function is experimental and may have issues" in result
+        assert f'title="{SKILL_WARNING_TOOLTIP}"' in result
 
 
 # ---------------------------------------------------------------------------
