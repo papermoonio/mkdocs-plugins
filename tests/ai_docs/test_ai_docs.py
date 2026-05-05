@@ -1311,3 +1311,127 @@ class TestAiPageActionsStyle:
         output = '<div class="md-content"><h1>Guide</h1></div>'
         result = plugin.on_post_page(output, page=page, config={"site_url": ""})
         assert "Markdown for LLMs" in result
+
+
+# ===========================================================================
+# _write_ai_resources_markdown
+# ===========================================================================
+
+class TestWriteAiResourcesMarkdown:
+    """Tests for _write_ai_resources_markdown transformation logic."""
+
+    def _make_plugin(self, tmp_path, site_url="https://docs.example.com/", mcp=False):
+        """Return a plugin with _llms_config and _ai_resources_template pre-populated."""
+        plugin = _make_plugin()
+        project_cfg = {
+            "name": "TestProject",
+            "docs_base_url": "https://docs.example.com/",
+        }
+        if mcp:
+            project_cfg["mcp_name"] = "test-mcp"
+            project_cfg["mcp_url"] = "https://mcp.example.com"
+        plugin._llms_config = {
+            "project": project_cfg,
+            "content": {
+                "categories_info": {
+                    "basics": {"name": "Basics", "description": "Basic docs."},
+                }
+            },
+            "outputs": {"public_root": "/ai/"},
+        }
+        # Minimal template with both placeholder types and an admonition
+        plugin._ai_resources_template = (
+            "# AI Resources\n\n"
+            "Intro text.\n\n"
+            "### Full Site Files\n\n"
+            "<!-- ai-resources-aggregate-table -->\n\n"
+            "!!! note\n"
+            "    This is a note.\n\n"
+            "### Category Files\n\n"
+            "#### Basics\n\n"
+            "Basic docs.\n\n"
+            "<!-- ai-category-basics-table -->\n"
+        )
+        plugin._skills_config = {}
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        return plugin
+
+    def _mkdocs_config(self, tmp_path, site_url="https://docs.example.com/"):
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        return {"config_file_path": str(mkdocs_yml), "site_url": site_url}
+
+    def test_file_is_written(self, tmp_path):
+        """ai-resources.md is created in site_dir."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        assert (tmp_path / "ai-resources.md").exists()
+
+    def test_aggregate_placeholder_replaced(self, tmp_path):
+        """The aggregate table placeholder is replaced with a markdown table."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "<!-- ai-resources-aggregate-table -->" not in body
+        assert "llms.txt" in body
+        assert "site-index.json" in body
+        assert "llms-full.jsonl" in body
+
+    def test_category_placeholder_replaced(self, tmp_path):
+        """Per-category table placeholders are replaced with markdown tables."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "<!-- ai-category-basics-table -->" not in body
+        assert "basics.md" in body
+        assert "basics-light.md" in body
+
+    def test_admonition_converted_to_blockquote(self, tmp_path):
+        """MkDocs !!! admonitions are converted to > blockquotes."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "!!! note" not in body
+        assert "> This is a note." in body
+
+    def test_mcp_section_stripped(self, tmp_path):
+        """The MCP section is removed when present in the template."""
+        plugin = self._make_plugin(tmp_path)
+        plugin._ai_resources_template = (
+            "# AI Resources\n\n"
+            "Intro.\n\n"
+            "## Connect via MCP\n\n"
+            "Some HTML buttons here.\n\n"
+            "## Access LLM Files\n\n"
+            "<!-- ai-resources-aggregate-table -->\n\n"
+            "<!-- ai-category-basics-table -->\n"
+        )
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "## Connect via MCP" not in body
+        assert "Some HTML buttons here." not in body
+        assert "## Access LLM Files" in body
+
+    def test_no_template_skips_write(self, tmp_path):
+        """If no template is cached the file is not written."""
+        plugin = self._make_plugin(tmp_path)
+        plugin._ai_resources_template = ""
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        assert not (tmp_path / "ai-resources.md").exists()
+
+    def test_urls_include_site_subpath(self, tmp_path):
+        """Artifact URLs include the site subpath when site_url has one."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path, site_url="https://example.com/docs/")
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "/docs/llms.txt" in body
+        assert "/docs/ai/site-index.json" in body
+        assert "/docs/ai/categories/basics.md" in body
