@@ -988,6 +988,16 @@ class TestBuildSkillWidgetHtml:
         )
         assert "/docs/ai/skills/my-skill.md" in html
 
+    def test_skill_widget_renders_warning_tooltip_markup(self):
+        plugin = _make_plugin(ai_page_actions_style="dropdown")
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert 'class="md-tooltip md-tooltip--inline ai-skill-warning-tooltip"' in html
+        assert 'class="md-tooltip__inner md-typeset"' in html
+        assert "ai-skill-warning-tooltip-icon" in html
+        assert 'role="tooltip"' in html
+        assert 'aria-describedby="ai-skill-warning-tooltip-test-skill"' in html
+        assert "This feature is experimental and may have issues" in html
+
 
 # ---------------------------------------------------------------------------
 # TestOnPostPageBothWidgets
