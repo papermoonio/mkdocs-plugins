@@ -40,6 +40,7 @@ SNIPPET_SECTION_REGEX = re.compile(
 SNIPPET_DOUBLE_RANGE_RE = re.compile(r"^(?P<path>.+?)::(?P<end>-?\d+)$")
 SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$")
 SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
+SKILL_WARNING_TOOLTIP = "This feature is experimental and may have issues"
 
 
 class _SkillYamlDumper(yaml.SafeDumper):
@@ -148,6 +149,7 @@ class AIDocsPlugin(BasePlugin):
             style=widget_style,
             dropdown_label=self.config.get("ai_skills_dropdown_label", "Agent skill"),
             icon="terminal",
+            trigger_title=SKILL_WARNING_TOOLTIP,
         )
 
     def _wrap_h1(

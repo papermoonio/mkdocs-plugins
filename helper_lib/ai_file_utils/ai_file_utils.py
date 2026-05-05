@@ -363,6 +363,7 @@ class AIFileUtils:
         dropdown_label: str = "Markdown for LLMs",
         extra_classes: str = "",
         icon: str = "",
+        trigger_title: str = "",
     ) -> str:
         """
         Generate the HTML for the AI file actions widget.
@@ -399,6 +400,9 @@ class AIFileUtils:
             extra_classes: Additional CSS class(es) to append to the container
                      div (e.g., ``"ai-file-actions-container--table"``).
                      Multiple classes can be space-separated.
+            trigger_title: Optional title attribute applied to the trigger
+                     button. Useful for surfacing context-specific hover
+                     tooltips, such as experimental warnings for skill widgets.
 
         Returns:
             The HTML string for the component.
@@ -449,6 +453,8 @@ class AIFileUtils:
 
             safe_url = html.escape(url, quote=True)
             escaped_label = html.escape(dropdown_label, quote=True)
+            escaped_title = html.escape(trigger_title, quote=True)
+            title_attr = f' title="{escaped_title}"' if escaped_title else ""
             _markdown_icon = (
                 '<svg xmlns="http://www.w3.org/2000/svg"'
                 ' width="24px" height="24px"'
@@ -480,6 +486,7 @@ class AIFileUtils:
             trigger_btn = (
                 '<button class="ai-file-actions-btn ai-file-actions-trigger"'
                 ' type="button"'
+                f"{title_attr}"
                 f' aria-label="{escaped_label}"'
                 ' aria-haspopup="true"'
                 ' aria-expanded="false"'
@@ -526,7 +533,7 @@ class AIFileUtils:
         dropdown_btn = (
             '<button class="ai-file-actions-btn'
             ' ai-file-actions-trigger"'
-            ' title="More options"'
+            f' title="{html.escape(trigger_title or "More options", quote=True)}"'
             ' type="button"'
             ' aria-label="More options"'
             ' aria-haspopup="true"'
