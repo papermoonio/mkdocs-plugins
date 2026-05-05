@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0a16
+
+### New Features
+
+#### `ai_docs` — Raw markdown artifact for excluded pages
+
+Pages listed in `exclusions.skip_basenames` or `exclusions.skip_paths` now have their raw markdown artifact written to the site output, instead of being skipped entirely. These pages are still excluded from all indexing (llms files, category bundles, site index, `llms.txt`) and the per-page dropdown widget is not injected. This makes the raw content addressable (e.g. at `/ai-resources.md`) without surfacing it in any AI-optimized aggregates.
+
+#### `ai_docs` — Raw markdown artifact for the AI resources page
+
+A raw markdown version of the AI resources page is now written to `site_dir/ai-resources.md` at the end of each build. The MCP install section is stripped (its content is HTML-only), MkDocs admonitions are converted to blockquotes, and the HTML comment table placeholders are replaced with standard markdown tables populated with actual token estimates and absolute URLs.
+
+### Refactoring
+
+#### `ai_docs` — Deduplicated HTML table helpers
+
+`th()`, `td()`, `fmt_tokens()`, and `make_table()` were defined as identical nested functions inside both `_build_aggregate_table_html` and `_build_category_table_html`. `make_table` has been extracted as a `_html_table` static method shared by both.
+
 ## 0.1.0a14
 
 ### Bug Fixes
