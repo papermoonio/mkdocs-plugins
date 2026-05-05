@@ -1229,8 +1229,9 @@ These AI-ready files do not include any persona or system prompts. They are pure
             # Skip indexing for excluded pages — raw markdown is written above but
             # these pages are excluded from llms files, category files, and site index.
             basename = Path(md_path).name
-            if basename in skip_basenames or any(x in md_path for x in skip_paths):
-                log.debug(f"[ai_docs] {md_path} excluded from indexing (skip_basenames/skip_paths)")
+            src_path = Path(md_path).relative_to(docs_dir).as_posix()
+            if basename in skip_basenames or any(x in src_path for x in skip_paths):
+                log.debug(f"[ai_docs] {src_path} excluded from indexing (skip_basenames/skip_paths)")
                 continue
             # Creates list used later for category file creation
             cats = reduced_fm.get("categories") or []
