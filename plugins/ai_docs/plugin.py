@@ -41,7 +41,7 @@ SNIPPET_SECTION_REGEX = re.compile(
 SNIPPET_DOUBLE_RANGE_RE = re.compile(r"^(?P<path>.+?)::(?P<end>-?\d+)$")
 SNIPPET_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+):(?P<end>-?\d+)$")
 SNIPPET_SINGLE_RANGE_RE = re.compile(r"^(?P<path>.+?):(?P<start>-?\d+)$")
-SKILL_WARNING_TOOLTIP = "This skill is experimental and may have issues"
+SKILL_WARNING_TOOLTIP = "This feature is experimental and may have issues"
 
 
 class _SkillYamlDumper(yaml.SafeDumper):
