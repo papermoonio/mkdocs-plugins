@@ -1444,7 +1444,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         ``skip_basenames`` / ``skip_paths`` are still collected here so that
         their raw markdown artifacts are written; they are excluded from
         indexing (llms files, category files, site index, llms.txt) and from
-        the page dropdown widget in the main build loop.
+        widget injection.
         """
         docs_dir_norm = os.path.normpath(str(docs_dir))
         results = []
