@@ -87,6 +87,9 @@ class AIDocsPlugin(BasePlugin):
         self._skills_public_root: str = ""
         self._skills_dir_name: str = ""
 
+        # Cached page template (set in on_page_markdown, consumed in _write_ai_resources_markdown)
+        self._ai_resources_template: str = ""
+
     # ------------------------------------------------------------------
     # Internal functions
     # ------------------------------------------------------------------
@@ -592,7 +595,7 @@ Use the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) to conne
         if mcp_url and mcp_name:
             mcp_section = self._generate_mcp_section(project_name, mcp_name, mcp_url)
 
-        return f"""# AI Resources
+        content = f"""# AI Resources
 
 {project_name} provides files to make documentation content available in a structure optimized for use with large language models (LLMs) and AI tools. These resources help build AI assistants, power code search, or enable custom tooling trained on {project_name}'s documentation.
 
@@ -615,6 +618,21 @@ These AI-ready files do not include any persona or system prompts. They are pure
     The `llms-full.jsonl` file may exceed the input limits of some language models due to its size. If you encounter limitations, consider using the smaller `site-index.json` or category bundle files instead.
 {category_sections}
 """
+        self._ai_resources_template = content
+        return content
+
+    @staticmethod
+    def _html_table(rows: list) -> str:
+        """Wrap rows in an HTML table with the standard AI resources column headers."""
+        return (
+            "<table>\n"
+            "<thead><tr>"
+            "<th>File</th><th>Description</th><th>Token Estimate</th><th>Actions</th>"
+            "</tr></thead>\n"
+            "<tbody>\n"
+            + "\n".join(rows)
+            + "\n</tbody>\n</table>"
+        )
 
     def _build_aggregate_table_html(
         self,
@@ -626,34 +644,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
     ) -> str:
         """Render the aggregate AI resources table (llms.txt, site-index.json, llms-full.jsonl, and optionally the skills index)."""
 
-        def th(text: str) -> str:
-            return f"<th>{text}</th>"
-
         def td(content: str) -> str:
             return f"<td>{content}</td>"
 
         def fmt_tokens(n: int) -> str:
             return f"{n:,}" if n else "—"
-
-        def make_table(rows: list[str]) -> str:
-            header = (
-                "<thead><tr>"
-                + th("File")
-                + th("Description")
-                + th("Token Estimate")
-                + th("Actions")
-                + "</tr></thead>"
-            )
-            return (
-                "<table>\n"
-                + header
-                + "\n"
-                + "<tbody>\n"
-                + "\n".join(rows)
-                + "\n"
-                + "</tbody>\n"
-                + "</table>"
-            )
 
         actions_llms = self._file_utils.generate_dropdown_html(
             url=f"{base_path}/llms.txt", filename="llms.txt", site_url=site_url,
@@ -711,7 +706,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 + td(actions_skills_index)
                 + "</tr>"
             )
-        return make_table(rows)
+        return self._html_table(rows)
 
     def _build_category_table_html(
         self,
@@ -724,34 +719,11 @@ These AI-ready files do not include any persona or system prompts. They are pure
     ) -> str:
         """Render the table for a single category (full bundle + light file rows)."""
 
-        def th(text: str) -> str:
-            return f"<th>{text}</th>"
-
         def td(content: str) -> str:
             return f"<td>{content}</td>"
 
         def fmt_tokens(n: int) -> str:
             return f"{n:,}" if n else "—"
-
-        def make_table(rows: list[str]) -> str:
-            header = (
-                "<thead><tr>"
-                + th("File")
-                + th("Description")
-                + th("Token Estimate")
-                + th("Actions")
-                + "</tr></thead>"
-            )
-            return (
-                "<table>\n"
-                + header
-                + "\n"
-                + "<tbody>\n"
-                + "\n".join(rows)
-                + "\n"
-                + "</tbody>\n"
-                + "</table>"
-            )
 
         slug = self.slugify_category(cat_id)
         filename = f"{slug}.md"
@@ -766,7 +738,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             url=light_url, filename=light_filename, site_url=site_url,
             extra_classes="ai-file-actions-container--table",
         )
-        return make_table(
+        return self._html_table(
             [
                 "<tr>"
                 + td(f'<code style="white-space: nowrap;">{filename}</code>')
@@ -854,6 +826,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
             log.warning(
                 "[ai_docs] ai-resources-aggregate-table placeholder not found in built HTML"
             )
+            self._write_ai_resources_markdown(site_dir, config)
             return
         aggregate_html = self._build_aggregate_table_html(
             base_path, public_root_stripped, site_url, aggregate_tokens,
@@ -882,6 +855,115 @@ These AI-ready files do not include any persona or system prompts. They are pure
         log.info(
             f"[ai_docs] injected resources tables with token estimates into {html_path}"
         )
+
+        self._write_ai_resources_markdown(site_dir, config)
+
+    def _write_ai_resources_markdown(self, site_dir: Path, config: MkDocsConfig) -> None:
+        """Write a raw markdown version of the AI resources page to site_dir/ai-resources.md.
+
+        Transforms the template stored by on_page_markdown: strips the MCP section,
+        replaces HTML comment table placeholders with markdown tables, and converts
+        MkDocs admonitions to blockquotes.
+        """
+        if not self._ai_resources_template:
+            log.warning("[ai_docs] AI resources template not available, skipping raw markdown write")
+            return
+
+        project_cfg = self._llms_config.get("project", {})
+        project_name = project_cfg.get("name", "")
+        docs_base_url = (project_cfg.get("docs_base_url", "") or "").rstrip("/") + "/"
+        site_url = config.get("site_url", "")
+        base = site_url.rstrip("/") if site_url else ""
+        outputs_cfg = self._llms_config.get("outputs", {})
+        public_root_stripped = "/" + outputs_cfg.get("public_root", "/ai/").strip("/")
+        public_root = public_root_stripped.strip("/")
+        content_cfg = self._llms_config.get("content", {})
+        categories_info = content_cfg.get("categories_info", {}) or {}
+
+        def fmt_tokens(n: int) -> str:
+            return f"{n:,}" if n else "—"
+
+        def md_table(rows: list) -> str:
+            return (
+                "| File | Description | Token Estimate |\n"
+                "|------|-------------|----------------|\n"
+                + "\n".join(rows)
+            )
+
+        def file_tokens(path: Path) -> int:
+            return (
+                self.estimate_tokens(path.read_text(encoding="utf-8")) if path.exists() else 0
+            )
+
+        body = self._ai_resources_template
+
+        # Strip the MCP section — complex HTML install buttons, not appropriate for raw markdown
+        body = re.sub(r"\n## Connect via MCP\n.*?(?=\n## )", "", body, flags=re.DOTALL)
+
+        # Convert MkDocs admonitions (!!! type) to blockquotes
+        body = re.sub(
+            r"!!! \w+\n((?:    .+\n?)+)",
+            lambda m: "\n".join("> " + line[4:] for line in m.group(1).rstrip("\n").split("\n")),
+            body,
+        )
+
+        # Replace aggregate table placeholder
+        agg_rows = [
+            f"| [`llms.txt`]({base}/llms.txt) | Markdown URL index for documentation pages, links to essential repos, and additional resources in the llms.txt standard format. | {fmt_tokens(file_tokens(site_dir / 'llms.txt'))} |",
+            f"| [`site-index.json`]({base}{public_root_stripped}/site-index.json) | Lightweight site index of JSON objects (one per page) with metadata and content previews. | {fmt_tokens(file_tokens(site_dir / public_root / 'site-index.json'))} |",
+            f"| [`llms-full.jsonl`]({base}{public_root_stripped}/llms-full.jsonl) | Full content of documentation site enhanced with metadata. | {fmt_tokens(file_tokens(site_dir / public_root / 'llms-full.jsonl'))} |",
+        ]
+        if self._skills_config:
+            skills_index_file = (
+                site_dir / self._skills_public_root / self._skills_dir_name / "skills-index.md"
+            )
+            if skills_index_file.exists():
+                skills_index_url = f"{base}/{self._skills_public_root}/{self._skills_dir_name}/skills-index.md"
+                agg_rows.append(
+                    f"| [`skills-index.md`]({skills_index_url}) | Index of all agent skills with metadata and links to individual skill files. | {fmt_tokens(file_tokens(skills_index_file))} |"
+                )
+        body = body.replace("<!-- ai-resources-aggregate-table -->", md_table(agg_rows), 1)
+
+        # Replace per-category table placeholders
+        categories_dir = site_dir / public_root / "categories"
+        for cat_id in categories_info:
+            slug = self.slugify_category(cat_id)
+            filename = f"{slug}.md"
+            light_filename = f"{slug}-light.md"
+            url = f"{base}{public_root_stripped}/categories/{filename}"
+            light_url = f"{base}{public_root_stripped}/categories/{light_filename}"
+            cat_path = categories_dir / filename
+            cat_fm, _ = self.split_front_matter(cat_path.read_text(encoding="utf-8")) if cat_path.exists() else ({}, "")
+            light_path = categories_dir / light_filename
+            light_fm, _ = self.split_front_matter(light_path.read_text(encoding="utf-8")) if light_path.exists() else ({}, "")
+            cat_rows = [
+                f"| [`{filename}`]({url}) | Full bundle — complete page content for all tagged pages. | {fmt_tokens(int(cat_fm.get('token_estimate', 0) or 0))} |",
+                f"| [`{light_filename}`]({light_url}) | Lightweight index — titles, URLs, previews, and section headings. | {fmt_tokens(int(light_fm.get('token_estimate', 0) or 0))} |",
+            ]
+            body = body.replace(f"<!-- ai-category-{slug}-table -->", md_table(cat_rows), 1)
+
+        # Collapse excess blank lines left by stripped sections
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+
+        page_url = f"{docs_base_url}ai-resources/"
+        word_count = self.word_count(body)
+        token_estimate = self.estimate_tokens(body)
+        version_hash = self.sha256_text(body)
+        header = {
+            "title": "AI Resources",
+            "description": (
+                f"Download LLM-optimized files of the {project_name} documentation, "
+                "including full content and category-specific resources for AI agents."
+            ),
+            "url": page_url,
+            "word_count": word_count,
+            "token_estimate": token_estimate,
+            "version_hash": version_hash,
+            "last_updated": None,
+        }
+        out_path = site_dir / "ai-resources.md"
+        self.write_ai_page(out_path, header, body)
+        log.info(f"[ai_docs] wrote raw markdown for AI resources page to {out_path}")
 
     def on_post_page(
         self, output: str, *, page: Page, config: MkDocsConfig
@@ -1064,9 +1146,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
         exclusions = content_cfg.get("exclusions", {})
         skip_basenames = exclusions.get("skip_basenames", [])
         skip_paths = exclusions.get("skip_paths", [])
-        markdown_files = self.get_all_markdown_files(
-            docs_dir, skip_basenames, skip_paths
-        )
+        markdown_files = self.get_all_markdown_files(docs_dir)
 
         log.info(f"[ai_docs] found {len(markdown_files)} markdown files")
 
@@ -1147,6 +1227,13 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 route = route[: -len("/index")]
             self.write_ai_page(site_dir / (route + ".md"), header, cleaned_body)
             processed += 1
+            # Skip indexing for excluded pages — raw markdown is written above but
+            # these pages are excluded from llms files, category files, and site index.
+            basename = Path(md_path).name
+            src_path = Path(md_path).relative_to(docs_dir).as_posix()
+            if basename in skip_basenames or any(x in src_path for x in skip_paths):
+                log.debug(f"[ai_docs] {src_path} excluded from indexing (skip_basenames/skip_paths)")
+                continue
             # Creates list used later for category file creation
             cats = reduced_fm.get("categories") or []
             if isinstance(cats, str):
@@ -1351,28 +1438,25 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
     # File discovery and filtering per skip names/paths in llms_config.json
     @staticmethod
-    def get_all_markdown_files(docs_dir, skip_basenames, skip_paths):
-        """Collect *.md|*.mdx, skipping dot-files, dot-directories, manual skip_paths, and skip_basenames.
+    def get_all_markdown_files(docs_dir):
+        """Collect *.md|*.mdx, skipping dot-files and dot-directories.
 
-        The root index.md (homepage) is always excluded. To skip all
-        index.md files site-wide, add ``index.md`` to ``skip_basenames``
-        in ``llms_config.json``.
+        The root index.md (homepage) is always excluded. Pages listed in
+        ``skip_basenames`` / ``skip_paths`` are still collected here so that
+        their raw markdown artifacts are written; they are excluded from
+        indexing (llms files, category files, site index, llms.txt) and from
+        widget injection.
         """
         docs_dir_norm = os.path.normpath(str(docs_dir))
         results = []
         for root, dirs, files in os.walk(docs_dir):
             # Always skip hidden (dot) directories
             dirs[:] = [d for d in dirs if not d.startswith(".")]
-            # Skip manually specified paths (substring match)
-            if any(x in root for x in skip_paths):
-                continue
             for file in files:
                 if not file.endswith((".md", ".mdx")):
                     continue
                 # Always skip hidden (dot) files
                 if file.startswith("."):
-                    continue
-                if file in skip_basenames:
                     continue
                 # Always skip the root index.md (homepage)
                 if file == "index.md" and os.path.normpath(root) == docs_dir_norm:

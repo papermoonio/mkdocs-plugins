@@ -150,28 +150,28 @@ class TestGetAllMarkdownFiles:
                     f.write(children or "")
 
     def test_skips_dot_directories(self):
-        """Dot-directories are always excluded without being in skip_paths."""
+        """Dot-directories are always excluded."""
         with tempfile.TemporaryDirectory() as tmp:
             self._create_tree(tmp, {
                 "guide.md": "",
                 ".snippets": {"nav.md": ""},
                 ".github": {"CONTRIBUTING.md": ""},
             })
-            results = AIDocsPlugin.get_all_markdown_files(tmp, [], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
             assert "guide.md" in basenames
             assert "nav.md" not in basenames
             assert "CONTRIBUTING.md" not in basenames
 
     def test_skips_dot_files(self):
-        """Dot-files are always excluded without being in skip_basenames."""
+        """Dot-files are always excluded."""
         with tempfile.TemporaryDirectory() as tmp:
             self._create_tree(tmp, {
                 "guide.md": "",
                 ".hidden.md": "",
                 "subdir": {".secret.md": "", "page.md": ""},
             })
-            results = AIDocsPlugin.get_all_markdown_files(tmp, [], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
             assert "guide.md" in basenames
             assert "page.md" in basenames
@@ -184,54 +184,55 @@ class TestGetAllMarkdownFiles:
             self._create_tree(tmp, {
                 "docs": {"page.md": "", ".hidden": {"secret.md": ""}},
             })
-            results = AIDocsPlugin.get_all_markdown_files(tmp, [], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
             assert "page.md" in basenames
             assert "secret.md" not in basenames
 
-    def test_skip_paths_still_works(self):
-        """Manual skip_paths continue to work alongside dot-directory skipping."""
+    def test_skip_paths_collected_for_raw_artifact(self):
+        """Files matching skip_paths are collected (raw markdown is still written; indexing is skipped in the build loop)."""
         with tempfile.TemporaryDirectory() as tmp:
             self._create_tree(tmp, {"guide.md": "", "venv": {"pkg.md": ""}})
-            results = AIDocsPlugin.get_all_markdown_files(tmp, [], ["venv"])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
             assert "guide.md" in basenames
-            assert "pkg.md" not in basenames
+            assert "pkg.md" in basenames
 
-    def test_skip_basenames_still_works(self):
-        """Manual skip_basenames continue to work alongside dot-directory skipping."""
+    def test_skip_basenames_collected_for_raw_artifact(self):
+        """Files matching skip_basenames are collected (raw markdown is still written; indexing is skipped in the build loop)."""
         with tempfile.TemporaryDirectory() as tmp:
             self._create_tree(tmp, {"guide.md": "", "README.md": ""})
-            results = AIDocsPlugin.get_all_markdown_files(tmp, ["README.md"], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
             assert "guide.md" in basenames
-            assert "README.md" not in basenames
+            assert "README.md" in basenames
 
     def test_always_skips_root_index(self):
-        """The root index.md (homepage) is always excluded even without skip_basenames."""
+        """The root index.md (homepage) is always excluded."""
         with tempfile.TemporaryDirectory() as tmp:
             self._create_tree(tmp, {
                 "index.md": "",
                 "guide.md": "",
                 "subdir": {"index.md": "", "page.md": ""},
             })
-            results = AIDocsPlugin.get_all_markdown_files(tmp, [], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             rel_paths = [os.path.relpath(f, tmp) for f in results]
             assert os.path.join(tmp, "index.md") not in results
             assert os.path.join("subdir", "index.md") in rel_paths
             assert "guide.md" in [os.path.basename(f) for f in results]
 
-    def test_skip_basenames_index_skips_all_index_files(self):
-        """Adding index.md to skip_basenames excludes all index.md files site-wide."""
+    def test_skip_basenames_index_collected_for_raw_artifact(self):
+        """index.md in skip_basenames is collected — exclusion from indexing happens in the build loop."""
         with tempfile.TemporaryDirectory() as tmp:
             self._create_tree(tmp, {
                 "index.md": "",
                 "guide.md": "",
                 "subdir": {"index.md": "", "page.md": ""},
             })
-            results = AIDocsPlugin.get_all_markdown_files(tmp, ["index.md"], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
-            assert "index.md" not in basenames
+            # Root index.md is always excluded; subdir index.md is collected
+            assert os.path.join(tmp, "index.md") not in results
             assert "guide.md" in basenames
             assert "page.md" in basenames
 
@@ -243,7 +244,7 @@ class TestGetAllMarkdownFiles:
                 "component.mdx": "",
                 "style.css": "",
             })
-            results = AIDocsPlugin.get_all_markdown_files(tmp, [], [])
+            results = AIDocsPlugin.get_all_markdown_files(tmp)
             basenames = [os.path.basename(f) for f in results]
             assert "page.md" in basenames
             assert "component.mdx" in basenames
@@ -1310,3 +1311,127 @@ class TestAiPageActionsStyle:
         output = '<div class="md-content"><h1>Guide</h1></div>'
         result = plugin.on_post_page(output, page=page, config={"site_url": ""})
         assert "Markdown for LLMs" in result
+
+
+# ===========================================================================
+# _write_ai_resources_markdown
+# ===========================================================================
+
+class TestWriteAiResourcesMarkdown:
+    """Tests for _write_ai_resources_markdown transformation logic."""
+
+    def _make_plugin(self, tmp_path, site_url="https://docs.example.com/", mcp=False):
+        """Return a plugin with _llms_config and _ai_resources_template pre-populated."""
+        plugin = _make_plugin()
+        project_cfg = {
+            "name": "TestProject",
+            "docs_base_url": "https://docs.example.com/",
+        }
+        if mcp:
+            project_cfg["mcp_name"] = "test-mcp"
+            project_cfg["mcp_url"] = "https://mcp.example.com"
+        plugin._llms_config = {
+            "project": project_cfg,
+            "content": {
+                "categories_info": {
+                    "basics": {"name": "Basics", "description": "Basic docs."},
+                }
+            },
+            "outputs": {"public_root": "/ai/"},
+        }
+        # Minimal template with both placeholder types and an admonition
+        plugin._ai_resources_template = (
+            "# AI Resources\n\n"
+            "Intro text.\n\n"
+            "### Full Site Files\n\n"
+            "<!-- ai-resources-aggregate-table -->\n\n"
+            "!!! note\n"
+            "    This is a note.\n\n"
+            "### Category Files\n\n"
+            "#### Basics\n\n"
+            "Basic docs.\n\n"
+            "<!-- ai-category-basics-table -->\n"
+        )
+        plugin._skills_config = {}
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        return plugin
+
+    def _mkdocs_config(self, tmp_path, site_url="https://docs.example.com/"):
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        return {"config_file_path": str(mkdocs_yml), "site_url": site_url}
+
+    def test_file_is_written(self, tmp_path):
+        """ai-resources.md is created in site_dir."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        assert (tmp_path / "ai-resources.md").exists()
+
+    def test_aggregate_placeholder_replaced(self, tmp_path):
+        """The aggregate table placeholder is replaced with a markdown table."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "<!-- ai-resources-aggregate-table -->" not in body
+        assert "llms.txt" in body
+        assert "site-index.json" in body
+        assert "llms-full.jsonl" in body
+
+    def test_category_placeholder_replaced(self, tmp_path):
+        """Per-category table placeholders are replaced with markdown tables."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "<!-- ai-category-basics-table -->" not in body
+        assert "basics.md" in body
+        assert "basics-light.md" in body
+
+    def test_admonition_converted_to_blockquote(self, tmp_path):
+        """MkDocs !!! admonitions are converted to > blockquotes."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "!!! note" not in body
+        assert "> This is a note." in body
+
+    def test_mcp_section_stripped(self, tmp_path):
+        """The MCP section is removed when present in the template."""
+        plugin = self._make_plugin(tmp_path)
+        plugin._ai_resources_template = (
+            "# AI Resources\n\n"
+            "Intro.\n\n"
+            "## Connect via MCP\n\n"
+            "Some HTML buttons here.\n\n"
+            "## Access LLM Files\n\n"
+            "<!-- ai-resources-aggregate-table -->\n\n"
+            "<!-- ai-category-basics-table -->\n"
+        )
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "## Connect via MCP" not in body
+        assert "Some HTML buttons here." not in body
+        assert "## Access LLM Files" in body
+
+    def test_no_template_skips_write(self, tmp_path):
+        """If no template is cached the file is not written."""
+        plugin = self._make_plugin(tmp_path)
+        plugin._ai_resources_template = ""
+        config = self._mkdocs_config(tmp_path)
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        assert not (tmp_path / "ai-resources.md").exists()
+
+    def test_urls_include_site_subpath(self, tmp_path):
+        """Artifact URLs include the site subpath when site_url has one."""
+        plugin = self._make_plugin(tmp_path)
+        config = self._mkdocs_config(tmp_path, site_url="https://example.com/docs/")
+        plugin._write_ai_resources_markdown(tmp_path, config)
+        body = (tmp_path / "ai-resources.md").read_text(encoding="utf-8")
+        assert "/docs/llms.txt" in body
+        assert "/docs/ai/site-index.json" in body
+        assert "/docs/ai/categories/basics.md" in body
