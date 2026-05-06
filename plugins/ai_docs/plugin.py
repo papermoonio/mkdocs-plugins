@@ -1,5 +1,4 @@
 import hashlib
-import html
 import ipaddress
 import json
 import os
@@ -142,7 +141,7 @@ class AIDocsPlugin(BasePlugin):
         skill_id = skill["id"]
         md_path = f"{self._skills_public_root}/{self._skills_dir_name}/{skill_id}.md"
         url = f"{base_path}/{md_path}"
-        widget_html = self._file_utils.generate_dropdown_html(
+        return self._file_utils.generate_dropdown_html(
             url=url,
             filename=f"{skill_id}.md",
             primary_label="Copy skill",
@@ -150,58 +149,7 @@ class AIDocsPlugin(BasePlugin):
             style=widget_style,
             dropdown_label=self.config.get("ai_skills_dropdown_label", "Agent skill"),
             icon="terminal",
-        )
-        tooltip_id = self._skill_warning_tooltip_id(skill_id)
-        soup = BeautifulSoup(widget_html, "html.parser")
-        container = soup.select_one(".ai-file-actions-container")
-        trigger = soup.select_one(".ai-file-actions-trigger")
-        if not container or not trigger:
-            return widget_html
-
-        classes = container.get("class", [])
-        if "ai-skill-tooltip-host" not in classes:
-            classes.append("ai-skill-tooltip-host")
-        container["class"] = classes
-
-        trigger.attrs.pop("title", None)
-        trigger["aria-describedby"] = tooltip_id
-        container.append(
-            BeautifulSoup(
-                self._build_skill_warning_tooltip_html(tooltip_id),
-                "html.parser",
-            )
-        )
-        return str(soup)
-
-    def _skill_warning_tooltip_id(self, skill_id: str) -> str:
-        """Build a stable DOM id for the inline skill warning tooltip."""
-        suffix = re.sub(r"[^A-Za-z0-9_-]+", "-", skill_id).strip("-") or "skill"
-        return f"ai-skill-warning-tooltip-{suffix}"
-
-    def _build_skill_warning_tooltip_html(self, tooltip_id: str) -> str:
-        """Render a Material-compatible inline tooltip with an icon and text."""
-        tooltip_text = html.escape(SKILL_WARNING_TOOLTIP)
-        icon_svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg"'
-            ' viewBox="0 0 16 16"'
-            ' width="16" height="16"'
-            ' aria-hidden="true">'
-            '<path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0'
-            ' 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44'
-            ' 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53'
-            ' 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2'
-            ' 0 1 1 0 0 1 2 0Z"></path></svg>'
-        )
-        return (
-            f'<div class="md-tooltip md-tooltip--inline ai-skill-warning-tooltip"'
-            f' id="{tooltip_id}" role="tooltip">'
-            '<div class="md-tooltip__inner md-typeset">'
-            '<span class="ai-skill-warning-tooltip-content">'
-            f'<span class="md-icon ai-skill-warning-tooltip-icon">{icon_svg}</span>'
-            f'<span class="ai-skill-warning-tooltip-text">{tooltip_text}</span>'
-            "</span>"
-            "</div>"
-            "</div>"
+            trigger_title=f"⚠️ {SKILL_WARNING_TOOLTIP}",
         )
 
     def _wrap_h1(
