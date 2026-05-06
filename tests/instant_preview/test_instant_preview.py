@@ -97,14 +97,15 @@ class TestInstantPreview:
         assert "Guide" in root_fragment
         assert "Useful intro." in root_fragment
         assert "Buttons" not in root_fragment
-        assert "Details" not in root_fragment
+        assert "Details" in root_fragment
+        assert "Deep details." in root_fragment
         assert "Details" in details_fragment
         assert "Deep details." in details_fragment
         assert "/guide/index.html" in manifest["entries"]
         assert "/guide/#guide" in manifest["entries"]
         assert manifest["scopes"] == ["article"]
 
-    def test_falls_back_to_first_section_when_root_has_no_intro_blocks(self, tmp_path):
+    def test_root_preview_includes_first_useful_section_when_it_exists(self, tmp_path):
         guide_dir = tmp_path / "guide"
         guide_dir.mkdir()
         guide_path = guide_dir / "index.html"
@@ -127,6 +128,139 @@ class TestInstantPreview:
         assert "Introduction" in root_fragment
         assert "Useful intro." in root_fragment
         assert "Details" not in root_fragment
+
+    def test_root_preview_keeps_header_metadata_and_includes_first_section(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="page-header-row">'
+                '<span class="page-header-item">Beginner</span>'
+                '<a class="page-header-item page-header-test-badge" href="https://example.com/workflow">'
+                '<img src="/badge.svg" alt="passing"/>'
+                "</a>"
+                "</div>"
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+                '<h2 id="details">Details</h2>'
+                '<p>Deep details.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        root_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "Guide" in root_fragment
+        assert "page-header-row" in root_fragment
+        assert "page-header-test-badge" in root_fragment
+        assert "/badge.svg" in root_fragment
+        assert "Introduction" in root_fragment
+        assert "Useful intro." in root_fragment
+        assert "Details" not in root_fragment
+
+    def test_root_preview_keeps_substantive_intro_and_still_includes_first_section(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="page-header-row">'
+                '<span class="page-header-item">Beginner</span>'
+                "</div>"
+                "<p>Useful intro.</p>"
+                '<h2 id="details">Details</h2>'
+                '<p>Deep details.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        root_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "Guide" in root_fragment
+        assert "page-header-row" in root_fragment
+        assert "Useful intro." in root_fragment
+        assert "Details" in root_fragment
+        assert "Deep details." in root_fragment
+
+    def test_root_preview_keeps_admonition_and_first_section(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="page-header-row">'
+                '<span class="page-header-item">Beginner</span>'
+                "</div>"
+                '<aside class="admonition warning">'
+                '<p class="admonition-title">Warning</p>'
+                "<p>Read this first.</p>"
+                "</aside>"
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+                '<h2 id="details">Details</h2>'
+                '<p>Deep details.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        root_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "page-header-row" in root_fragment
+        assert "admonition warning" in root_fragment
+        assert "Read this first." in root_fragment
+        assert "Introduction" in root_fragment
+        assert "Useful intro." in root_fragment
+        assert "Details" not in root_fragment
+
+    def test_root_preview_keeps_button_wrapper_before_first_section(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="page-header-row">'
+                '<span class="page-header-item">Beginner</span>'
+                "</div>"
+                '<div class="button-wrapper">'
+                '<a class="md-button" href="/foo/">Primary CTA</a>'
+                '<a class="md-button" href="/bar/">Secondary CTA</a>'
+                "</div>"
+                "<p>Useful prelude.</p>"
+                '<aside class="admonition warning">'
+                '<p class="admonition-title">Warning</p>'
+                "<p>Handle with care.</p>"
+                "</aside>"
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+                '<h2 id="details">Details</h2>'
+                '<p>Deep details.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        root_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "button-wrapper" in root_fragment
+        assert 'class="md-button"' in root_fragment
+        assert "Primary CTA" in root_fragment
+        assert "Secondary CTA" in root_fragment
+        assert "Useful prelude." in root_fragment
+        assert "Handle with care." in root_fragment
+        assert "Introduction" in root_fragment
+        assert "Useful intro." in root_fragment
 
     def test_normalizes_complex_blocks_into_preview_safe_markup(self, tmp_path):
         guide_dir = tmp_path / "guide"
@@ -412,6 +546,84 @@ class TestInstantPreview:
         assert "Hardhat Polkadot" in pvm_fragment
         assert "Introduction" in pvm_fragment
         assert "PVM intro." in pvm_fragment
+
+    def test_toggle_root_metadata_does_not_block_first_section_fallback(self, tmp_path):
+        local_dir = tmp_path / "local-dev-node"
+        local_dir.mkdir()
+        canonical_path = local_dir / "index.html"
+        other_output_path = tmp_path / "local-dev-node-alt" / "index.html"
+        other_output_path.parent.mkdir()
+
+        toggle = TogglePagesPlugin()
+        canonical_page = _make_page(
+            url="local-dev-node/",
+            src_path="local-dev-node.md",
+            abs_dest_path=str(canonical_path),
+            meta={
+                "toggle": {
+                    "group": "local-dev-node",
+                    "variant": "stable",
+                    "canonical": True,
+                }
+            },
+        )
+        other_page = _make_page(
+            url="local-dev-node-alt/",
+            src_path="local-dev-node-alt.md",
+            abs_dest_path=str(other_output_path),
+            meta={"toggle": {"group": "local-dev-node", "variant": "next"}},
+        )
+
+        canonical_html = toggle.on_page_content(
+            '<h1 id="local-development-node">Local Development Node</h1>'
+            '<div class="page-header-row">'
+            '<a class="page-header-item page-header-test-badge" href="https://example.com/workflow">'
+            '<img src="/badge.svg" alt="passing"/>'
+            "</a>"
+            "</div>"
+            '<h2 id="introduction">Introduction</h2>'
+            '<p>Stable intro.</p>'
+            '<h2 id="details">Details</h2>'
+            '<p>Stable details.</p>',
+            page=canonical_page,
+            config={"plugins": {}},
+            files=[],
+        )
+        canonical_path.write_text(_wrap_document(canonical_html), encoding="utf-8")
+
+        toggle.on_page_content(
+            '<h1 id="local-development-node">Local Development Node</h1>'
+            '<div class="page-header-row">'
+            '<a class="page-header-item page-header-test-badge" href="https://example.com/workflow-next">'
+            '<img src="/badge-next.svg" alt="passing"/>'
+            "</a>"
+            "</div>"
+            '<h2 id="introduction">Introduction</h2>'
+            '<p>Next intro.</p>'
+            '<h2 id="details">Details</h2>'
+            '<p>Next details.</p>',
+            page=other_page,
+            config={"plugins": {}},
+            files=[],
+        )
+        other_output_path.write_text("<html></html>", encoding="utf-8")
+        toggle.on_post_build({"plugins": {}})
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        html = _read(canonical_path)
+        root_fragment = _preview_fragment(html, "/local-dev-node/")
+        next_fragment = _preview_fragment(html, "/local-dev-node/#next")
+
+        assert "Local Development Node" in root_fragment
+        assert "page-header-row" in root_fragment
+        assert "/badge.svg" in root_fragment
+        assert "Introduction" in root_fragment
+        assert "Stable intro." in root_fragment
+        assert "Details" not in root_fragment
+        assert "/badge-next.svg" in next_fragment
+        assert "Introduction" in next_fragment
+        assert "Next intro." in next_fragment
 
     def test_registers_aliases_for_flat_html_outputs(self, tmp_path):
         guide_path = tmp_path / "guide.html"

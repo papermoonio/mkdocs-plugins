@@ -19,8 +19,10 @@ DATA_ATTR = "data-instant-preview-data"
 MANIFEST_ATTR = "data-instant-preview-manifest"
 TEMPLATE_ATTR = "data-instant-preview-template"
 EXCLUDE_ATTR = "data-instant-preview-exclude"
-BLOCK_LIMIT = 6
-MAX_TOTAL_TEXT_CHARS = 1400
+ROOT_BLOCK_LIMIT = 10
+ROOT_MAX_TOTAL_TEXT_CHARS = 2400
+SECTION_BLOCK_LIMIT = 6
+SECTION_MAX_TOTAL_TEXT_CHARS = 1400
 MAX_CODE_LINES = 10
 MAX_TABLE_ROWS = 3
 MAX_CARD_ITEMS = 3
@@ -38,6 +40,7 @@ BLOCKED_CLASS_NAMES = {
 }
 PRESERVE_BLOCK_CLASS_NAMES = {
     "admonition",
+    "button-wrapper",
     "page-header-row",
     "status-badge",
     "tabbed-content",
@@ -312,8 +315,8 @@ def _build_root_preview_nodes(h1: Tag, content_root: Tag) -> list[Tag]:
         return nodes
 
     nodes.append(heading_clone)
-    remaining_chars = max(0, MAX_TOTAL_TEXT_CHARS - _preview_text_length(heading_clone))
-    remaining_blocks = BLOCK_LIMIT
+    remaining_chars = max(0, ROOT_MAX_TOTAL_TEXT_CHARS - _preview_text_length(heading_clone))
+    remaining_blocks = ROOT_BLOCK_LIMIT
 
     if title_container is not h1:
         inner_blocks, remaining_chars = _collect_preview_blocks(
@@ -327,7 +330,7 @@ def _build_root_preview_nodes(h1: Tag, content_root: Tag) -> list[Tag]:
         remaining_blocks -= len(inner_blocks)
 
     if remaining_blocks > 0:
-        outer_blocks, _ = _collect_preview_blocks(
+        outer_blocks, remaining_chars = _collect_preview_blocks(
             _iter_siblings_after(title_container),
             soup,
             stop_level=6,
@@ -335,46 +338,61 @@ def _build_root_preview_nodes(h1: Tag, content_root: Tag) -> list[Tag]:
             remaining_chars=remaining_chars,
         )
         nodes.extend(outer_blocks)
+        remaining_blocks -= len(outer_blocks)
 
-    return _append_first_section_fallback(
+    return _append_first_useful_section(
         nodes,
         content_root=content_root,
-        heading_selector="h2[id], h3[id], h4[id], h5[id], h6[id]",
+        soup=soup,
+        remaining_blocks=remaining_blocks,
+        remaining_chars=remaining_chars,
     )
 
 
 def _build_panel_root_preview_nodes(h1: Tag, panel: Tag) -> list[Tag]:
-    nodes = _build_preview_nodes(
+    soup = BeautifulSoup("", "html.parser")
+    nodes, remaining_blocks, remaining_chars = _build_preview_nodes(
         heading=h1,
         nodes=_iter_children(panel),
         stop_level=None,
-        soup=BeautifulSoup("", "html.parser"),
+        soup=soup,
+        max_blocks=ROOT_BLOCK_LIMIT,
+        max_total_text_chars=ROOT_MAX_TOTAL_TEXT_CHARS,
+        return_remaining_budget=True,
     )
-    return _append_first_section_fallback(
+    return _append_first_useful_section(
         nodes,
         content_root=panel,
-        heading_selector="h2[id], h3[id], h4[id], h5[id], h6[id]",
+        soup=soup,
+        remaining_blocks=remaining_blocks,
+        remaining_chars=remaining_chars,
     )
 
 
-def _append_first_section_fallback(
+def _append_first_useful_section(
     nodes: list[Tag],
     *,
     content_root: Tag,
-    heading_selector: str,
+    soup: BeautifulSoup,
+    remaining_blocks: int,
+    remaining_chars: int,
 ) -> list[Tag]:
-    if len(nodes) > 1:
+    if remaining_blocks <= 0 or remaining_chars <= 0:
         return nodes
 
-    first_section = content_root.select_one(heading_selector)
-    if first_section is None:
-        return nodes
-
-    section_nodes = _build_section_preview_nodes(first_section)
-    if not section_nodes:
-        return nodes
-
-    return [*nodes, *section_nodes]
+    for first_section in content_root.select("h2[id], h3[id], h4[id], h5[id], h6[id]"):
+        section_nodes = _build_preview_nodes(
+            heading=first_section,
+            nodes=_iter_siblings_after(first_section),
+            stop_level=_heading_level(first_section),
+            soup=soup,
+            max_blocks=remaining_blocks,
+            max_total_text_chars=remaining_chars,
+        )
+        if len(section_nodes) <= 1:
+            continue
+        return [*nodes, *section_nodes]
+    return nodes
 
 
 def _build_section_preview_html(heading: Tag) -> str:
@@ -387,6 +405,8 @@ def _build_section_preview_nodes(heading: Tag) -> list[Tag]:
         nodes=_iter_siblings_after(heading),
         stop_level=_heading_level(heading),
         soup=BeautifulSoup("", "html.parser"),
+        max_blocks=SECTION_BLOCK_LIMIT,
+        max_total_text_chars=SECTION_MAX_TOTAL_TEXT_CHARS,
     )
 
 
@@ -396,22 +416,34 @@ def _build_preview_nodes(
     nodes: Iterable[NavigableString | Tag],
     stop_level: int | None,
     soup: BeautifulSoup,
-) -> list[Tag]:
+    max_blocks: int,
+    max_total_text_chars: int,
+    return_remaining_budget: bool = False,
+) -> list[Tag] | tuple[list[Tag], int, int]:
     collected: list[Tag] = []
     heading_clone = _clone_tag_for_preview(heading)
     if heading_clone is None:
+        if return_remaining_budget:
+            return collected, max_blocks, max_total_text_chars
         return collected
 
     collected.append(heading_clone)
-    remaining_chars = max(0, MAX_TOTAL_TEXT_CHARS - _preview_text_length(heading_clone))
+    remaining_chars = max(0, max_total_text_chars - _preview_text_length(heading_clone))
     preview_blocks, _ = _collect_preview_blocks(
         nodes,
         soup,
         stop_level=stop_level,
-        max_blocks=BLOCK_LIMIT,
+        max_blocks=max_blocks,
         remaining_chars=remaining_chars,
     )
     collected.extend(preview_blocks)
+    remaining_blocks = max(0, max_blocks - len(preview_blocks))
+    remaining_chars = max(
+        0,
+        remaining_chars - sum(_preview_text_length(block) for block in preview_blocks),
+    )
+    if return_remaining_budget:
+        return collected, remaining_blocks, remaining_chars
     return collected
 
 
@@ -487,14 +519,14 @@ def _normalize_preview_blocks(node: Tag, soup: BeautifulSoup) -> list[Tag]:
 
     collected: list[Tag] = []
     for child in _iter_children(node):
-        if len(collected) >= BLOCK_LIMIT:
+        if len(collected) >= SECTION_BLOCK_LIMIT:
             break
         if isinstance(child, NavigableString):
             collected.extend(_normalize_text_node(child, soup))
         else:
             collected.extend(_normalize_preview_blocks(child, soup))
     if collected:
-        return collected[:BLOCK_LIMIT]
+        return collected[:SECTION_BLOCK_LIMIT]
 
     text_block = _render_text_block(node.get_text(" ", strip=True), soup)
     return [text_block] if text_block is not None else []
