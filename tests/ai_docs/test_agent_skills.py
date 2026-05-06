@@ -988,6 +988,14 @@ class TestBuildSkillWidgetHtml:
         )
         assert "/docs/ai/skills/my-skill.md" in html
 
+    def test_skill_widget_renders_warning_title(self):
+        plugin = _make_plugin(ai_page_actions_style="dropdown")
+        html = plugin._build_skill_widget_html(self.skill, site_url="")
+        assert 'title="⚠️ This feature is experimental and may have issues"' in html
+        assert "md-tooltip" not in html
+        assert "aria-describedby" not in html
+        assert "This feature is experimental and may have issues" in html
+
 
 # ---------------------------------------------------------------------------
 # TestOnPostPageBothWidgets

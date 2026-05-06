@@ -386,6 +386,33 @@ class TestGenerateDropdownHtmlStyle:
         )
         assert 'data-url="/page.md"' in result
 
+    def test_split_style_trigger_uses_default_title_when_trigger_title_empty(self):
+        """Split style keeps the historical 'More options' title by default."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md", filename="page.md", style="split", trigger_title=""
+        )
+        assert 'title="More options"' in result
+
+    def test_split_style_trigger_renders_escaped_custom_title(self):
+        """Split style renders a custom trigger_title and escapes it safely."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md",
+            filename="page.md",
+            style="split",
+            trigger_title='Experimental "skill" <beta>',
+        )
+        assert 'title="Experimental &quot;skill&quot; &lt;beta&gt;"' in result
+
+    def test_dropdown_style_trigger_renders_escaped_custom_title(self):
+        """Dropdown style renders a custom trigger_title and escapes it safely."""
+        result = self.utils.generate_dropdown_html(
+            url="/page.md",
+            filename="page.md",
+            style="dropdown",
+            trigger_title='Experimental "skill" <beta>',
+        )
+        assert 'title="Experimental &quot;skill&quot; &lt;beta&gt;"' in result
+
     def test_dropdown_style_exclude_still_works(self):
         """Excluded action IDs are not present in dropdown style output."""
         result = self.utils.generate_dropdown_html(
