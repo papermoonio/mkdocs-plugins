@@ -152,6 +152,7 @@ class AIDocsPlugin(BasePlugin):
             dropdown_label=self.config.get("ai_skills_dropdown_label", "Agent skill"),
             icon="terminal",
             trigger_title=SKILL_WARNING_TOOLTIP,
+            exclude=["open-chat-gpt", "open-claude"],
         )
 
     def _wrap_h1(
