@@ -38,6 +38,26 @@ def _wrap_document(content: str) -> str:
     )
 
 
+def _wrap_md_content_only(content: str) -> str:
+    return (
+        "<html><head></head><body>"
+        '<div class="md-content">'
+        f"{content}"
+        "</div>"
+        "</body></html>"
+    )
+
+
+def _wrap_main_only(content: str) -> str:
+    return (
+        "<html><head></head><body>"
+        "<main>"
+        f"{content}"
+        "</main>"
+        "</body></html>"
+    )
+
+
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
@@ -65,6 +85,7 @@ class TestInstantPreview:
         self.plugin = InstantPreviewPlugin()
         self.plugin.config = {
             "exclude_selectors": [],
+            "preserve_selectors": [],
             "link_scope_selectors": ["article"],
             "debug": False,
         }
@@ -104,6 +125,173 @@ class TestInstantPreview:
         assert "/guide/index.html" in manifest["entries"]
         assert "/guide/#guide" in manifest["entries"]
         assert manifest["scopes"] == ["article"]
+
+    def test_post_build_is_idempotent(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                "<p>Useful intro.</p>"
+                '<h2 id="details">Details</h2>'
+                "<p>Deep details.</p>"
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+        first_html = _read(guide_path)
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+        second_html = _read(guide_path)
+        soup = BeautifulSoup(second_html, "html.parser")
+
+        assert second_html == first_html
+        assert len(soup.select("script[data-instant-preview-manifest]")) == 1
+        assert len(soup.select("[data-instant-preview-data]")) == 1
+        manifest, templates = _preview_bundle(second_html)
+        assert len(templates) == len(
+            {
+                entry["template"]
+                for entry in manifest["entries"].values()
+            }
+        )
+
+    def test_preview_fragments_are_sanitized_and_inert(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide" data-page="guide">Guide'
+                '<a class="headerlink" href="#guide">¶</a>'
+                "</h1>"
+                '<p id="intro" data-track="x" aria-label="Intro" onclick="alert(1)">'
+                '<a href="../target/" data-track="link" aria-label="Target" onclick="alert(2)">'
+                "Target link"
+                "</a>"
+                "</p>"
+                '<button class="md-clipboard">Copy</button>'
+                '<form><input value="secret"/></form>'
+                '<script>alert(1)</script>'
+                '<style>.x{color:red}</style>'
+                '<h2 id="safe">Safe Section<a class="headerlink" href="#safe">¶</a></h2>'
+                '<p><img src="/image.png" alt="Diagram" data-extra="x"/></p>'
+                '<svg viewBox="0 0 24 24" onclick="alert(3)" data-icon="x">'
+                '<path d="M1 1h2v2z"></path>'
+                "</svg>"
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "Guide" in fragment
+        assert "Target link" in fragment
+        assert 'href="../target/"' in fragment
+        assert 'src="/image.png"' in fragment
+        assert 'alt="Diagram"' in fragment
+        assert "<svg" in fragment
+        assert "<path d=" in fragment
+        assert "headerlink" not in fragment
+        assert "<button" not in fragment
+        assert "<form" not in fragment
+        assert "<input" not in fragment
+        assert "<script" not in fragment
+        assert "<style" not in fragment
+        assert "onclick" not in fragment
+        assert "data-track" not in fragment
+        assert "data-extra" not in fragment
+        assert "data-icon" not in fragment
+        assert "aria-label" not in fragment
+        assert "id=" not in fragment
+
+    def test_public_defaults_and_selector_extensions_are_embedded(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="page-header-row">Default preserved metadata</div>'
+                '<div class="custom-preserve"><span class="custom-token">Custom kept</span></div>'
+                '<div class="custom-exclude">Custom removed</div>'
+                '<div class="md-source-file">Default removed</div>'
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.config["preserve_selectors"] = [".custom-preserve"]
+        self.plugin.config["exclude_selectors"] = [".custom-exclude"]
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        html = _read(guide_path)
+        root_fragment = _preview_fragment(html, "/guide/")
+        manifest, _ = _preview_bundle(html)
+
+        assert manifest["scopes"] == ["article"]
+        assert "page-header-row" in root_fragment
+        assert "Default preserved metadata" in root_fragment
+        assert "custom-preserve" in root_fragment
+        assert "custom-token" in root_fragment
+        assert "Custom kept" in root_fragment
+        assert "custom-exclude" not in root_fragment
+        assert "Custom removed" not in root_fragment
+        assert "md-source-file" not in root_fragment
+        assert "Default removed" not in root_fragment
+
+    def test_manifest_runtime_contract_uses_clean_keys_and_deduplicated_templates(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        flat_path = tmp_path / "flat.html"
+        page_html = _wrap_document(
+            '<h1 id="guide">Guide</h1>'
+            "<p>Useful intro.</p>"
+            '<h2 id="details">Details</h2>'
+            "<p>Deep details.</p>"
+        )
+        guide_path.write_text(page_html, encoding="utf-8")
+        flat_path.write_text(page_html, encoding="utf-8")
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        nested_html = _read(guide_path)
+        flat_html = _read(flat_path)
+        nested_manifest, nested_templates = _preview_bundle(nested_html)
+        flat_manifest, _ = _preview_bundle(flat_html)
+        nested_source = BeautifulSoup(nested_html, "html.parser").decode()
+
+        assert nested_manifest["version"] == 1
+        assert nested_manifest["page"] == "/guide/"
+        assert "/guide/" in nested_manifest["entries"]
+        assert "/guide/index.html" in nested_manifest["entries"]
+        assert "/guide/#guide" in nested_manifest["entries"]
+        assert "/guide/index.html#guide" in nested_manifest["entries"]
+        assert "/guide/#details" in nested_manifest["entries"]
+        assert "/guide/index.html#details" in nested_manifest["entries"]
+        assert flat_manifest["page"] == "/flat/"
+        assert "/flat/" in flat_manifest["entries"]
+        assert "/flat.html" in flat_manifest["entries"]
+        assert "/flat/#details" in flat_manifest["entries"]
+        assert "/flat.html#details" in flat_manifest["entries"]
+        assert (
+            nested_manifest["entries"]["/guide/"]["template"]
+            == nested_manifest["entries"]["/guide/#guide"]["template"]
+        )
+        assert len(nested_templates) == len(
+            {
+                entry["template"]
+                for entry in nested_manifest["entries"].values()
+            }
+        )
+        assert "data-preview" not in nested_source
+        assert "__instant-preview__" not in nested_source
+        assert "navigation.instant" not in nested_source
 
     def test_root_preview_includes_first_useful_section_when_it_exists(self, tmp_path):
         guide_dir = tmp_path / "guide"
@@ -262,6 +450,110 @@ class TestInstantPreview:
         assert "Introduction" in root_fragment
         assert "Useful intro." in root_fragment
 
+    def test_preserve_selectors_extend_preview_safe_markup(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="custom-summary">'
+                '<span class="custom-badge">Custom Badge</span>'
+                '<p>Custom summary.</p>'
+                "</div>"
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+        default_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "custom-summary" not in default_fragment
+        assert "custom-badge" not in default_fragment
+        assert "Custom Badge" in default_fragment
+
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="custom-summary">'
+                '<span class="custom-badge">Custom Badge</span>'
+                '<p>Custom summary.</p>'
+                "</div>"
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+            ),
+            encoding="utf-8",
+        )
+        self.plugin.config["preserve_selectors"] = [".custom-summary"]
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+        preserved_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "custom-summary" in preserved_fragment
+        assert "custom-badge" in preserved_fragment
+        assert "Custom Badge" in preserved_fragment
+
+    def test_long_prelude_does_not_remove_first_section_from_root(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        long_sentence = " ".join(["Prelude content"] * 120)
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="button-wrapper">'
+                '<a class="md-button" href="/foo/">Primary CTA</a>'
+                "</div>"
+                '<aside class="admonition warning">'
+                '<p class="admonition-title">Warning</p>'
+                "<p>Important warning.</p>"
+                "</aside>"
+                f"<p>{long_sentence}</p>"
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro that must stay visible.</p>'
+                '<h2 id="details">Details</h2>'
+                '<p>Deep details.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        root_fragment = _preview_fragment(_read(guide_path), "/guide/")
+
+        assert "button-wrapper" in root_fragment
+        assert "Important warning." in root_fragment
+        assert "Prelude content" in root_fragment
+        assert "Introduction" in root_fragment
+        assert "Useful intro that must stay visible." in root_fragment
+        assert "Details" not in root_fragment
+
+    def test_section_preview_keeps_short_budget_separate_from_root(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        section_blocks = "".join(
+            f"<p>Section paragraph {index}.</p>" for index in range(1, 9)
+        )
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                "<p>Useful intro.</p>"
+                '<h2 id="advanced">Advanced</h2>'
+                f"{section_blocks}"
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        section_fragment = _preview_fragment(_read(guide_path), "/guide/#advanced")
+
+        assert "Advanced" in section_fragment
+        assert "Section paragraph 6." in section_fragment
+        assert "Section paragraph 7." not in section_fragment
+
     def test_normalizes_complex_blocks_into_preview_safe_markup(self, tmp_path):
         guide_dir = tmp_path / "guide"
         guide_dir.mkdir()
@@ -328,6 +620,49 @@ class TestInstantPreview:
         assert 'src="/images/diagram.webp"' in fragment
         assert "glightbox" not in fragment
         assert "md-source-file" not in fragment
+
+    def test_normalizes_termynal_details_and_preserves_tabbed_blocks(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                "<p>Overview.</p>"
+                '<h2 id="advanced">Advanced</h2>'
+                '<div data-termynal>'
+                + "".join(
+                    f'<span data-ty="input">command-{index}</span>'
+                    for index in range(1, 12)
+                )
+                + "</div>"
+                "<details>"
+                "<summary>More context</summary>"
+                "<p>Hidden detail.</p>"
+                "</details>"
+                '<div class="tabbed-set">'
+                '<input type="radio" name="tab" checked/>'
+                '<label for="tab">EVM</label>'
+                '<div class="tabbed-content"><p>Tabbed content.</p></div>'
+                "</div>"
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        fragment = _preview_fragment(_read(guide_path), "/guide/#advanced")
+
+        assert "<pre><code" in fragment
+        assert "command-10" in fragment
+        assert "command-11" not in fragment
+        assert "data-termynal" not in fragment
+        assert "More context" in fragment
+        assert "Hidden detail." in fragment
+        assert "<details" not in fragment
+        assert "tabbed-set" in fragment
+        assert "tabbed-content" in fragment
+        assert "Tabbed content." in fragment
 
     def test_keeps_links_clean_and_handles_ai_actions_wrapper(self, tmp_path):
         guide_dir = tmp_path / "guide"
@@ -461,6 +796,7 @@ class TestInstantPreview:
         self.plugin.on_post_build({"site_dir": str(tmp_path)})
 
         html = _read(canonical_path)
+        manifest, _ = _preview_bundle(html)
         root_fragment = _preview_fragment(html, "/quickstart/")
         vue_root_fragment = _preview_fragment(html, "/quickstart/#vue")
         install_fragment = _preview_fragment(html, "/quickstart/#install")
@@ -475,6 +811,17 @@ class TestInstantPreview:
         assert "react-11" not in root_fragment
         assert "Vue intro." in vue_root_fragment
         assert "status-badge" in vue_root_fragment
+        assert "/quickstart/index.html" in manifest["entries"]
+        assert "/quickstart/#quickstart" in manifest["entries"]
+        assert "/quickstart/index.html#quickstart" in manifest["entries"]
+        assert "/quickstart/#vue" in manifest["entries"]
+        assert "/quickstart/index.html#vue" in manifest["entries"]
+        assert "/quickstart/#vue-install" in manifest["entries"]
+        assert "/quickstart/index.html#vue-install" in manifest["entries"]
+        assert (
+            manifest["entries"]["/quickstart/"]["template"]
+            == manifest["entries"]["/quickstart/#quickstart"]["template"]
+        )
         assert "Step: Install; Command: pnpm install" in install_fragment
         assert "Step: Run; Command: pnpm dev:vue" in vue_install_fragment
         assert "<table" not in install_fragment
@@ -547,7 +894,7 @@ class TestInstantPreview:
         assert "Introduction" in pvm_fragment
         assert "PVM intro." in pvm_fragment
 
-    def test_toggle_root_metadata_does_not_block_first_section_fallback(self, tmp_path):
+    def test_toggle_root_prelude_does_not_block_first_section(self, tmp_path):
         local_dir = tmp_path / "local-dev-node"
         local_dir.mkdir()
         canonical_path = local_dir / "index.html"
@@ -581,6 +928,7 @@ class TestInstantPreview:
             '<img src="/badge.svg" alt="passing"/>'
             "</a>"
             "</div>"
+            f"<p>{' '.join(['Stable prelude'] * 120)}</p>"
             '<h2 id="introduction">Introduction</h2>'
             '<p>Stable intro.</p>'
             '<h2 id="details">Details</h2>'
@@ -598,6 +946,7 @@ class TestInstantPreview:
             '<img src="/badge-next.svg" alt="passing"/>'
             "</a>"
             "</div>"
+            f"<p>{' '.join(['Next prelude'] * 120)}</p>"
             '<h2 id="introduction">Introduction</h2>'
             '<p>Next intro.</p>'
             '<h2 id="details">Details</h2>'
@@ -618,10 +967,12 @@ class TestInstantPreview:
         assert "Local Development Node" in root_fragment
         assert "page-header-row" in root_fragment
         assert "/badge.svg" in root_fragment
+        assert "Stable prelude" in root_fragment
         assert "Introduction" in root_fragment
         assert "Stable intro." in root_fragment
         assert "Details" not in root_fragment
         assert "/badge-next.svg" in next_fragment
+        assert "Next prelude" in next_fragment
         assert "Introduction" in next_fragment
         assert "Next intro." in next_fragment
 
@@ -646,3 +997,58 @@ class TestInstantPreview:
         assert "/guide.html" in manifest["entries"]
         assert "/guide/#details" in manifest["entries"]
         assert "/guide.html#details" in manifest["entries"]
+
+    def test_content_root_prefers_article_then_md_content_then_main(self, tmp_path):
+        article_path = tmp_path / "article.html"
+        md_content_path = tmp_path / "md-content.html"
+        main_path = tmp_path / "main.html"
+        no_root_path = tmp_path / "no-root.html"
+        article_path.write_text(
+            "<html><body>"
+            '<main><h1 id="main-title">Wrong Main</h1><p>Main text.</p></main>'
+            '<div class="md-content">'
+            "<article>"
+            '<h1 id="article-title">Article Title</h1>'
+            "<p>Article text.</p>"
+            "</article>"
+            "</div>"
+            "</body></html>",
+            encoding="utf-8",
+        )
+        md_content_path.write_text(
+            _wrap_md_content_only(
+                '<h1 id="md-content-title">MD Content Title</h1>'
+                "<p>MD content text.</p>"
+            ),
+            encoding="utf-8",
+        )
+        main_path.write_text(
+            _wrap_main_only(
+                '<h1 id="main-title">Main Title</h1>'
+                "<p>Main text.</p>"
+            ),
+            encoding="utf-8",
+        )
+        no_root_path.write_text(
+            "<html><body>"
+            '<section><h1 id="ignored">Ignored</h1><p>No root.</p></section>'
+            "</body></html>",
+            encoding="utf-8",
+        )
+
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        article_fragment = _preview_fragment(_read(article_path), "/article/")
+        md_content_fragment = _preview_fragment(_read(md_content_path), "/md-content/")
+        main_fragment = _preview_fragment(_read(main_path), "/main/")
+        no_root_soup = BeautifulSoup(_read(no_root_path), "html.parser")
+
+        assert "Article Title" in article_fragment
+        assert "Article text." in article_fragment
+        assert "Wrong Main" not in article_fragment
+        assert "MD Content Title" in md_content_fragment
+        assert "MD content text." in md_content_fragment
+        assert "Main Title" in main_fragment
+        assert "Main text." in main_fragment
+        assert no_root_soup.select_one("script[data-instant-preview-manifest]") is None
+        assert no_root_soup.select_one("[data-instant-preview-data]") is None
