@@ -29,6 +29,7 @@ MANIFEST_ATTR = "data-instant-preview-manifest"
 TEMPLATE_ATTR = "data-instant-preview-template"
 EXCLUDE_ATTR = "data-instant-preview-exclude"
 PRESERVE_ATTR = "data-instant-preview-preserve"
+LINK_SCOPE_SELECTORS = ("article",)
 ROOT_PRELUDE_BLOCK_LIMIT = 5
 ROOT_PRELUDE_MAX_TEXT_CHARS = 1000
 ROOT_FIRST_SECTION_BLOCK_LIMIT = 5
@@ -148,7 +149,6 @@ def process_page_html(
     output_path: str,
     exclude_selectors: list[str],
     preserve_selectors: list[str],
-    link_scope_selectors: list[str],
 ) -> str:
     soup = BeautifulSoup(html, "html.parser")
     _remove_existing_preview_bundle(soup)
@@ -173,7 +173,6 @@ def process_page_html(
         _inject_preview_bundle(
             soup,
             output_path=output_path,
-            link_scope_selectors=link_scope_selectors,
             entries=entries,
         )
 
@@ -1029,7 +1028,6 @@ def _inject_preview_bundle(
     soup: BeautifulSoup,
     *,
     output_path: str,
-    link_scope_selectors: list[str],
     entries: dict[str, str],
 ) -> None:
     body = soup.body or soup
@@ -1040,7 +1038,7 @@ def _inject_preview_bundle(
     manifest = {
         "version": 1,
         "page": _canonical_page_key(output_path),
-        "scopes": link_scope_selectors,
+        "scopes": list(LINK_SCOPE_SELECTORS),
         "entries": {},
     }
 

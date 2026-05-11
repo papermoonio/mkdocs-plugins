@@ -86,8 +86,6 @@ class TestInstantPreview:
         self.plugin.config = {
             "exclude_selectors": [],
             "preserve_selectors": [],
-            "link_scope_selectors": ["article"],
-            "debug": False,
         }
 
     def test_builds_manifest_templates_for_standard_page(self, tmp_path):

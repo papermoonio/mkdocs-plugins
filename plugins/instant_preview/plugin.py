@@ -13,8 +13,6 @@ class InstantPreviewPlugin(BasePlugin):
     config_scheme = (
         ("exclude_selectors", Type(list, default=[])),
         ("preserve_selectors", Type(list, default=[])),
-        ("link_scope_selectors", Type(list, default=["article"])),
-        ("debug", Type(bool, default=False)),
     )
 
     @event_priority(-100)
@@ -29,9 +27,6 @@ class InstantPreviewPlugin(BasePlugin):
                 output_path=output_path,
                 exclude_selectors=list(self.config.get("exclude_selectors", [])),
                 preserve_selectors=list(self.config.get("preserve_selectors", [])),
-                link_scope_selectors=list(
-                    self.config.get("link_scope_selectors", ["article"])
-                ),
             )
             if processed_html != original_html:
                 html_path.write_text(processed_html, encoding="utf-8")
