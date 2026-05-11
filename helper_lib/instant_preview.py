@@ -15,12 +15,25 @@ DEFAULT_EXCLUDE_SELECTORS = (
     ".md-source-file",
     ".toggle-buttons",
 )
+DEFAULT_PRESERVE_SELECTORS = (
+    ".admonition",
+    ".button-wrapper",
+    ".page-header-row",
+    ".status-badge",
+    ".tabbed-content",
+    ".tabbed-labels",
+    ".tabbed-set",
+)
 DATA_ATTR = "data-instant-preview-data"
 MANIFEST_ATTR = "data-instant-preview-manifest"
 TEMPLATE_ATTR = "data-instant-preview-template"
 EXCLUDE_ATTR = "data-instant-preview-exclude"
-ROOT_BLOCK_LIMIT = 10
-ROOT_MAX_TOTAL_TEXT_CHARS = 2400
+PRESERVE_ATTR = "data-instant-preview-preserve"
+ROOT_PRELUDE_BLOCK_LIMIT = 5
+ROOT_PRELUDE_MAX_TEXT_CHARS = 1000
+ROOT_FIRST_SECTION_BLOCK_LIMIT = 5
+ROOT_FIRST_SECTION_MAX_TEXT_CHARS = 1300
+ROOT_TOTAL_MAX_TEXT_CHARS = 2600
 SECTION_BLOCK_LIMIT = 6
 SECTION_MAX_TOTAL_TEXT_CHARS = 1400
 MAX_CODE_LINES = 10
@@ -134,6 +147,7 @@ def process_page_html(
     *,
     output_path: str,
     exclude_selectors: list[str],
+    preserve_selectors: list[str],
     link_scope_selectors: list[str],
 ) -> str:
     soup = BeautifulSoup(html, "html.parser")
@@ -147,8 +161,13 @@ def process_page_html(
         content_root,
         [*DEFAULT_EXCLUDE_SELECTORS, *exclude_selectors],
     )
+    preserved_nodes = _mark_preview_preserved(
+        content_root,
+        [*DEFAULT_PRESERVE_SELECTORS, *preserve_selectors],
+    )
     entries = _extract_preview_entries(content_root, output_path=output_path)
     _clear_preview_excluded(marked_nodes)
+    _clear_preview_preserved(preserved_nodes)
 
     if entries:
         _inject_preview_bundle(
@@ -187,9 +206,27 @@ def _mark_preview_excluded(root: Tag, selectors: list[str]) -> list[Tag]:
     return marked
 
 
+def _mark_preview_preserved(root: Tag, selectors: list[str]) -> list[Tag]:
+    marked: list[Tag] = []
+    for selector in selectors:
+        if not selector:
+            continue
+        for node in root.select(selector):
+            if node.has_attr(PRESERVE_ATTR):
+                continue
+            node[PRESERVE_ATTR] = ""
+            marked.append(node)
+    return marked
+
+
 def _clear_preview_excluded(nodes: Iterable[Tag]) -> None:
     for node in nodes:
         node.attrs.pop(EXCLUDE_ATTR, None)
+
+
+def _clear_preview_preserved(nodes: Iterable[Tag]) -> None:
+    for node in nodes:
+        node.attrs.pop(PRESERVE_ATTR, None)
 
 
 def _extract_preview_entries(content_root: Tag, *, output_path: str) -> dict[str, str]:
@@ -285,6 +322,8 @@ def _extract_toggle_entries(
 
         root_key = page_key if is_canonical else _build_hash_key(page_key, variant)
         _register_entry(entries, root_key, root_html)
+        if is_canonical:
+            _register_aliases(entries, page_aliases, root_html)
         if not is_canonical:
             _register_aliases_with_hash(entries, page_aliases, variant, root_html)
         root_heading_id = h1.get("id")
@@ -315,57 +354,54 @@ def _build_root_preview_nodes(h1: Tag, content_root: Tag) -> list[Tag]:
         return nodes
 
     nodes.append(heading_clone)
-    remaining_chars = max(0, ROOT_MAX_TOTAL_TEXT_CHARS - _preview_text_length(heading_clone))
-    remaining_blocks = ROOT_BLOCK_LIMIT
+    prelude_chars = _root_phase_budget(
+        ROOT_PRELUDE_MAX_TEXT_CHARS,
+        nodes,
+    )
+    remaining_prelude_blocks = ROOT_PRELUDE_BLOCK_LIMIT
 
     if title_container is not h1:
-        inner_blocks, remaining_chars = _collect_preview_blocks(
+        inner_blocks, prelude_chars = _collect_preview_blocks(
             _iter_siblings_after(h1),
             soup,
             stop_level=6,
-            max_blocks=remaining_blocks,
-            remaining_chars=remaining_chars,
+            max_blocks=remaining_prelude_blocks,
+            remaining_chars=prelude_chars,
         )
         nodes.extend(inner_blocks)
-        remaining_blocks -= len(inner_blocks)
+        remaining_prelude_blocks -= len(inner_blocks)
 
-    if remaining_blocks > 0:
-        outer_blocks, remaining_chars = _collect_preview_blocks(
+    if remaining_prelude_blocks > 0:
+        outer_blocks, _ = _collect_preview_blocks(
             _iter_siblings_after(title_container),
             soup,
             stop_level=6,
-            max_blocks=remaining_blocks,
-            remaining_chars=remaining_chars,
+            max_blocks=remaining_prelude_blocks,
+            remaining_chars=prelude_chars,
         )
         nodes.extend(outer_blocks)
-        remaining_blocks -= len(outer_blocks)
 
     return _append_first_useful_section(
         nodes,
         content_root=content_root,
         soup=soup,
-        remaining_blocks=remaining_blocks,
-        remaining_chars=remaining_chars,
     )
 
 
 def _build_panel_root_preview_nodes(h1: Tag, panel: Tag) -> list[Tag]:
     soup = BeautifulSoup("", "html.parser")
-    nodes, remaining_blocks, remaining_chars = _build_preview_nodes(
+    nodes = _build_preview_nodes(
         heading=h1,
         nodes=_iter_children(panel),
         stop_level=None,
         soup=soup,
-        max_blocks=ROOT_BLOCK_LIMIT,
-        max_total_text_chars=ROOT_MAX_TOTAL_TEXT_CHARS,
-        return_remaining_budget=True,
+        max_blocks=ROOT_PRELUDE_BLOCK_LIMIT,
+        max_total_text_chars=ROOT_PRELUDE_MAX_TEXT_CHARS,
     )
     return _append_first_useful_section(
         nodes,
         content_root=panel,
         soup=soup,
-        remaining_blocks=remaining_blocks,
-        remaining_chars=remaining_chars,
     )
 
 
@@ -374,10 +410,12 @@ def _append_first_useful_section(
     *,
     content_root: Tag,
     soup: BeautifulSoup,
-    remaining_blocks: int,
-    remaining_chars: int,
 ) -> list[Tag]:
-    if remaining_blocks <= 0 or remaining_chars <= 0:
+    section_chars = _root_phase_budget(
+        ROOT_FIRST_SECTION_MAX_TEXT_CHARS,
+        nodes,
+    )
+    if section_chars <= 0:
         return nodes
 
     for first_section in content_root.select("h2[id], h3[id], h4[id], h5[id], h6[id]"):
@@ -386,13 +424,19 @@ def _append_first_useful_section(
             nodes=_iter_siblings_after(first_section),
             stop_level=_heading_level(first_section),
             soup=soup,
-            max_blocks=remaining_blocks,
-            max_total_text_chars=remaining_chars,
+            max_blocks=ROOT_FIRST_SECTION_BLOCK_LIMIT,
+            max_total_text_chars=section_chars,
         )
         if len(section_nodes) <= 1:
             continue
         return [*nodes, *section_nodes]
     return nodes
+
+
+def _root_phase_budget(phase_limit: int, nodes: list[Tag]) -> int:
+    used_chars = sum(_preview_text_length(node) for node in nodes)
+    total_remaining = max(0, ROOT_TOTAL_MAX_TEXT_CHARS - used_chars)
+    return min(phase_limit, total_remaining)
 
 
 def _build_section_preview_html(heading: Tag) -> str:
@@ -418,13 +462,10 @@ def _build_preview_nodes(
     soup: BeautifulSoup,
     max_blocks: int,
     max_total_text_chars: int,
-    return_remaining_budget: bool = False,
-) -> list[Tag] | tuple[list[Tag], int, int]:
+) -> list[Tag]:
     collected: list[Tag] = []
     heading_clone = _clone_tag_for_preview(heading)
     if heading_clone is None:
-        if return_remaining_budget:
-            return collected, max_blocks, max_total_text_chars
         return collected
 
     collected.append(heading_clone)
@@ -437,13 +478,6 @@ def _build_preview_nodes(
         remaining_chars=remaining_chars,
     )
     collected.extend(preview_blocks)
-    remaining_blocks = max(0, max_blocks - len(preview_blocks))
-    remaining_chars = max(
-        0,
-        remaining_chars - sum(_preview_text_length(block) for block in preview_blocks),
-    )
-    if return_remaining_budget:
-        return collected, remaining_blocks, remaining_chars
     return collected
 
 
@@ -489,9 +523,14 @@ def _normalize_text_node(text: NavigableString, soup: BeautifulSoup) -> list[Tag
 
 
 def _normalize_preview_blocks(node: Tag, soup: BeautifulSoup) -> list[Tag]:
-    if node.has_attr(EXCLUDE_ATTR) or node.name in SKIP_TAG_NAMES:
+    if node.has_attr(EXCLUDE_ATTR):
         return []
     if _has_blocked_class(node):
+        return []
+    if node.has_attr(PRESERVE_ATTR):
+        clone = _clone_tag_for_preview(node)
+        return [clone] if clone is not None else []
+    if node.name in SKIP_TAG_NAMES:
         return []
     if _is_code_container(node):
         block = _build_code_block(node, soup)
@@ -864,12 +903,16 @@ def _should_clone_block(node: Tag) -> bool:
     classes = set(node.get("class", []))
     if PRESERVE_BLOCK_CLASS_NAMES.intersection(classes):
         return True
+    if node.name in SVG_TAG_NAMES:
+        return True
     if node.name in {"aside", "section"}:
         return True
     return False
 
 
 def _has_blocked_class(node: Tag) -> bool:
+    if node.attrs is None:
+        return False
     return bool(BLOCKED_CLASS_NAMES.intersection(node.get("class", [])))
 
 

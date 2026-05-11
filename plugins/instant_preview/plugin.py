@@ -12,6 +12,7 @@ from helper_lib.instant_preview import list_html_files, process_page_html
 class InstantPreviewPlugin(BasePlugin):
     config_scheme = (
         ("exclude_selectors", Type(list, default=[])),
+        ("preserve_selectors", Type(list, default=[])),
         ("link_scope_selectors", Type(list, default=["article"])),
         ("debug", Type(bool, default=False)),
     )
@@ -27,6 +28,7 @@ class InstantPreviewPlugin(BasePlugin):
                 original_html,
                 output_path=output_path,
                 exclude_selectors=list(self.config.get("exclude_selectors", [])),
+                preserve_selectors=list(self.config.get("preserve_selectors", [])),
                 link_scope_selectors=list(
                     self.config.get("link_scope_selectors", ["article"])
                 ),
