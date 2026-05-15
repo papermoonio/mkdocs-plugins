@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Iterable
 
 from bs4 import BeautifulSoup, NavigableString, Tag
+from mkdocs.utils import log
+from soupsieve.util import SelectorSyntaxError
 
 HEADING_NAMES = {f"h{level}" for level in range(1, 7)}
 DEFAULT_EXCLUDE_SELECTORS = (
@@ -64,6 +66,7 @@ PRESERVE_BLOCK_CLASS_NAMES = {
 SKIP_TAG_NAMES = {
     "button",
     "form",
+    "input",
     "nav",
     "script",
     "select",
@@ -78,7 +81,6 @@ KEEP_ATTR_NAMES = {
     "for",
     "height",
     "href",
-    "id",
     "lang",
     "name",
     "open",
@@ -137,6 +139,9 @@ SVG_TAG_NAMES = {
     "symbol",
     "use",
 }
+URL_SCHEME_RE = re.compile(r"^([a-zA-Z][a-zA-Z0-9+.-]*):")
+SAFE_HREF_SCHEMES = {"http", "https", "mailto", "tel"}
+SAFE_SRC_SCHEMES = {"http", "https"}
 
 
 def list_html_files(site_dir: Path) -> list[Path]:
@@ -180,11 +185,7 @@ def process_page_html(
 
 
 def _find_content_root(soup: BeautifulSoup) -> Tag | None:
-    return (
-        soup.select_one("article")
-        or soup.select_one(".md-content")
-        or soup.select_one("main")
-    )
+    return soup.select_one("article")
 
 
 def _remove_existing_preview_bundle(soup: BeautifulSoup) -> None:
@@ -193,27 +194,29 @@ def _remove_existing_preview_bundle(soup: BeautifulSoup) -> None:
 
 
 def _mark_preview_excluded(root: Tag, selectors: list[str]) -> list[Tag]:
-    marked: list[Tag] = []
-    for selector in selectors:
-        if not selector:
-            continue
-        for node in root.select(selector):
-            if node.has_attr(EXCLUDE_ATTR):
-                continue
-            node[EXCLUDE_ATTR] = ""
-            marked.append(node)
-    return marked
+    return _mark_preview_nodes(root, selectors, EXCLUDE_ATTR)
 
 
 def _mark_preview_preserved(root: Tag, selectors: list[str]) -> list[Tag]:
+    return _mark_preview_nodes(root, selectors, PRESERVE_ATTR)
+
+
+def _mark_preview_nodes(root: Tag, selectors: list[str], attr_name: str) -> list[Tag]:
     marked: list[Tag] = []
     for selector in selectors:
         if not selector:
             continue
-        for node in root.select(selector):
-            if node.has_attr(PRESERVE_ATTR):
+        try:
+            nodes = root.select(selector)
+        except SelectorSyntaxError as exc:
+            log.warning(
+                f"[instant_preview] invalid selector {selector!r}; skipping ({exc})"
+            )
+            continue
+        for node in nodes:
+            if node.has_attr(attr_name):
                 continue
-            node[PRESERVE_ATTR] = ""
+            node[attr_name] = ""
             marked.append(node)
     return marked
 
@@ -620,6 +623,8 @@ def _clone_tag_for_preview(node: Tag) -> Tag | None:
                 continue
             if key.startswith("on") or key.startswith("data-") or key.startswith("aria-"):
                 continue
+            if key in {"href", "src"} and not _is_safe_url_attr(key, value):
+                continue
             if key in allowed_attr_names:
                 attrs[key] = value
         element.attrs = attrs
@@ -664,6 +669,27 @@ def _fit_block_to_budget(
 
 def _preview_text_length(node: Tag) -> int:
     return len(_collapse_whitespace(node.get_text(" ", strip=True)))
+
+
+def _is_safe_url_attr(attr_name: str, value: object) -> bool:
+    scheme = _extract_url_scheme(value)
+    if scheme is None:
+        return True
+    if attr_name == "href":
+        return scheme in SAFE_HREF_SCHEMES
+    if attr_name == "src":
+        return scheme in SAFE_SRC_SCHEMES
+    return False
+
+
+def _extract_url_scheme(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    compact_value = re.sub(r"[\x00-\x20]+", "", value).lower()
+    match = URL_SCHEME_RE.match(compact_value)
+    if match is None:
+        return None
+    return match.group(1)
 
 
 def _is_code_container(node: Tag) -> bool:
@@ -892,6 +918,7 @@ def _build_image_block(node: Tag) -> Tag | None:
         key: value
         for key, value in clone.attrs.items()
         if key in {"alt", "height", "src", "title", "width"}
+        and (key != "src" or _is_safe_url_attr(key, value))
     }
     if not clone.get("src"):
         return None

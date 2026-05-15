@@ -169,12 +169,26 @@ class TestInstantPreview:
                 "Target link"
                 "</a>"
                 "</p>"
+                '<p>'
+                '<a href=" javascript:alert(1)">Bad JavaScript link</a>'
+                '<a href="JaVaScRiPt:alert(2)">Bad mixed-case link</a>'
+                '<a href="data:text/html,evil">Bad data link</a>'
+                '<a href="https://example.com/safe">Safe HTTPS link</a>'
+                '<a href="mailto:support@example.com">Safe mail link</a>'
+                '<a href="tel:+123456789">Safe phone link</a>'
+                '<a href="#safe">Safe hash link</a>'
+                "</p>"
                 '<button class="md-clipboard">Copy</button>'
                 '<form><input value="secret"/></form>'
                 '<script>alert(1)</script>'
                 '<style>.x{color:red}</style>'
                 '<h2 id="safe">Safe Section<a class="headerlink" href="#safe">¶</a></h2>'
-                '<p><img src="/image.png" alt="Diagram" data-extra="x"/></p>'
+                '<p>'
+                '<img src="/image.png" alt="Diagram" data-extra="x"/>'
+                '<img src="https://example.com/image.png" alt="Remote diagram"/>'
+                '<img src="javascript:alert(3)" alt="Bad JavaScript image"/>'
+                '<img src="data:image/svg+xml,evil" alt="Bad data image"/>'
+                "</p>"
                 '<svg viewBox="0 0 24 24" onclick="alert(3)" data-icon="x">'
                 '<path d="M1 1h2v2z"></path>'
                 "</svg>"
@@ -189,10 +203,18 @@ class TestInstantPreview:
         assert "Guide" in fragment
         assert "Target link" in fragment
         assert 'href="../target/"' in fragment
+        assert 'href="https://example.com/safe"' in fragment
+        assert 'href="mailto:support@example.com"' in fragment
+        assert 'href="tel:+123456789"' in fragment
+        assert 'href="#safe"' in fragment
         assert 'src="/image.png"' in fragment
+        assert 'src="https://example.com/image.png"' in fragment
         assert 'alt="Diagram"' in fragment
         assert "<svg" in fragment
         assert "<path d=" in fragment
+        assert "javascript:" not in fragment.lower()
+        assert "data:text/html" not in fragment
+        assert "data:image" not in fragment
         assert "headerlink" not in fragment
         assert "<button" not in fragment
         assert "<form" not in fragment
@@ -241,6 +263,37 @@ class TestInstantPreview:
         assert "Custom removed" not in root_fragment
         assert "md-source-file" not in root_fragment
         assert "Default removed" not in root_fragment
+
+    def test_invalid_custom_selectors_do_not_abort_build(self, tmp_path):
+        guide_dir = tmp_path / "guide"
+        guide_dir.mkdir()
+        guide_path = guide_dir / "index.html"
+        guide_path.write_text(
+            _wrap_document(
+                '<h1 id="guide">Guide</h1>'
+                '<div class="custom-exclude">Custom removed.</div>'
+                '<div class="custom-preserve"><span class="custom-token">Custom kept.</span></div>'
+                '<h2 id="intro">Introduction</h2>'
+                '<p>Useful intro.</p>'
+            ),
+            encoding="utf-8",
+        )
+
+        self.plugin.config["exclude_selectors"] = ["[", ".custom-exclude"]
+        self.plugin.config["preserve_selectors"] = ["]", ".custom-preserve"]
+        self.plugin.on_post_build({"site_dir": str(tmp_path)})
+
+        html = _read(guide_path)
+        root_fragment = _preview_fragment(html, "/guide/")
+        manifest, _ = _preview_bundle(html)
+
+        assert manifest["scopes"] == ["article"]
+        assert "Guide" in root_fragment
+        assert "Useful intro." in root_fragment
+        assert "custom-preserve" in root_fragment
+        assert "Custom kept." in root_fragment
+        assert "custom-exclude" not in root_fragment
+        assert "Custom removed." not in root_fragment
 
     def test_manifest_runtime_contract_uses_clean_keys_and_deduplicated_templates(self, tmp_path):
         guide_dir = tmp_path / "guide"
@@ -661,6 +714,8 @@ class TestInstantPreview:
         assert "tabbed-set" in fragment
         assert "tabbed-content" in fragment
         assert "Tabbed content." in fragment
+        assert "<input" not in fragment
+        assert 'name="tab"' not in fragment
 
     def test_keeps_links_clean_and_handles_ai_actions_wrapper(self, tmp_path):
         guide_dir = tmp_path / "guide"
@@ -996,7 +1051,7 @@ class TestInstantPreview:
         assert "/guide/#details" in manifest["entries"]
         assert "/guide.html#details" in manifest["entries"]
 
-    def test_content_root_prefers_article_then_md_content_then_main(self, tmp_path):
+    def test_content_root_requires_article(self, tmp_path):
         article_path = tmp_path / "article.html"
         md_content_path = tmp_path / "md-content.html"
         main_path = tmp_path / "main.html"
@@ -1037,16 +1092,16 @@ class TestInstantPreview:
         self.plugin.on_post_build({"site_dir": str(tmp_path)})
 
         article_fragment = _preview_fragment(_read(article_path), "/article/")
-        md_content_fragment = _preview_fragment(_read(md_content_path), "/md-content/")
-        main_fragment = _preview_fragment(_read(main_path), "/main/")
+        md_content_soup = BeautifulSoup(_read(md_content_path), "html.parser")
+        main_soup = BeautifulSoup(_read(main_path), "html.parser")
         no_root_soup = BeautifulSoup(_read(no_root_path), "html.parser")
 
         assert "Article Title" in article_fragment
         assert "Article text." in article_fragment
         assert "Wrong Main" not in article_fragment
-        assert "MD Content Title" in md_content_fragment
-        assert "MD content text." in md_content_fragment
-        assert "Main Title" in main_fragment
-        assert "Main text." in main_fragment
+        assert md_content_soup.select_one("script[data-instant-preview-manifest]") is None
+        assert md_content_soup.select_one("[data-instant-preview-data]") is None
+        assert main_soup.select_one("script[data-instant-preview-manifest]") is None
+        assert main_soup.select_one("[data-instant-preview-data]") is None
         assert no_root_soup.select_one("script[data-instant-preview-manifest]") is None
         assert no_root_soup.select_one("[data-instant-preview-data]") is None
