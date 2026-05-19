@@ -234,9 +234,17 @@ class AIDocsPlugin(BasePlugin):
             log.error(f"[ai_docs] failed to load agent_skills_config: {e}")
             return {}
 
+    @staticmethod
+    def _normalize_repo(repo: str) -> str:
+        """Return the repo slug, or '' for absent/placeholder values."""
+        val = repo.strip("/")
+        return "" if val.lower() in ("", "none") else val
+
     def _build_raw_url(self, ref_code: dict, file_path: str) -> str:
         """Build a raw GitHub URL for direct AI fetching of a reference file."""
-        repo = ref_code.get("repo", "").strip("/")
+        repo = self._normalize_repo(ref_code.get("repo", ""))
+        if not repo:
+            return ""
         branch = ref_code.get("branch", "main")
         base_path = ref_code.get("base_path", "").strip("/")
         parts = [p for p in [base_path, file_path] if p]
@@ -353,7 +361,7 @@ class AIDocsPlugin(BasePlugin):
         if files:
             lines.append("## Reference Code Index")
             lines.append("")
-            repo_id = ref_code.get("repo", "").strip("/")
+            repo_id = self._normalize_repo(ref_code.get("repo", ""))
             repo_url = f"https://github.com/{repo_id}" if repo_id else ""
             if repo_url:
                 lines.append(
@@ -369,7 +377,8 @@ class AIDocsPlugin(BasePlugin):
                 path = file_entry["path"]
                 desc = file_entry.get("description", "")
                 raw_url = self._build_raw_url(ref_code, path)
-                lines.append(f"| `{path}` | {desc} | [Fetch]({raw_url}) |")
+                fetch_cell = f"[Fetch]({raw_url})" if raw_url else "N/A"
+                lines.append(f"| `{path}` | {desc} | {fetch_cell} |")
             lines.append("")
 
         examples = skill.get("examples", [])

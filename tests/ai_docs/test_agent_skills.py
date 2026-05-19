@@ -89,6 +89,14 @@ class TestBuildRawUrl:
         result = self.plugin._build_raw_url(ref_code, "main.ts")
         assert "refs/heads/develop" in result
 
+    def test_repo_none_returns_empty(self):
+        ref_code = {"repo": "none", "branch": "main", "base_path": "src"}
+        assert self.plugin._build_raw_url(ref_code, "app.py") == ""
+
+    def test_repo_empty_string_returns_empty(self):
+        ref_code = {"repo": "", "branch": "main", "base_path": "src"}
+        assert self.plugin._build_raw_url(ref_code, "app.py") == ""
+
 
 # ---------------------------------------------------------------------------
 # TestRenderSkillFrontmatter
@@ -399,6 +407,32 @@ class TestRenderSkillReferenceCodeIndex:
         task = _minimal_skill()
         content = self.plugin._render_skill(task)
         assert "## Reference Code Index" not in content
+
+    def test_repo_none_omits_attribution_and_uses_na_fetch(self):
+        task = _minimal_skill(
+            reference_code={
+                "repo": "none",
+                "branch": "main",
+                "base_path": "src",
+                "files": [{"path": "app.ts", "description": "App"}],
+            }
+        )
+        content = self.plugin._render_skill(task)
+        assert "These files are from" not in content
+        assert "| `app.ts` | App | N/A |" in content
+
+    def test_repo_empty_string_omits_attribution_and_uses_na_fetch(self):
+        task = _minimal_skill(
+            reference_code={
+                "repo": "",
+                "branch": "main",
+                "base_path": "src",
+                "files": [{"path": "app.ts", "description": "App"}],
+            }
+        )
+        content = self.plugin._render_skill(task)
+        assert "These files are from" not in content
+        assert "| `app.ts` | App | N/A |" in content
 
 
 # ---------------------------------------------------------------------------
