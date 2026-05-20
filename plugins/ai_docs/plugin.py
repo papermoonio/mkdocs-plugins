@@ -1306,7 +1306,7 @@ These AI-ready files do not include any persona or system prompts. They are pure
                         content = self._render_skill(skill)
                         output_path = skills_output_dir / f"{skill_id}.md"
                         output_path.write_text(content, encoding="utf-8")
-                        log.info(f"[ai_docs] wrote {output_path}")
+                        log.debug(f"[ai_docs] wrote {output_path}")
                         rendered_skills.append(skill)
                     except Exception as e:
                         log.error(
