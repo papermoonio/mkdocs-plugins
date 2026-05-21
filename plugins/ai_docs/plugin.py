@@ -349,8 +349,9 @@ class AIDocsPlugin(BasePlugin):
                 ref_file = step.get("reference_file")
                 if ref_file:
                     raw_url = self._build_raw_url(ref_code, ref_file)
-                    lines.append(f"**Reference file:** [`{ref_file}`]({raw_url})")
-                    lines.append("")
+                    if raw_url:
+                        lines.append(f"**Reference file:** [`{ref_file}`]({raw_url})")
+                        lines.append("")
 
                 expected = step.get("expected_output")
                 if expected:
