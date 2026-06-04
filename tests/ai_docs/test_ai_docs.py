@@ -252,6 +252,90 @@ class TestGetAllMarkdownFiles:
 
 
 # ===========================================================================
+# exclude_docs filtering
+# ===========================================================================
+
+class TestExcludeDocs:
+    """Tests that on_post_build skips files matching mkdocs.yml exclude_docs entirely."""
+
+    def _make_config(self, tmp_path, exclude_docs=""):
+        plugin = _make_plugin()
+        llms_config = {
+            "project": {"name": "TestProject", "docs_base_url": "https://docs.example.com/"},
+            "content": {
+                "exclusions": {"skip_basenames": [], "skip_paths": []},
+                "categories_info": {},
+            },
+            "outputs": {"public_root": "/ai/"},
+        }
+        config_file = tmp_path / "llms_config.json"
+        config_file.write_text(json.dumps(llms_config), encoding="utf-8")
+        mkdocs_yml = tmp_path / "mkdocs.yml"
+        mkdocs_yml.write_text("", encoding="utf-8")
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        site_dir = tmp_path / "site"
+        site_dir.mkdir()
+        config = {
+            "config_file_path": str(mkdocs_yml),
+            "site_url": "https://docs.example.com/",
+            "docs_dir": str(docs_dir),
+            "site_dir": str(site_dir),
+            "exclude_docs": exclude_docs,
+        }
+        return plugin, docs_dir, site_dir, config
+
+    def test_excluded_file_not_written(self, tmp_path):
+        """A file matching exclude_docs should produce no .md artifact in site_dir."""
+        plugin, docs_dir, site_dir, config = self._make_config(
+            tmp_path, exclude_docs="drafts/*"
+        )
+        (docs_dir / "drafts").mkdir()
+        (docs_dir / "drafts" / "wip.md").write_text(
+            "---\ntitle: WIP\n---\nDraft content.", encoding="utf-8"
+        )
+        (docs_dir / "guide.md").write_text(
+            "---\ntitle: Guide\n---\nGuide content.", encoding="utf-8"
+        )
+
+        plugin.on_post_build(config)
+
+        assert not (site_dir / "drafts" / "wip.md").exists()
+        assert (site_dir / "guide.md").exists()
+
+    def test_excluded_file_not_in_site_index(self, tmp_path):
+        """A file matching exclude_docs should not appear in the site-index.json."""
+        plugin, docs_dir, site_dir, config = self._make_config(
+            tmp_path, exclude_docs="internal.md"
+        )
+        (docs_dir / "internal.md").write_text(
+            "---\ntitle: Internal\n---\nInternal content.", encoding="utf-8"
+        )
+        (docs_dir / "public.md").write_text(
+            "---\ntitle: Public\n---\nPublic content.", encoding="utf-8"
+        )
+
+        plugin.on_post_build(config)
+
+        index_path = site_dir / "ai" / "site-index.json"
+        assert index_path.exists()
+        index_text = index_path.read_text(encoding="utf-8")
+        assert "Internal" not in index_text
+        assert "Public" in index_text
+
+    def test_no_exclude_docs_processes_all(self, tmp_path):
+        """When exclude_docs is empty, all markdown files are processed normally."""
+        plugin, docs_dir, site_dir, config = self._make_config(tmp_path, exclude_docs="")
+        (docs_dir / "page.md").write_text(
+            "---\ntitle: Page\n---\nContent.", encoding="utf-8"
+        )
+
+        plugin.on_post_build(config)
+
+        assert (site_dir / "page.md").exists()
+
+
+# ===========================================================================
 # Git timestamps (ported from test_resolve_md)
 # ===========================================================================
 
