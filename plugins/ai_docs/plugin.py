@@ -1169,12 +1169,14 @@ These AI-ready files do not include any persona or system prompts. They are pure
         skip_paths = exclusions.get("skip_paths", [])
         markdown_files = self.get_all_markdown_files(docs_dir)
 
-        exclude_docs_raw = config.get("exclude_docs") or ""
-        exclude_docs_spec = (
-            pathspec.PathSpec.from_lines("gitignore", exclude_docs_raw.splitlines())
-            if exclude_docs_raw.strip()
-            else None
-        )
+        exclude_docs_val = config.get("exclude_docs")
+        if hasattr(exclude_docs_val, "match_file"):
+            # MkDocs 1.5+ parses exclude_docs into a pathspec object before calling hooks
+            exclude_docs_spec = exclude_docs_val
+        elif exclude_docs_val:
+            exclude_docs_spec = pathspec.PathSpec.from_lines("gitignore", str(exclude_docs_val).splitlines())
+        else:
+            exclude_docs_spec = None
 
         log.info(f"[ai_docs] found {len(markdown_files)} markdown files")
 

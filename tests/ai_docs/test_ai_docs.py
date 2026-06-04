@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pathspec
 import yaml
 from bs4 import BeautifulSoup
 
@@ -258,7 +259,11 @@ class TestGetAllMarkdownFiles:
 class TestExcludeDocs:
     """Tests that on_post_build skips files matching mkdocs.yml exclude_docs entirely."""
 
-    def _make_config(self, tmp_path, exclude_docs=""):
+    def _make_spec(self, pattern):
+        """Build a pathspec object the same way MkDocs does at build time."""
+        return pathspec.PathSpec.from_lines("gitignore", [pattern]) if pattern else None
+
+    def _make_config(self, tmp_path, exclude_docs=None):
         plugin = _make_plugin()
         llms_config = {
             "project": {"name": "TestProject", "docs_base_url": "https://docs.example.com/"},
@@ -287,9 +292,8 @@ class TestExcludeDocs:
 
     def test_excluded_file_not_written(self, tmp_path):
         """A file matching exclude_docs should produce no .md artifact in site_dir."""
-        plugin, docs_dir, site_dir, config = self._make_config(
-            tmp_path, exclude_docs="drafts/*"
-        )
+        plugin, docs_dir, site_dir, config = self._make_config(tmp_path)
+        config["exclude_docs"] = self._make_spec("drafts/*")
         (docs_dir / "drafts").mkdir()
         (docs_dir / "drafts" / "wip.md").write_text(
             "---\ntitle: WIP\n---\nDraft content.", encoding="utf-8"
@@ -305,9 +309,8 @@ class TestExcludeDocs:
 
     def test_excluded_file_not_in_site_index(self, tmp_path):
         """A file matching exclude_docs should not appear in the site-index.json."""
-        plugin, docs_dir, site_dir, config = self._make_config(
-            tmp_path, exclude_docs="internal.md"
-        )
+        plugin, docs_dir, site_dir, config = self._make_config(tmp_path)
+        config["exclude_docs"] = self._make_spec("internal.md")
         (docs_dir / "internal.md").write_text(
             "---\ntitle: Internal\n---\nInternal content.", encoding="utf-8"
         )
@@ -324,8 +327,8 @@ class TestExcludeDocs:
         assert "Public" in index_text
 
     def test_no_exclude_docs_processes_all(self, tmp_path):
-        """When exclude_docs is empty, all markdown files are processed normally."""
-        plugin, docs_dir, site_dir, config = self._make_config(tmp_path, exclude_docs="")
+        """When exclude_docs is None, all markdown files are processed normally."""
+        plugin, docs_dir, site_dir, config = self._make_config(tmp_path, exclude_docs=None)
         (docs_dir / "page.md").write_text(
             "---\ntitle: Page\n---\nContent.", encoding="utf-8"
         )
