@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0a18
+
+### Bug Fixes
+
+#### `ai_docs` — Respect `exclude_docs` from `mkdocs.yml`
+
+Files matched by the `exclude_docs` pattern in `mkdocs.yml` are now skipped entirely during `on_post_build` — no `.md` artifact is written and they are not added to any AI index (`llms.txt`, `llms-full.jsonl`, `site-index.json`, category bundles).
+
+This is distinct from `exclusions.skip_basenames` / `exclusions.skip_paths` in `llms_config.json`, which apply to pages that *are* built by MkDocs: those pages still receive a `.md` companion artifact (required for the "Copy page" widget button) but are excluded from aggregate AI indexes.
+
+| Mechanism | Built by MkDocs? | `.md` artifact written? | Added to AI indexes? |
+|---|---|---|---|
+| `mkdocs.yml` `exclude_docs` | No | No | No |
+| `llms_config.json` `skip_basenames` / `skip_paths` | Yes | Yes | No |
+
 ## 0.1.0a16
 
 ### New Features

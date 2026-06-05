@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, Tag
 
+import pathspec
 import yaml
 from mkdocs.config.config_options import Type
 from mkdocs.config.defaults import MkDocsConfig
@@ -1152,12 +1153,30 @@ These AI-ready files do not include any persona or system prompts. They are pure
         ai_root.mkdir(parents=True, exist_ok=True)
         log.info(f"[ai_docs] writing resolved pages alongside HTML in {site_dir}")
 
-        # Loop through docs_dir MD files, filter for exclusions defined in llms_config.json
+        # Two independent exclusion mechanisms control how files are handled:
+        #
+        # 1. mkdocs.yml `exclude_docs` — files MkDocs itself does not build into HTML pages.
+        #    These are skipped entirely: no .md artifact is written and they are not indexed.
+        #
+        # 2. llms_config.json `content.exclusions` (skip_basenames / skip_paths) — files that
+        #    ARE built by MkDocs (they have an HTML page and the "Copy page" widget button).
+        #    Their .md companion artifact is written so the widget can serve it, but they are
+        #    excluded from aggregate AI indexes (llms.txt, llms-full.jsonl, site-index.json,
+        #    category bundles).
         content_cfg = self._llms_config.get("content", {})
         exclusions = content_cfg.get("exclusions", {})
         skip_basenames = exclusions.get("skip_basenames", [])
         skip_paths = exclusions.get("skip_paths", [])
         markdown_files = self.get_all_markdown_files(docs_dir)
+
+        exclude_docs_val = config.get("exclude_docs")
+        if hasattr(exclude_docs_val, "match_file"):
+            # MkDocs 1.5+ parses exclude_docs into a pathspec object before calling hooks
+            exclude_docs_spec = exclude_docs_val
+        elif exclude_docs_val:
+            exclude_docs_spec = pathspec.PathSpec.from_lines("gitignore", str(exclude_docs_val).splitlines())
+        else:
+            exclude_docs_spec = None
 
         log.info(f"[ai_docs] found {len(markdown_files)} markdown files")
 
@@ -1186,8 +1205,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
 
         ai_pages: list[dict] = []
 
-        # For each file in markdown_files
         for md_path in markdown_files:
+            src_path_posix = Path(md_path).relative_to(docs_dir).as_posix()
+            # exclude_docs: not a built page — skip entirely (no artifact, no index entry).
+            if exclude_docs_spec and exclude_docs_spec.match_file(src_path_posix):
+                log.debug(f"[ai_docs] {src_path_posix} excluded via mkdocs.yml exclude_docs")
+                continue
             text = Path(md_path).read_text(encoding="utf-8")
             # Separate, filter, map, and return desired front matter
             front_matter, body = self.split_front_matter(text)
@@ -1238,12 +1261,12 @@ These AI-ready files do not include any persona or system prompts. They are pure
                 route = route[: -len("/index")]
             self.write_ai_page(site_dir / (route + ".md"), header, cleaned_body)
             processed += 1
-            # Skip indexing for excluded pages — raw markdown is written above but
-            # these pages are excluded from llms files, category files, and site index.
+            # skip_basenames / skip_paths: built page with widget — .md artifact written above,
+            # but excluded from aggregate AI indexes (llms.txt, llms-full.jsonl, site-index,
+            # category bundles).
             basename = Path(md_path).name
-            src_path = Path(md_path).relative_to(docs_dir).as_posix()
-            if basename in skip_basenames or any(x in src_path for x in skip_paths):
-                log.debug(f"[ai_docs] {src_path} excluded from indexing (skip_basenames/skip_paths)")
+            if basename in skip_basenames or any(x in src_path_posix for x in skip_paths):
+                log.debug(f"[ai_docs] {src_path_posix} excluded from indexing (skip_basenames/skip_paths)")
                 continue
             # Creates list used later for category file creation
             cats = reduced_fm.get("categories") or []
@@ -1447,16 +1470,18 @@ These AI-ready files do not include any persona or system prompts. They are pure
         mtime = os.path.getmtime(file_path)
         return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
-    # File discovery and filtering per skip names/paths in llms_config.json
     @staticmethod
     def get_all_markdown_files(docs_dir):
         """Collect *.md|*.mdx, skipping dot-files and dot-directories.
 
-        The root index.md (homepage) is always excluded. Pages listed in
-        ``skip_basenames`` / ``skip_paths`` are still collected here so that
-        their raw markdown artifacts are written; they are excluded from
-        indexing (llms files, category files, site index, llms.txt) and from
-        widget injection.
+        The root index.md (homepage) is always excluded.
+
+        Note: this returns all files regardless of either exclusion mechanism.
+        Filtering happens in the on_post_build loop:
+        - mkdocs.yml ``exclude_docs`` matches are skipped entirely (no artifact written).
+        - llms_config.json ``skip_basenames`` / ``skip_paths`` matches have their .md
+          artifact written (needed for the "Copy page" widget) but are excluded from
+          aggregate AI indexes.
         """
         docs_dir_norm = os.path.normpath(str(docs_dir))
         results = []
